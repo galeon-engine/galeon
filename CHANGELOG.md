@@ -9,6 +9,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Fixed-step game loop with time accumulator (default 10 Hz for RTS)
+  ([#6](https://github.com/galeon-engine/galeon/issues/6))
+- RON data loading: `UnitTemplate`, `UnitStats`, `DataRegistry` for loading
+  game data from `.ron` files
+  ([#6](https://github.com/galeon-engine/galeon/issues/6))
 - Minimal ECS core: Entity (generational indices), SparseSet component storage,
   World (spawn/despawn/query), typed Resources, stage-based Schedule
   ([#3](https://github.com/galeon-engine/galeon/issues/3))

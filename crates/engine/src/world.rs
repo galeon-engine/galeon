@@ -98,6 +98,11 @@ impl World {
         self.resources.get_mut::<T>()
     }
 
+    /// Remove and return a resource. Panics if not present.
+    pub fn take_resource<T: 'static>(&mut self) -> T {
+        self.resources.take::<T>()
+    }
+
     /// Get a component for an entity.
     pub fn get<T: Component>(&self, entity: Entity) -> Option<&T> {
         if !self.entities.is_alive(entity) {
