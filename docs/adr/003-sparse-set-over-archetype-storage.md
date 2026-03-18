@@ -8,11 +8,11 @@
 
 ECS component storage has two main approaches:
 
-1. **Archetype-based** (Bevy, flecs) — entities with the same component set
+1. **Archetype-based** — entities with the same component set
    share a table. Adding/removing components moves the entity between tables.
    Excellent iteration speed for large entity counts.
 
-2. **Sparse set** (EnTT) — each component type has its own sparse array indexed
+2. **Sparse set** — each component type has its own sparse array indexed
    by entity ID. O(1) insert/get/remove. Dense array gives good iteration.
    Adding/removing components is a cheap swap-remove, no table migration.
 

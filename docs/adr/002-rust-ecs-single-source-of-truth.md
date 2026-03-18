@@ -23,7 +23,7 @@ clients. JavaScript floating-point behavior varies across engines. The game
 Three.js sync reads serialized snapshots. The ECS compiles to WASM for browser
 deployment and runs natively for server/headless modes.
 
-The ECS is owned by the engine (not a third-party library like Bevy ECS or hecs)
+The ECS is owned by the engine (not a third-party library)
 to control WASM bundle size and avoid tight coupling to external schedule models.
 
 ## Consequences

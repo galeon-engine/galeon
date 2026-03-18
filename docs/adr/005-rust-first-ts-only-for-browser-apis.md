@@ -6,9 +6,8 @@
 ## Context
 
 The engine was initially framed as "Rust + TypeScript" with TS handling runtime
-bindings, schedule runner, and editor shell. But the actual goal is closer to
-**Bevy with a Three.js renderer** — a Rust-native game engine that happens to
-render via Three.js in the browser.
+bindings, schedule runner, and editor shell. But the actual goal is a
+**Rust-native game engine** that happens to render via Three.js in the browser.
 
 TypeScript adds cognitive overhead, a second type system, a second build
 pipeline, and serialization boundaries at every Rust↔JS crossing. Every line
@@ -39,8 +38,7 @@ not own game state, run game logic, or make gameplay decisions.
 ## Consequences
 
 - **Easier:** Single language for all engine logic. Deterministic everywhere.
-  Smaller TS surface = fewer serialization boundaries. Closer to Bevy's
-  architecture (familiar to Rust gamedev community).
+  Smaller TS surface = fewer serialization boundaries.
 - **Harder:** More Rust/WASM code to compile. `wasm-bindgen` bindings for
   every JS API we need. Editor shell panels need Rust→JS data flow for
   reactive UI. Some browser APIs are awkward from WASM.
