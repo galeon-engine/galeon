@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+target/
+
+# Build
+dist/
+pkg/
+*.wasm
+
+# Environment
+.env
+.env.local
+.env*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Rust
+**/*.rs.bk
+*.pdb
+
+# Bun
+bun.lockb

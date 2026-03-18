@@ -1,0 +1,10 @@
+#!/bin/bash
+# Safety net: block commits with wrong email identity
+EXPECTED_EMAIL="dev@galeon.dev"
+CURRENT_EMAIL=$(git config user.email)
+
+if [ "$CURRENT_EMAIL" != "$EXPECTED_EMAIL" ]; then
+    echo "BLOCKED: commit email is '$CURRENT_EMAIL', expected '$EXPECTED_EMAIL'"
+    echo "Fix: git config --local user.email $EXPECTED_EMAIL"
+    exit 1
+fi
