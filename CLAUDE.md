@@ -1,6 +1,6 @@
 # Galeon Engine
 
-A Rust game engine with Three.js rendering. Deploys to web (WASM) and desktop (Electrobun). Dual licensed under AGPL-3.0 and a Commercial license with tiered royalties.
+A desktop Rust game engine with Three.js rendering. The engine runs on Electrobun. Games built with it target desktop (Electrobun) and web (WASM). Dual licensed under AGPL-3.0 and a Commercial license with tiered royalties.
 
 ## Architecture
 
@@ -40,11 +40,15 @@ TS packages are thin bridges, not logic owners.
 @galeon/shell (editor UI — Solid.js panels around viewport)
 ```
 
-### Desktop + Browser
+### The Engine Is a Desktop Application
 
-- **Desktop**: Electrobun — web app shell with `<electrobun-wgpu>` viewport panel (native GPU rendering inside a DOM element). CSS Grid panels around the viewport.
-- **Browser**: Same web app, `<canvas>` replaces `<electrobun-wgpu>`. Zero architectural divergence.
-- **Tauri**: Supported as a fallback deployment target, not the primary.
+The engine (editor + runtime) runs on **Electrobun** — a desktop app with `<electrobun-wgpu>` viewport panel for native GPU rendering inside a DOM element. CSS Grid panels surround the viewport.
+
+### Game Deployment Targets
+
+Games built with Galeon can target:
+- **Desktop**: Electrobun (same stack as the engine itself)
+- **Web**: WASM + Three.js in browser (`<canvas>` replaces `<electrobun-wgpu>`)
 
 ### Editor Shell (Godot-style)
 
