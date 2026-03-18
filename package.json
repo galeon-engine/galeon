@@ -1,0 +1,14 @@
+{
+  "name": "galeon",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "check": "tsc --build",
+    "build": "tsc --build"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5"
+  }
+}

@@ -26,5 +26,8 @@ Thumbs.db
 **/*.rs.bk
 *.pdb
 
+# TypeScript
+*.tsbuildinfo
+
 # Bun
 bun.lockb

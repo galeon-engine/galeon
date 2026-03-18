@@ -1,0 +1,8 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/runtime" },
+    { "path": "packages/engine-ts" },
+    { "path": "packages/shell" }
+  ]
+}
