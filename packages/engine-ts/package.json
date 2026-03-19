@@ -1,0 +1,16 @@
+{
+  "name": "@galeon/engine-ts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "module": "src/index.ts",
+  "dependencies": {
+    "@galeon/runtime": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}

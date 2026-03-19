@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2024"
+license = "AGPL-3.0-only OR Commercial"
+repository = "https://github.com/galeon-engine/galeon"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+ron = "0.12"
+wasm-bindgen = "0.2"
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }
