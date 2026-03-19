@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
+use crate::function_system::{IntoSystem, System};
 use crate::world::World;
 
-/// A system is a plain function that takes `&mut World`.
 pub type SystemFn = fn(&mut World);
 
-#[allow(dead_code)]
 struct SystemEntry {
-    name: &'static str,
     stage: &'static str,
-    func: SystemFn,
+    system: Box<dyn System>,
 }
 
 /// Stage-based system scheduler.
@@ -30,25 +28,28 @@ impl Schedule {
     }
 
     /// Add a system to a named stage.
-    pub fn add_system(
+    pub fn add_system<P>(
         &mut self,
         stage: &'static str,
         name: &'static str,
-        func: SystemFn,
+        system: impl IntoSystem<P>,
     ) -> &mut Self {
         if !self.stage_order.contains(&stage) {
             self.stage_order.push(stage);
         }
-        self.systems.push(SystemEntry { name, stage, func });
+        self.systems.push(SystemEntry {
+            stage,
+            system: system.into_system(name),
+        });
         self
     }
 
     /// Run all systems in stage order.
-    pub fn run(&self, world: &mut World) {
+    pub fn run(&mut self, world: &mut World) {
         for &stage in &self.stage_order {
-            for entry in &self.systems {
+            for entry in &mut self.systems {
                 if entry.stage == stage {
-                    (entry.func)(world);
+                    entry.system.run(world);
                 }
             }
         }
@@ -99,8 +100,8 @@ mod tests {
 
         let mut schedule = Schedule::new();
         // Add increment to "simulate", double to "post".
-        schedule.add_system("simulate", "increment", increment_system);
-        schedule.add_system("post", "double", double_system);
+        schedule.add_system::<()>("simulate", "increment", increment_system as fn(&mut World));
+        schedule.add_system::<()>("post", "double", double_system as fn(&mut World));
 
         schedule.run(&mut world);
 
@@ -120,8 +121,8 @@ mod tests {
 
         let mut schedule = Schedule::new();
         // Both in same stage: increment runs first, then double.
-        schedule.add_system("simulate", "increment", increment_system);
-        schedule.add_system("simulate", "double", double_system);
+        schedule.add_system::<()>("simulate", "increment", increment_system as fn(&mut World));
+        schedule.add_system::<()>("simulate", "double", double_system as fn(&mut World));
 
         schedule.run(&mut world);
 
@@ -141,8 +142,8 @@ mod tests {
 
         let mut schedule = Schedule::new();
         // Reverse: double first, then increment.
-        schedule.add_system("pre", "double", double_system);
-        schedule.add_system("simulate", "increment", increment_system);
+        schedule.add_system::<()>("pre", "double", double_system as fn(&mut World));
+        schedule.add_system::<()>("simulate", "increment", increment_system as fn(&mut World));
 
         schedule.run(&mut world);
 
@@ -158,7 +159,42 @@ mod tests {
     #[test]
     fn empty_schedule_is_safe() {
         let mut world = World::new();
-        let schedule = Schedule::new();
+        let mut schedule = Schedule::new();
         schedule.run(&mut world); // no-op
+    }
+
+    use crate::system_param::{QueryMut, Res};
+
+    struct DeltaTime(f64);
+
+    fn param_increment(mut counters: QueryMut<'_, Counter>, dt: Res<'_, DeltaTime>) {
+        for (_, c) in counters.iter_mut() {
+            c.0 += dt.0 as u32;
+        }
+    }
+
+    #[test]
+    fn schedule_runs_parameterized_system() {
+        let mut world = World::new();
+        world.spawn((Counter(0),));
+        world.insert_resource(DeltaTime(5.0));
+        let mut schedule = Schedule::new();
+        schedule.add_system::<(QueryMut<'_, Counter>, Res<'_, DeltaTime>)>("simulate", "param_increment", param_increment);
+        schedule.run(&mut world);
+        let val: Vec<u32> = world.query::<Counter>().into_iter().map(|(_, c)| c.0).collect();
+        assert_eq!(val, vec![5]);
+    }
+
+    #[test]
+    fn schedule_mixes_legacy_and_param_systems() {
+        let mut world = World::new();
+        world.spawn((Counter(0),));
+        world.insert_resource(DeltaTime(10.0));
+        let mut schedule = Schedule::new();
+        schedule.add_system::<()>("pre", "legacy", increment_system as fn(&mut World));
+        schedule.add_system::<(QueryMut<'_, Counter>, Res<'_, DeltaTime>)>("simulate", "param", param_increment);
+        schedule.run(&mut world);
+        let val: Vec<u32> = world.query::<Counter>().into_iter().map(|(_, c)| c.0).collect();
+        assert_eq!(val, vec![11]);
     }
 }
