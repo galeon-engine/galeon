@@ -1,6 +1,23 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
+#![allow(private_interfaces)]
+
+// Allow derive macros to reference `galeon_engine::component::Component`
+// when used within this crate's own tests.
+extern crate self as galeon_engine;
+
+pub mod component;
+pub mod entity;
+mod resource;
+pub mod schedule;
+pub mod world;
+
+// Re-exports for ergonomic API.
+pub use component::Component;
+pub use entity::Entity;
 pub use galeon_engine_macros::Component;
+pub use schedule::Schedule;
+pub use world::World;
 
 /// Returns the engine version string.
 pub fn engine_version() -> &'static str {
