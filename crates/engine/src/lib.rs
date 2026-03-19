@@ -14,6 +14,7 @@ pub mod game_loop;
 pub mod render;
 mod resource;
 pub mod schedule;
+pub mod tick;
 pub mod world;
 
 // Re-exports for ergonomic API.

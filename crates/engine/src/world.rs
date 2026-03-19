@@ -45,6 +45,7 @@ pub struct World {
     entities: EntityAllocator,
     components: ComponentStorage,
     resources: Resources,
+    tick: u64,
 }
 
 impl World {
@@ -54,7 +55,18 @@ impl World {
             entities: EntityAllocator::new(),
             components: ComponentStorage::new(),
             resources: Resources::new(),
+            tick: 1,
         }
+    }
+
+    /// Returns the current ECS tick. Starts at 1, advances each schedule run.
+    pub fn current_tick(&self) -> u64 {
+        self.tick
+    }
+
+    /// Advance the tick counter. Called at the start of each schedule run.
+    pub(crate) fn advance_tick(&mut self) {
+        self.tick += 1;
     }
 
     /// Spawn an entity with the given component bundle.

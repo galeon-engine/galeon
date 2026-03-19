@@ -45,6 +45,7 @@ impl Schedule {
 
     /// Run all systems in stage order.
     pub fn run(&self, world: &mut World) {
+        world.advance_tick();
         for &stage in &self.stage_order {
             for entry in &self.systems {
                 if entry.stage == stage {
