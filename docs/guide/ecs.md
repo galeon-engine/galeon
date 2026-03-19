@@ -155,3 +155,63 @@ and downcast on every access.
 
 Currently all components use typed sparse sets. Cold/sparse-side storage for
 editor metadata is a planned future addition.
+
+## Change Detection
+
+Galeon tracks when each component instance was added and last modified using
+a tick-based system. This powers efficient queries and incremental extraction.
+
+### Tick System
+
+The world maintains a monotonically increasing tick counter that advances at
+the start of each schedule run. Components record the tick at which they were
+added and last mutated.
+
+### Querying Changes
+
+Query only components that changed since a given tick:
+
+```rust
+// Get all positions changed since tick 5
+for (entity, pos) in world.query_changed::<Position>(5) {
+    println!("Entity moved to ({}, {})", pos.x, pos.y);
+}
+
+// Get all newly added positions since tick 5
+for (entity, pos) in world.query_added::<Position>(5) {
+    println!("New entity at ({}, {})", pos.x, pos.y);
+}
+
+// Use since: 0 to get everything (sentinel)
+let all: Vec<_> = world.query_changed::<Position>(0);
+```
+
+### Tracking Your Own "Last Seen" Tick
+
+Systems that need incremental processing should store their own tick:
+
+```rust
+struct MySystemState {
+    last_tick: u64,
+}
+
+fn my_system(world: &mut World) {
+    let state = world.resource_mut::<MySystemState>();
+    let since = state.last_tick;
+    state.last_tick = world.current_tick();
+
+    for (entity, pos) in world.query_changed::<Position>(since) {
+        // Process only changed entities
+    }
+}
+```
+
+### What Counts as a Change
+
+| Operation | Updates `added_tick` | Updates `changed_tick` |
+|-----------|---------------------|----------------------|
+| `spawn()` with component | Yes | Yes |
+| `get_mut()` | No | Yes |
+| `query_mut()` | No | Yes (all in set) |
+| `query2_mut()` | No | Yes (all in both sets) |
+| Read-only `get()` / `query()` | No | No |

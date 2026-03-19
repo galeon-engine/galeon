@@ -9,6 +9,20 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Per-component change detection with tick tracking
+  ([#14](https://github.com/galeon-engine/galeon/issues/14))
+- `World::query_changed::<T>(since)` — query only components modified after a tick
+  ([#14](https://github.com/galeon-engine/galeon/issues/14))
+- `World::query_added::<T>(since)` — query only components added after a tick
+  ([#14](https://github.com/galeon-engine/galeon/issues/14))
+- `World::current_tick()` — read the current ECS tick
+  ([#14](https://github.com/galeon-engine/galeon/issues/14))
+- `World::component_added_tick::<T>(entity)` — inspect when a component was added
+  ([#14](https://github.com/galeon-engine/galeon/issues/14))
+- `World::component_changed_tick::<T>(entity)` — inspect when a component last changed
+  ([#14](https://github.com/galeon-engine/galeon/issues/14))
+- Incremental extraction with change flags in `FramePacket`
+  ([#14](https://github.com/galeon-engine/galeon/issues/14))
 - Render extraction pipeline: `Transform`, `Visibility`, `MeshHandle`,
   `MaterialHandle` components with flat array layout for typed-buffer transport
   ([#15](https://github.com/galeon-engine/galeon/issues/15))
