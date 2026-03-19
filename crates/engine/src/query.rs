@@ -240,10 +240,11 @@ impl<'w, A: Component, B: Component> Iterator for Query2MutIter<'w, A, B> {
                 let Some(b) = (*self.set_b).get_mut(idx) else {
                     continue;
                 };
+                let Some(entity) = self.entities.entity_at(idx) else {
+                    continue;
+                };
                 let a = &mut *self.data_a.add(pos);
-                if let Some(entity) = self.entities.entity_at(idx) {
-                    return Some((entity, a, b));
-                }
+                return Some((entity, a, b));
             }
         }
         None
@@ -382,14 +383,16 @@ impl<'w, A: Component, B: Component, C: Component> Iterator for Query3MutIter<'w
             // SAFETY: Sets A, B, C are distinct (TypeId assertion in
             // typed_sets_three_mut). Each position yielded exactly once.
             unsafe {
-                let (Some(b), Some(c)) = ((*self.set_b).get_mut(idx), (*self.set_c).get_mut(idx))
+                let (Some(b), Some(c)) =
+                    ((*self.set_b).get_mut(idx), (*self.set_c).get_mut(idx))
                 else {
                     continue;
                 };
+                let Some(entity) = self.entities.entity_at(idx) else {
+                    continue;
+                };
                 let a = &mut *self.data_a.add(pos);
-                if let Some(entity) = self.entities.entity_at(idx) {
-                    return Some((entity, a, b, c));
-                }
+                return Some((entity, a, b, c));
             }
         }
         None

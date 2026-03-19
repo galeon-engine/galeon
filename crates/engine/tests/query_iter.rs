@@ -39,6 +39,20 @@ fn query_iter_empty_world() {
 }
 
 #[test]
+fn query_iter_skips_despawned_entities() {
+    let mut world = World::new();
+    let e1 = world.spawn((Pos { x: 1.0, y: 0.0 },));
+    let _e2 = world.spawn((Pos { x: 2.0, y: 0.0 },));
+    world.despawn(e1);
+
+    // e1 was despawned but its data may still be in the dense array.
+    // The iterator should skip it via entity_at() check.
+    let results: Vec<_> = world.query::<Pos>().collect();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].1.x, 2.0);
+}
+
+#[test]
 fn query_iter_entity_is_copy_not_ref() {
     let mut world = World::new();
     let e = world.spawn((Pos { x: 5.0, y: 0.0 },));
