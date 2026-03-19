@@ -9,13 +9,13 @@ use crate::resource::Resources;
 /// Implemented for tuples of components up to 8 elements.
 pub trait Bundle {
     #[doc(hidden)]
-    fn insert_into(self, storage: &mut ComponentStorage, entity_index: u32);
+    fn insert_into(self, storage: &mut ComponentStorage, entity_index: u32, tick: u64);
 }
 
 // Implement Bundle for single component.
 impl<A: Component> Bundle for (A,) {
-    fn insert_into(self, storage: &mut ComponentStorage, entity_index: u32) {
-        storage.typed_set_mut::<A>().insert(entity_index, self.0);
+    fn insert_into(self, storage: &mut ComponentStorage, entity_index: u32, tick: u64) {
+        storage.typed_set_mut::<A>().insert(entity_index, self.0, tick);
     }
 }
 
@@ -24,9 +24,9 @@ macro_rules! impl_bundle {
     ($($t:ident),+) => {
         #[allow(non_snake_case)]
         impl<$($t: Component),+> Bundle for ($($t,)+) {
-            fn insert_into(self, storage: &mut ComponentStorage, entity_index: u32) {
+            fn insert_into(self, storage: &mut ComponentStorage, entity_index: u32, tick: u64) {
                 let ($($t,)+) = self;
-                $(storage.typed_set_mut::<$t>().insert(entity_index, $t);)+
+                $(storage.typed_set_mut::<$t>().insert(entity_index, $t, tick);)+
             }
         }
     };
@@ -72,7 +72,8 @@ impl World {
     /// Spawn an entity with the given component bundle.
     pub fn spawn<B: Bundle>(&mut self, bundle: B) -> Entity {
         let entity = self.entities.alloc();
-        bundle.insert_into(&mut self.components, entity.index);
+        let tick = self.tick;
+        bundle.insert_into(&mut self.components, entity.index, tick);
         entity
     }
 
@@ -129,7 +130,30 @@ impl World {
         if !self.entities.is_alive(entity) {
             return None;
         }
-        self.components.typed_set_mut::<T>().get_mut(entity.index)
+        let tick = self.tick;
+        self.components
+            .typed_set_mut::<T>()
+            .get_mut(entity.index, tick)
+    }
+
+    /// Returns the tick at which a component was added to an entity.
+    pub fn component_added_tick<T: Component>(&self, entity: Entity) -> Option<u64> {
+        if !self.entities.is_alive(entity) {
+            return None;
+        }
+        self.components
+            .typed_set::<T>()?
+            .added_tick(entity.index)
+    }
+
+    /// Returns the tick at which a component was last changed on an entity.
+    pub fn component_changed_tick<T: Component>(&self, entity: Entity) -> Option<u64> {
+        if !self.entities.is_alive(entity) {
+            return None;
+        }
+        self.components
+            .typed_set::<T>()?
+            .changed_tick(entity.index)
     }
 
     /// Query all entities that have component T (immutable).
@@ -148,9 +172,13 @@ impl World {
     ///
     /// Returns a `Vec` since we can't return iterators over `&mut` with
     /// the current storage model without GATs or complex lifetime tricks.
+    ///
+    /// Marks ALL components in the set as changed at the current tick.
     pub fn query_mut<T: Component>(&mut self) -> Vec<(Entity, &mut T)> {
+        let tick = self.tick;
         let entities = &self.entities;
         let set = self.components.typed_set_mut::<T>();
+        set.mark_all_changed(tick);
         set.iter_mut()
             .filter_map(|(idx, val)| Some((entities.entity_at(idx)?, val)))
             .collect()
@@ -177,22 +205,31 @@ impl World {
 
     /// Query all entities with two components (both mutable).
     pub fn query2_mut<A: Component, B: Component>(&mut self) -> Vec<(Entity, &mut A, &mut B)> {
-        let entities = &self.entities;
+        let tick = self.tick;
         let (set_a, set_b) = self.components.typed_sets_two_mut::<A, B>();
         let (Some(sa), Some(sb)) = (set_a, set_b) else {
             return Vec::new();
         };
 
-        sa.iter_mut()
-            .filter_map(|(idx, a)| {
-                // SAFETY: sa and sb are distinct typed sparse sets (enforced by
-                // typed_sets_two_mut's TypeId assertion). Each entity index maps
-                // to a unique dense slot, so repeated get_mut calls never alias.
-                let sb_ptr = sb as *mut TypedSparseSet<B>;
-                let b = unsafe { (*sb_ptr).get_mut(idx)? };
-                Some((entities.entity_at(idx)?, a, b))
-            })
-            .collect()
+        sa.mark_all_changed(tick);
+        // sb entries are marked individually via get_mut(idx, tick) below.
+
+        let entities = &self.entities;
+        let mut result = Vec::new();
+        for (idx, a) in sa.iter_mut() {
+            let Some(entity) = entities.entity_at(idx) else {
+                continue;
+            };
+            // SAFETY: sa and sb are distinct typed sparse sets backed by
+            // different TypeIds (enforced by typed_sets_two_mut's TypeId
+            // assertion). Each entity index maps to a unique dense slot, so
+            // repeated get_mut calls never alias sa's data.
+            let sb_ptr: *mut TypedSparseSet<B> = sb;
+            if let Some(b) = unsafe { &mut *sb_ptr }.get_mut(idx, tick) {
+                result.push((entity, a, b));
+            }
+        }
+        result
     }
 
     /// Returns the number of alive entities.
