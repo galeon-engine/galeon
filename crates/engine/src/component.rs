@@ -133,6 +133,21 @@ impl<T> TypedSparseSet<T> {
             .zip(self.data.iter_mut())
             .map(|(&entity_idx, data)| (entity_idx, data))
     }
+
+    /// Returns immutable slices of (entity_indices, component_data).
+    ///
+    /// Used by lazy query iterators to avoid re-borrowing the whole set.
+    pub(crate) fn dense_data(&self) -> (&[u32], &[T]) {
+        (&self.dense, &self.data)
+    }
+
+    /// Returns the dense slice immutably and the data slice mutably.
+    ///
+    /// Needed by `QueryIterMut` to iterate entity indices while yielding
+    /// `&mut T` references without reborrowing `&mut self`.
+    pub(crate) fn dense_data_mut(&mut self) -> (&[u32], &mut [T]) {
+        (&self.dense, &mut self.data)
+    }
 }
 
 // =============================================================================
@@ -296,5 +311,19 @@ mod tests {
         assert_eq!(items.len(), 2);
         assert!(items.contains(&(3, 30)));
         assert!(items.contains(&(7, 70)));
+    }
+
+    #[test]
+    fn typed_sparse_set_dense_data_slices() {
+        let mut set = TypedSparseSet::new();
+        set.insert(3, 30_i32);
+        set.insert(7, 70_i32);
+
+        let (dense, data) = set.dense_data();
+        assert_eq!(dense.len(), 2);
+        assert_eq!(data.len(), 2);
+        // Dense contains entity indices, data contains values (parallel).
+        assert!(dense.contains(&3));
+        assert!(dense.contains(&7));
     }
 }
