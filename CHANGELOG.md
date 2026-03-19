@@ -7,6 +7,28 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Render extraction pipeline: `Transform`, `Visibility`, `MeshHandle`,
+  `MaterialHandle` components with flat array layout for typed-buffer transport
+  ([#15](https://github.com/galeon-engine/galeon/issues/15))
+- `FramePacket` struct-of-arrays for WASM render hot path (10-float transform
+  stride, parallel entity/visibility/mesh/material arrays)
+  ([#15](https://github.com/galeon-engine/galeon/issues/15))
+- `extract_frame(&World)` extraction system with two-pass borrow-split pattern
+  ([#15](https://github.com/galeon-engine/galeon/issues/15))
+- `WasmEngine` (tick + extract) and `WasmFramePacket` (getter-based flat array
+  access) WASM bindings
+  ([#15](https://github.com/galeon-engine/galeon/issues/15))
+- `RendererCache` in `@galeon/engine-ts` — Three.js scene graph sync from
+  extraction tables with create/update/remove lifecycle
+  ([#15](https://github.com/galeon-engine/galeon/issues/15))
+- `DebugSnapshot` tooling path — JSON serialisation of render-facing world
+  state, separate from the hot render path
+  ([#15](https://github.com/galeon-engine/galeon/issues/15))
+- `docs/guide/three-sync.md` documenting the render extraction hot-path
+  contract ([#15](https://github.com/galeon-engine/galeon/issues/15))
+
 ### Changed
 
 - Component storage now uses typed sparse sets (`Vec<T>`) instead of

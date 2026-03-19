@@ -11,6 +11,7 @@ pub mod data;
 pub mod engine;
 pub mod entity;
 pub mod game_loop;
+pub mod render;
 mod resource;
 pub mod schedule;
 pub mod world;
@@ -22,6 +23,7 @@ pub use engine::{Engine, Plugin};
 pub use entity::Entity;
 pub use galeon_engine_macros::Component;
 pub use game_loop::FixedTimestep;
+pub use render::{MaterialHandle, MeshHandle, Transform, Visibility};
 pub use schedule::Schedule;
 pub use world::World;
 
