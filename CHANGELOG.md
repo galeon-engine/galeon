@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Component storage now uses typed sparse sets (`Vec<T>`) instead of
+  type-erased `Vec<Box<dyn Any>>`, eliminating per-component heap allocation
+  and per-entity runtime downcasts on all hot paths
+  ([#12](https://github.com/galeon-engine/galeon/issues/12))
+
 ### Added
 
 - `Engine` struct owning `World` + `Schedule` with a fluent builder API
