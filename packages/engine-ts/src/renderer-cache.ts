@@ -133,8 +133,13 @@ export class RendererCache {
     return this.objects.size;
   }
 
-  /** Get the Three.js object for an entity, if it exists. */
-  getObject(entityId: number): THREE.Mesh | undefined {
+  /**
+   * Get the Three.js object for an entity, if it exists and the generation
+   * matches. Returns `undefined` if the entity was despawned and the slot
+   * reused — preserving generational safety through the public API.
+   */
+  getObject(entityId: number, generation: number): THREE.Mesh | undefined {
+    if (this.generations.get(entityId) !== generation) return undefined;
     return this.objects.get(entityId);
   }
 
