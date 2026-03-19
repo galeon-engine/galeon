@@ -2,9 +2,13 @@
 
 mod extract;
 mod frame_packet;
+mod snapshot;
 
 pub use extract::extract_frame;
 pub use frame_packet::{FramePacket, TRANSFORM_STRIDE};
+pub use snapshot::{
+    DebugSnapshot, EntitySnapshot, TransformSnapshot, extract_debug_snapshot, snapshot_to_json,
+};
 
 use galeon_engine::Engine;
 use wasm_bindgen::prelude::*;
@@ -49,6 +53,14 @@ impl WasmEngine {
     pub fn extract_frame(&self) -> WasmFramePacket {
         let packet = extract_frame(self.engine.world());
         WasmFramePacket { inner: packet }
+    }
+
+    /// Extract a debug snapshot as a JSON string for tooling.
+    ///
+    /// This is the tooling path — human-readable, NOT used for rendering.
+    pub fn debug_snapshot(&self) -> String {
+        let snap = extract_debug_snapshot(self.engine.world());
+        snapshot_to_json(&snap)
     }
 }
 

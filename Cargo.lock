@@ -81,6 +81,8 @@ name = "galeon-engine-three-sync"
 version = "0.1.0"
 dependencies = [
  "galeon-engine",
+ "serde",
+ "serde_json",
  "wasm-bindgen",
 ]
 
