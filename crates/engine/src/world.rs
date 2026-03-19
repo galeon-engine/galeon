@@ -98,6 +98,11 @@ impl World {
         self.resources.get_mut::<T>()
     }
 
+    /// Try to get a reference to a resource. Returns `None` if not present.
+    pub fn try_resource<T: 'static>(&self) -> Option<&T> {
+        self.resources.try_get::<T>()
+    }
+
     /// Remove and return a resource. Panics if not present.
     pub fn take_resource<T: 'static>(&mut self) -> T {
         self.resources.take::<T>()

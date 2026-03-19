@@ -9,6 +9,17 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `Engine` struct owning `World` + `Schedule` with a fluent builder API
+  (`add_system`, `add_plugin`, `insert_resource`) and `tick`/`run_once`
+  execution methods ([#8](https://github.com/galeon-engine/galeon/issues/8))
+- `Plugin` trait (`fn build(&self, engine: &mut Engine)`) for bundling systems
+  and resources into reusable units
+  ([#8](https://github.com/galeon-engine/galeon/issues/8))
+- `World::try_resource<T>()` — non-panicking resource probe returning
+  `Option<&T>`
+  ([#8](https://github.com/galeon-engine/galeon/issues/8))
+- `docs/guide/plugins.md` — guide covering the builder API and plugin system
+  ([#8](https://github.com/galeon-engine/galeon/issues/8))
 - Fixed-step game loop with time accumulator (default 10 Hz for RTS)
   ([#6](https://github.com/galeon-engine/galeon/issues/6))
 - RON data loading: `UnitTemplate`, `UnitStats`, `DataRegistry` for loading
