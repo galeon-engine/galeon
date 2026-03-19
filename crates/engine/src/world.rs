@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
-use std::any::TypeId;
-
-use crate::component::{Component, ComponentStorage, SparseSet};
+use crate::component::{Component, ComponentStorage, TypedSparseSet};
 use crate::entity::{Entity, EntityAllocator};
 use crate::resource::Resources;
 
@@ -17,9 +15,7 @@ pub trait Bundle {
 // Implement Bundle for single component.
 impl<A: Component> Bundle for (A,) {
     fn insert_into(self, storage: &mut ComponentStorage, entity_index: u32) {
-        storage
-            .set_mut::<A>()
-            .insert(entity_index, Box::new(self.0));
+        storage.typed_set_mut::<A>().insert(entity_index, self.0);
     }
 }
 
@@ -30,7 +26,7 @@ macro_rules! impl_bundle {
         impl<$($t: Component),+> Bundle for ($($t,)+) {
             fn insert_into(self, storage: &mut ComponentStorage, entity_index: u32) {
                 let ($($t,)+) = self;
-                $(storage.set_mut::<$t>().insert(entity_index, Box::new($t));)+
+                $(storage.typed_set_mut::<$t>().insert(entity_index, $t);)+
             }
         }
     };
@@ -113,10 +109,7 @@ impl World {
         if !self.entities.is_alive(entity) {
             return None;
         }
-        self.components
-            .set::<T>()
-            .and_then(|s| s.get(entity.index))
-            .and_then(|v| v.downcast_ref::<T>())
+        self.components.typed_set::<T>()?.get(entity.index)
     }
 
     /// Get a mutable component for an entity.
@@ -124,56 +117,47 @@ impl World {
         if !self.entities.is_alive(entity) {
             return None;
         }
-        self.components
-            .set_mut::<T>()
-            .get_mut(entity.index)
-            .and_then(|v| v.downcast_mut::<T>())
+        self.components.typed_set_mut::<T>().get_mut(entity.index)
     }
 
     /// Query all entities that have component T (immutable).
     ///
     /// Returns an iterator of `(Entity, &T)` pairs.
     pub fn query<T: Component>(&self) -> Vec<(Entity, &T)> {
-        let Some(set) = self.components.set::<T>() else {
+        let Some(set) = self.components.typed_set::<T>() else {
             return Vec::new();
         };
         set.iter()
-            .filter_map(|(idx, any)| {
-                let val = any.downcast_ref::<T>()?;
-                Some((self.entities.entity_at(idx)?, val))
-            })
+            .filter_map(|(idx, val)| Some((self.entities.entity_at(idx)?, val)))
             .collect()
     }
 
     /// Query all entities that have component T (mutable).
     ///
     /// Returns a `Vec` since we can't return iterators over `&mut` with
-    /// the current type-erased storage without GATs or complex lifetime tricks.
+    /// the current storage model without GATs or complex lifetime tricks.
     pub fn query_mut<T: Component>(&mut self) -> Vec<(Entity, &mut T)> {
         let entities = &self.entities;
-        let set = self.components.set_mut::<T>();
+        let set = self.components.typed_set_mut::<T>();
         set.iter_mut()
-            .filter_map(|(idx, any)| {
-                let val = any.downcast_mut::<T>()?;
-                Some((entities.entity_at(idx)?, val))
-            })
+            .filter_map(|(idx, val)| Some((entities.entity_at(idx)?, val)))
             .collect()
     }
 
     /// Query all entities with two components (both immutable).
     pub fn query2<A: Component, B: Component>(&self) -> Vec<(Entity, &A, &B)> {
-        let (Some(set_a), Some(set_b)) = (self.components.set::<A>(), self.components.set::<B>())
-        else {
+        let (Some(set_a), Some(set_b)) = (
+            self.components.typed_set::<A>(),
+            self.components.typed_set::<B>(),
+        ) else {
             return Vec::new();
         };
 
         // Iterate the first set and probe the second.
         set_a
             .iter()
-            .filter_map(|(idx, a_any)| {
-                let b_any = set_b.get(idx)?;
-                let a = a_any.downcast_ref::<A>()?;
-                let b = b_any.downcast_ref::<B>()?;
+            .filter_map(|(idx, a)| {
+                let b = set_b.get(idx)?;
                 Some((self.entities.entity_at(idx)?, a, b))
             })
             .collect()
@@ -182,20 +166,18 @@ impl World {
     /// Query all entities with two components (both mutable).
     pub fn query2_mut<A: Component, B: Component>(&mut self) -> Vec<(Entity, &mut A, &mut B)> {
         let entities = &self.entities;
-        let (set_a, set_b) = self
-            .components
-            .sets_two_mut(TypeId::of::<A>(), TypeId::of::<B>());
+        let (set_a, set_b) = self.components.typed_sets_two_mut::<A, B>();
         let (Some(sa), Some(sb)) = (set_a, set_b) else {
             return Vec::new();
         };
 
         sa.iter_mut()
-            .filter_map(|(idx, a_any)| {
-                // SAFETY: sa and sb are distinct sparse sets (enforced by sets_two_mut).
-                let sb_ptr = sb as *mut SparseSet;
-                let b_any = unsafe { (*sb_ptr).get_mut(idx)? };
-                let a = a_any.downcast_mut::<A>()?;
-                let b = b_any.downcast_mut::<B>()?;
+            .filter_map(|(idx, a)| {
+                // SAFETY: sa and sb are distinct typed sparse sets (enforced by
+                // typed_sets_two_mut's TypeId assertion). Each entity index maps
+                // to a unique dense slot, so repeated get_mut calls never alias.
+                let sb_ptr = sb as *mut TypedSparseSet<B>;
+                let b = unsafe { (*sb_ptr).get_mut(idx)? };
                 Some((entities.entity_at(idx)?, a, b))
             })
             .collect()

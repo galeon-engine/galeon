@@ -130,3 +130,28 @@ schedule.run(&mut world);
 
 The three-stage model (`input` → `simulate` → `sync`) ensures input is
 processed before simulation, and simulation completes before rendering sync.
+
+## Storage Internals
+
+Components are stored in **typed sparse sets** — each component type gets its
+own `Vec<T>` (no boxing, no `dyn Any`). This means:
+
+- **Zero heap allocation per component** — data lives in a contiguous `Vec<T>`
+- **Zero runtime downcasts on hot paths** — queries iterate typed data directly
+- **O(1) insert/get/remove** — sparse set semantics
+- **Dense iteration** — ideal for systems that touch many entities
+
+The type erasure needed for the component registry happens once per query call
+(at the storage level), not once per entity. This is a single `TypeId`
+comparison — negligible compared to the old design which boxed every component
+and downcast on every access.
+
+### Hot vs Cold Storage
+
+| Storage Class | Use For | Why |
+|---------------|---------|-----|
+| **Hot** (typed sparse set, default) | Transforms, movement, health, combat state, AI state | Iterated every tick, must be cache-friendly |
+| **Cold** (future: separate store) | Names, debug tags, editor metadata | Rarely iterated, should not pollute hot storage |
+
+Currently all components use typed sparse sets. Cold/sparse-side storage for
+editor metadata is a planned future addition.
