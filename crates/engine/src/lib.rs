@@ -10,6 +10,7 @@ pub mod component;
 pub mod data;
 pub mod engine;
 pub mod entity;
+pub mod function_system;
 pub mod game_loop;
 pub mod render;
 mod resource;
