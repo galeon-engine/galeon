@@ -15,7 +15,9 @@ pub trait Bundle {
 // Implement Bundle for single component.
 impl<A: Component> Bundle for (A,) {
     fn insert_into(self, storage: &mut ComponentStorage, entity_index: u32, tick: u64) {
-        storage.typed_set_mut::<A>().insert(entity_index, self.0, tick);
+        storage
+            .typed_set_mut::<A>()
+            .insert(entity_index, self.0, tick);
     }
 }
 
@@ -141,9 +143,7 @@ impl World {
         if !self.entities.is_alive(entity) {
             return None;
         }
-        self.components
-            .typed_set::<T>()?
-            .added_tick(entity.index)
+        self.components.typed_set::<T>()?.added_tick(entity.index)
     }
 
     /// Returns the tick at which a component was last changed on an entity.
@@ -151,9 +151,7 @@ impl World {
         if !self.entities.is_alive(entity) {
             return None;
         }
-        self.components
-            .typed_set::<T>()?
-            .changed_tick(entity.index)
+        self.components.typed_set::<T>()?.changed_tick(entity.index)
     }
 
     /// Query all entities that have component T (immutable).
@@ -192,6 +190,21 @@ impl World {
             return Vec::new();
         };
         set.iter_changed(since)
+            .filter_map(|(idx, data)| {
+                let entity = entities.entity_at(idx)?;
+                Some((entity, data))
+            })
+            .collect()
+    }
+
+    /// Returns entities whose component `T` has an `added_tick > since`.
+    /// Use `since: 0` to get all components (sentinel).
+    pub fn query_added<T: Component>(&self, since: u64) -> Vec<(Entity, &T)> {
+        let entities = &self.entities;
+        let Some(set) = self.components.typed_set::<T>() else {
+            return Vec::new();
+        };
+        set.iter_added(since)
             .filter_map(|(idx, data)| {
                 let entity = entities.entity_at(idx)?;
                 Some((entity, data))
