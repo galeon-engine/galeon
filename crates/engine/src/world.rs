@@ -140,20 +140,12 @@ impl World {
     /// Returns a `Vec` since we can't return iterators over `&mut` with
     /// the current type-erased storage without GATs or complex lifetime tricks.
     pub fn query_mut<T: Component>(&mut self) -> Vec<(Entity, &mut T)> {
+        let entities = &self.entities;
         let set = self.components.set_mut::<T>();
         set.iter_mut()
             .filter_map(|(idx, any)| {
                 let val = any.downcast_mut::<T>()?;
-                // Entity handle: we know it's alive because it's in the sparse set
-                // and we only insert during spawn (which allocates).
-                // The generation is informational for the returned handle.
-                Some((
-                    Entity {
-                        index: idx,
-                        generation: 0,
-                    },
-                    val,
-                ))
+                Some((entities.entity_at(idx)?, val))
             })
             .collect()
     }
@@ -172,20 +164,14 @@ impl World {
                 let b_any = set_b.get(idx)?;
                 let a = a_any.downcast_ref::<A>()?;
                 let b = b_any.downcast_ref::<B>()?;
-                Some((
-                    Entity {
-                        index: idx,
-                        generation: 0,
-                    },
-                    a,
-                    b,
-                ))
+                Some((self.entities.entity_at(idx)?, a, b))
             })
             .collect()
     }
 
     /// Query all entities with two components (both mutable).
     pub fn query2_mut<A: Component, B: Component>(&mut self) -> Vec<(Entity, &mut A, &mut B)> {
+        let entities = &self.entities;
         let (set_a, set_b) = self
             .components
             .sets_two_mut(TypeId::of::<A>(), TypeId::of::<B>());
@@ -200,14 +186,7 @@ impl World {
                 let b_any = unsafe { (*sb_ptr).get_mut(idx)? };
                 let a = a_any.downcast_mut::<A>()?;
                 let b = b_any.downcast_mut::<B>()?;
-                Some((
-                    Entity {
-                        index: idx,
-                        generation: 0,
-                    },
-                    a,
-                    b,
-                ))
+                Some((entities.entity_at(idx)?, a, b))
             })
             .collect()
     }
