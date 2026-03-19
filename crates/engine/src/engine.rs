@@ -128,9 +128,7 @@ impl Engine {
         // `World::resource` panics, so we rely on the resource module's
         // internal try_get once it is available. For now we track it via a
         // small sentinel resource.
-        self.world
-            .try_resource::<FixedTimestep>()
-            .is_some()
+        self.world.try_resource::<FixedTimestep>().is_some()
     }
 }
 
@@ -255,7 +253,9 @@ mod tests {
     #[test]
     fn add_plugin_is_chainable() {
         let mut engine = Engine::new();
-        engine.add_plugin(IncrementPlugin).add_plugin(IncrementPlugin);
+        engine
+            .add_plugin(IncrementPlugin)
+            .add_plugin(IncrementPlugin);
         assert_eq!(engine.schedule().system_count(), 2);
     }
 
