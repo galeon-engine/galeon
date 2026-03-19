@@ -117,8 +117,26 @@ mod tests {
     #[test]
     fn push_multiple_entities() {
         let mut p = FramePacket::with_capacity(2);
-        p.push(0, 0, &[0.0; 3], &[0.0, 0.0, 0.0, 1.0], &[1.0; 3], true, 1, 1);
-        p.push(1, 0, &[5.0; 3], &[0.0, 0.0, 0.0, 1.0], &[2.0; 3], false, 2, 3);
+        p.push(
+            0,
+            0,
+            &[0.0; 3],
+            &[0.0, 0.0, 0.0, 1.0],
+            &[1.0; 3],
+            true,
+            1,
+            1,
+        );
+        p.push(
+            1,
+            0,
+            &[5.0; 3],
+            &[0.0, 0.0, 0.0, 1.0],
+            &[2.0; 3],
+            false,
+            2,
+            3,
+        );
         assert_eq!(p.entity_count(), 2);
         assert_eq!(p.transforms.len(), TRANSFORM_STRIDE * 2);
         assert_eq!(p.visibility[1], 0); // false
