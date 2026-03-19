@@ -8,6 +8,7 @@ extern crate self as galeon_engine;
 
 pub mod component;
 pub mod data;
+pub mod engine;
 pub mod entity;
 pub mod game_loop;
 mod resource;
@@ -17,6 +18,7 @@ pub mod world;
 // Re-exports for ergonomic API.
 pub use component::Component;
 pub use data::{DataRegistry, UnitStats, UnitTemplate};
+pub use engine::{Engine, Plugin};
 pub use entity::Entity;
 pub use galeon_engine_macros::Component;
 pub use game_loop::FixedTimestep;
