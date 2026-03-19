@@ -78,3 +78,37 @@ fn query_mut_marks_all_changed() {
     assert_eq!(engine.world().component_changed_tick::<Pos>(e1), Some(2));
     assert_eq!(engine.world().component_changed_tick::<Pos>(e2), Some(2));
 }
+
+#[test]
+fn query_changed_filters_by_tick() {
+    let mut engine = Engine::new();
+    let e1 = engine.world_mut().spawn((Pos { x: 1.0 },));
+    let e2 = engine.world_mut().spawn((Pos { x: 2.0 },));
+
+    // Both at tick 1. query_changed(since: 0) should return both.
+    let changed: Vec<_> = engine.world().query_changed::<Pos>(0);
+    assert_eq!(changed.len(), 2);
+
+    engine.run_once(); // tick → 2
+
+    // Mutate only e1
+    engine.world_mut().get_mut::<Pos>(e1).unwrap().x = 99.0;
+
+    // query_changed(since: 1) should return only e1
+    let changed: Vec<_> = engine.world().query_changed::<Pos>(1);
+    assert_eq!(changed.len(), 1);
+    assert_eq!(changed[0].0, e1);
+    assert_eq!(changed[0].1.x, 99.0);
+}
+
+#[test]
+fn query_changed_empty_when_no_mutations() {
+    let mut engine = Engine::new();
+    let _e = engine.world_mut().spawn((Pos { x: 1.0 },));
+
+    engine.run_once(); // tick → 2
+
+    // No mutations since tick 1
+    let changed: Vec<_> = engine.world().query_changed::<Pos>(1);
+    assert!(changed.is_empty());
+}

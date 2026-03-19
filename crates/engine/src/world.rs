@@ -184,6 +184,21 @@ impl World {
             .collect()
     }
 
+    /// Returns entities whose component `T` has a `changed_tick > since`.
+    /// Use `since: 0` to get all components (sentinel).
+    pub fn query_changed<T: Component>(&self, since: u64) -> Vec<(Entity, &T)> {
+        let entities = &self.entities;
+        let Some(set) = self.components.typed_set::<T>() else {
+            return Vec::new();
+        };
+        set.iter_changed(since)
+            .filter_map(|(idx, data)| {
+                let entity = entities.entity_at(idx)?;
+                Some((entity, data))
+            })
+            .collect()
+    }
+
     /// Query all entities with two components (both immutable).
     pub fn query2<A: Component, B: Component>(&self) -> Vec<(Entity, &A, &B)> {
         let (Some(set_a), Some(set_b)) = (
