@@ -7,7 +7,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **Queries return lazy iterators instead of `Vec`** — `query()`, `query_mut()`, `query2()`, `query2_mut()` now return zero-allocation iterator structs that borrow directly from the sparse set ([#11](https://github.com/galeon-engine/galeon/issues/11))
+
 ### Added
+- `query3()` and `query3_mut()` — three-component lazy queries ([#11](https://github.com/galeon-engine/galeon/issues/11))
+- `QueryIter`, `QueryIterMut`, `Query2Iter`, `Query2MutIter`, `Query3Iter`, `Query3MutIter` iterator types ([#11](https://github.com/galeon-engine/galeon/issues/11))
 
 - Virtual time resource: pause, speed scaling (0–8×), and max-delta clamping
   to prevent death spirals. Opt-in via `VirtualTime` resource; backward
