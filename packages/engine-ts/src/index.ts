@@ -2,10 +2,12 @@
 
 import { RUNTIME_VERSION } from "@galeon/runtime";
 
-/** Engine TypeScript bindings version. */
 export const ENGINE_TS_VERSION = "0.1.0";
 
-/** Returns the runtime version this package was built against. */
 export function runtimeVersion(): string {
   return RUNTIME_VERSION;
 }
+
+// Renderer cache — Three.js sync consumer.
+export { RendererCache } from "./renderer-cache.js";
+export { type FramePacketView, TRANSFORM_STRIDE } from "./types.js";
