@@ -18,7 +18,8 @@ import { type FramePacketView, TRANSFORM_STRIDE } from "./types.js";
  */
 export class RendererCache {
   private readonly scene: THREE.Scene;
-  private readonly objects = new Map<number, THREE.Object3D>();
+  private readonly objects = new Map<number, THREE.Mesh>();
+  private readonly generations = new Map<number, number>();
   private readonly geometries = new Map<number, THREE.BufferGeometry>();
   private readonly materials = new Map<number, THREE.Material>();
 
@@ -59,18 +60,43 @@ export class RendererCache {
    */
   applyFrame(packet: FramePacketView): void {
     const activeIds = new Set<number>();
-    const { entity_ids, transforms, visibility, mesh_handles, material_handles } = packet;
+    const {
+      entity_ids,
+      entity_generations,
+      transforms,
+      visibility,
+      mesh_handles,
+      material_handles,
+    } = packet;
 
     for (let i = 0; i < packet.entity_count; i++) {
       // Typed arrays are bounds-controlled by entity_count; non-null asserts are safe here.
       const entityId = entity_ids[i]!;
+      const generation = entity_generations[i]!;
       activeIds.add(entityId);
 
       let obj = this.objects.get(entityId);
+
+      // If the slot was reused (generation mismatch), remove the stale object
+      // so we create a fresh one below. This prevents the stale-entity bug
+      // that generational IDs are designed to catch.
+      if (obj && this.generations.get(entityId) !== generation) {
+        this.scene.remove(obj);
+        this.objects.delete(entityId);
+        obj = undefined;
+      }
+
       if (!obj) {
         obj = this.createObject(mesh_handles[i]!, material_handles[i]!);
         this.objects.set(entityId, obj);
+        this.generations.set(entityId, generation);
         this.scene.add(obj);
+      } else {
+        // Update geometry/material if handles changed at runtime.
+        const geometry = this.geometries.get(mesh_handles[i]!) ?? this.placeholderGeometry;
+        const material = this.materials.get(material_handles[i]!) ?? this.placeholderMaterial;
+        if (obj.geometry !== geometry) obj.geometry = geometry;
+        if (obj.material !== material) obj.material = material;
       }
 
       // Update transform — read 10 floats at offset i * TRANSFORM_STRIDE.
@@ -93,6 +119,7 @@ export class RendererCache {
       if (!activeIds.has(id)) {
         this.scene.remove(obj);
         this.objects.delete(id);
+        this.generations.delete(id);
       }
     }
   }
@@ -107,7 +134,7 @@ export class RendererCache {
   }
 
   /** Get the Three.js object for an entity, if it exists. */
-  getObject(entityId: number): THREE.Object3D | undefined {
+  getObject(entityId: number): THREE.Mesh | undefined {
     return this.objects.get(entityId);
   }
 
@@ -121,6 +148,7 @@ export class RendererCache {
       this.scene.remove(obj);
     }
     this.objects.clear();
+    this.generations.clear();
   }
 
   /** Dispose of placeholder resources. Call when the cache is no longer needed. */

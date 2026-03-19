@@ -9,6 +9,7 @@
 /// `[pos.x, pos.y, pos.z, rot.x, rot.y, rot.z, rot.w, scale.x, scale.y, scale.z]`
 pub struct FramePacket {
     pub entity_ids: Vec<u32>,
+    pub entity_generations: Vec<u32>,
     pub transforms: Vec<f32>,
     pub visibility: Vec<u8>,
     pub mesh_handles: Vec<u32>,
@@ -23,6 +24,7 @@ impl FramePacket {
     pub fn new() -> Self {
         Self {
             entity_ids: Vec::new(),
+            entity_generations: Vec::new(),
             transforms: Vec::new(),
             visibility: Vec::new(),
             mesh_handles: Vec::new(),
@@ -34,6 +36,7 @@ impl FramePacket {
     pub fn with_capacity(entity_count: usize) -> Self {
         Self {
             entity_ids: Vec::with_capacity(entity_count),
+            entity_generations: Vec::with_capacity(entity_count),
             transforms: Vec::with_capacity(entity_count * TRANSFORM_STRIDE),
             visibility: Vec::with_capacity(entity_count),
             mesh_handles: Vec::with_capacity(entity_count),
@@ -46,6 +49,7 @@ impl FramePacket {
     pub fn push(
         &mut self,
         entity_id: u32,
+        entity_generation: u32,
         position: &[f32; 3],
         rotation: &[f32; 4],
         scale: &[f32; 3],
@@ -54,6 +58,7 @@ impl FramePacket {
         material_id: u32,
     ) {
         self.entity_ids.push(entity_id);
+        self.entity_generations.push(entity_generation);
         self.transforms.extend_from_slice(position);
         self.transforms.extend_from_slice(rotation);
         self.transforms.extend_from_slice(scale);
@@ -90,6 +95,7 @@ mod tests {
         let mut p = FramePacket::new();
         p.push(
             42,
+            0,
             &[1.0, 2.0, 3.0],
             &[0.0, 0.0, 0.0, 1.0],
             &[1.0, 1.0, 1.0],
@@ -99,6 +105,7 @@ mod tests {
         );
         assert_eq!(p.entity_count(), 1);
         assert_eq!(p.entity_ids[0], 42);
+        assert_eq!(p.entity_generations[0], 0);
         assert_eq!(p.transforms.len(), TRANSFORM_STRIDE);
         assert_eq!(p.transforms[0], 1.0); // pos.x
         assert_eq!(p.transforms[6], 1.0); // rot.w
@@ -110,8 +117,8 @@ mod tests {
     #[test]
     fn push_multiple_entities() {
         let mut p = FramePacket::with_capacity(2);
-        p.push(0, &[0.0; 3], &[0.0, 0.0, 0.0, 1.0], &[1.0; 3], true, 1, 1);
-        p.push(1, &[5.0; 3], &[0.0, 0.0, 0.0, 1.0], &[2.0; 3], false, 2, 3);
+        p.push(0, 0, &[0.0; 3], &[0.0, 0.0, 0.0, 1.0], &[1.0; 3], true, 1, 1);
+        p.push(1, 0, &[5.0; 3], &[0.0, 0.0, 0.0, 1.0], &[2.0; 3], false, 2, 3);
         assert_eq!(p.entity_count(), 2);
         assert_eq!(p.transforms.len(), TRANSFORM_STRIDE * 2);
         assert_eq!(p.visibility[1], 0); // false

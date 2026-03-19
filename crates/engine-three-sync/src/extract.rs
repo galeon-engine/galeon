@@ -43,6 +43,7 @@ pub fn extract_frame(world: &World) -> FramePacket {
 
         packet.push(
             entity.index(),
+            entity.generation(),
             position,
             rotation,
             scale,
@@ -121,6 +122,22 @@ mod tests {
         let packet = extract_frame(&world);
         assert_eq!(packet.entity_count(), 1);
         assert_eq!(packet.visibility[0], 0); // false
+    }
+
+    #[test]
+    fn extract_includes_entity_generation() {
+        let mut world = World::new();
+        let e = world.spawn((Transform::identity(),));
+        // First entity gets generation 0.
+        let packet = extract_frame(&world);
+        assert_eq!(packet.entity_generations[0], 0);
+
+        // Despawn and spawn again — slot reused with bumped generation.
+        world.despawn(e);
+        world.spawn((Transform::identity(),));
+        let packet = extract_frame(&world);
+        assert_eq!(packet.entity_ids[0], 0); // same slot index
+        assert_eq!(packet.entity_generations[0], 1); // bumped generation
     }
 
     #[test]

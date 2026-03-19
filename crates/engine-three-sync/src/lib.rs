@@ -91,6 +91,15 @@ impl WasmFramePacket {
         self.inner.entity_ids.clone()
     }
 
+    /// Entity generations (one u32 per entity, parallel to entity_ids).
+    ///
+    /// A generation mismatch for the same index means the slot was reused
+    /// after despawn — the renderer must treat it as a new entity.
+    #[wasm_bindgen(getter)]
+    pub fn entity_generations(&self) -> Vec<u32> {
+        self.inner.entity_generations.clone()
+    }
+
     /// Packed transform data (10 f32 per entity: pos3 + rot4 + scale3).
     #[wasm_bindgen(getter)]
     pub fn transforms(&self) -> Vec<f32> {

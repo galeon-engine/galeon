@@ -9,6 +9,7 @@
 export interface FramePacketView {
   readonly entity_count: number;
   readonly entity_ids: Uint32Array;
+  readonly entity_generations: Uint32Array;
   readonly transforms: Float32Array;
   readonly visibility: Uint8Array;
   readonly mesh_handles: Uint32Array;
