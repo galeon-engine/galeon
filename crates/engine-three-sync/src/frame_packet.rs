@@ -7,6 +7,10 @@
 ///
 /// Transform data is packed as 10 contiguous floats per entity:
 /// `[pos.x, pos.y, pos.z, rot.x, rot.y, rot.z, rot.w, scale.x, scale.y, scale.z]`
+///
+/// `change_flags` is parallel to the other arrays: `1` means the entity had at
+/// least one render-facing component changed since the last extraction tick,
+/// `0` means it is unchanged and the renderer may skip it.
 pub struct FramePacket {
     pub entity_ids: Vec<u32>,
     pub entity_generations: Vec<u32>,
@@ -14,6 +18,7 @@ pub struct FramePacket {
     pub visibility: Vec<u8>,
     pub mesh_handles: Vec<u32>,
     pub material_handles: Vec<u32>,
+    pub change_flags: Vec<u8>,
 }
 
 /// Number of f32 values per entity in the transforms array.
@@ -29,6 +34,7 @@ impl FramePacket {
             visibility: Vec::new(),
             mesh_handles: Vec::new(),
             material_handles: Vec::new(),
+            change_flags: Vec::new(),
         }
     }
 
@@ -41,10 +47,14 @@ impl FramePacket {
             visibility: Vec::with_capacity(entity_count),
             mesh_handles: Vec::with_capacity(entity_count),
             material_handles: Vec::with_capacity(entity_count),
+            change_flags: Vec::with_capacity(entity_count),
         }
     }
 
     /// Push one entity's render data into the packet.
+    ///
+    /// `change_flag` is `1` if any render-facing component changed since the
+    /// last extraction tick, `0` if the entity is unchanged.
     #[allow(clippy::too_many_arguments)]
     pub fn push(
         &mut self,
@@ -56,6 +66,7 @@ impl FramePacket {
         visible: bool,
         mesh_id: u32,
         material_id: u32,
+        change_flag: u8,
     ) {
         self.entity_ids.push(entity_id);
         self.entity_generations.push(entity_generation);
@@ -65,6 +76,7 @@ impl FramePacket {
         self.visibility.push(visible as u8);
         self.mesh_handles.push(mesh_id);
         self.material_handles.push(material_id);
+        self.change_flags.push(change_flag);
     }
 
     /// Number of entities in this packet.
@@ -102,6 +114,7 @@ mod tests {
             true,
             10,
             20,
+            1,
         );
         assert_eq!(p.entity_count(), 1);
         assert_eq!(p.entity_ids[0], 42);
@@ -112,6 +125,7 @@ mod tests {
         assert_eq!(p.visibility[0], 1);
         assert_eq!(p.mesh_handles[0], 10);
         assert_eq!(p.material_handles[0], 20);
+        assert_eq!(p.change_flags[0], 1);
     }
 
     #[test]
@@ -126,6 +140,7 @@ mod tests {
             true,
             1,
             1,
+            1,
         );
         p.push(
             1,
@@ -136,9 +151,12 @@ mod tests {
             false,
             2,
             3,
+            0,
         );
         assert_eq!(p.entity_count(), 2);
         assert_eq!(p.transforms.len(), TRANSFORM_STRIDE * 2);
         assert_eq!(p.visibility[1], 0); // false
+        assert_eq!(p.change_flags[0], 1);
+        assert_eq!(p.change_flags[1], 0);
     }
 }

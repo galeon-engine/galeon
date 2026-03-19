@@ -4,7 +4,7 @@ mod extract;
 mod frame_packet;
 mod snapshot;
 
-pub use extract::extract_frame;
+pub use extract::{extract_frame, extract_frame_incremental};
 pub use frame_packet::{FramePacket, TRANSFORM_STRIDE};
 pub use snapshot::{
     DebugSnapshot, EntitySnapshot, TransformSnapshot, extract_debug_snapshot, snapshot_to_json,
@@ -26,9 +26,15 @@ pub fn version() -> String {
 /// JS-facing handle to the Galeon engine.
 ///
 /// Wraps the Rust `Engine` and exposes tick + frame extraction to JavaScript.
+///
+/// `last_extracted_tick` tracks the ECS tick at which `extract_frame` was last
+/// called. Each call to `extract_frame` stores the current tick so that the
+/// next call can compute change flags relative to that point in time.
+/// Initialized to `0` so that the first extraction flags everything as changed.
 #[wasm_bindgen]
 pub struct WasmEngine {
     engine: Engine,
+    last_extracted_tick: u64,
 }
 
 #[allow(clippy::new_without_default)]
@@ -39,6 +45,7 @@ impl WasmEngine {
     pub fn new() -> Self {
         Self {
             engine: Engine::new(),
+            last_extracted_tick: 0,
         }
     }
 
@@ -50,8 +57,14 @@ impl WasmEngine {
     }
 
     /// Extract the current frame's render data as a packed packet.
-    pub fn extract_frame(&self) -> WasmFramePacket {
-        let packet = extract_frame(self.engine.world());
+    ///
+    /// Uses incremental extraction: `change_flags` on the returned packet
+    /// indicate which entities changed since the previous call to this method.
+    /// The very first call flags all entities as changed (since tick 0).
+    pub fn extract_frame(&mut self) -> WasmFramePacket {
+        let since = self.last_extracted_tick;
+        self.last_extracted_tick = self.engine.world().current_tick();
+        let packet = extract_frame_incremental(self.engine.world(), since);
         WasmFramePacket { inner: packet }
     }
 
@@ -122,5 +135,16 @@ impl WasmFramePacket {
     #[wasm_bindgen(getter)]
     pub fn material_handles(&self) -> Vec<u32> {
         self.inner.material_handles.clone()
+    }
+
+    /// Change flags (one u8 per entity, parallel to all other arrays).
+    ///
+    /// A value of `1` means the entity had at least one render-facing component
+    /// mutated since the last call to `WasmEngine::extract_frame()`.
+    /// A value of `0` means the entity is unchanged and the renderer may skip
+    /// updating its scene-graph node.
+    #[wasm_bindgen(getter)]
+    pub fn change_flags(&self) -> Vec<u8> {
+        self.inner.change_flags.clone()
     }
 }
