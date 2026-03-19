@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: AGPL-3.0-only OR Commercial
+
+use galeon_engine::{Component, World};
+
+#[derive(Component, Debug, Clone, PartialEq)]
+struct Pos {
+    x: f32,
+    y: f32,
+}
+
+#[derive(Component, Debug, Clone, PartialEq)]
+struct Vel {
+    dx: f32,
+    dy: f32,
+}
+
+#[test]
+fn query_iter_yields_matching_entities() {
+    let mut world = World::new();
+    world.spawn((Pos { x: 1.0, y: 0.0 },));
+    world.spawn((Pos { x: 2.0, y: 0.0 }, Vel { dx: 0.0, dy: 0.0 }));
+    world.spawn((Vel { dx: 3.0, dy: 0.0 },)); // no Pos
+
+    // query() returns a lazy iterator — no Vec allocation.
+    let positions: Vec<f32> = world.query::<Pos>().map(|(_, p)| p.x).collect();
+    assert_eq!(positions.len(), 2);
+    assert!(positions.contains(&1.0));
+    assert!(positions.contains(&2.0));
+}
+
+#[test]
+fn query_iter_empty_world() {
+    let world = World::new();
+    let results: Vec<_> = world.query::<Pos>().collect();
+    assert!(results.is_empty());
+}
+
+#[test]
+fn query_iter_entity_is_copy_not_ref() {
+    let mut world = World::new();
+    let e = world.spawn((Pos { x: 5.0, y: 0.0 },));
+
+    // Entity from iterator is owned (Copy), not a reference.
+    let (entity, pos) = world.query::<Pos>().next().unwrap();
+    assert_eq!(entity, e);
+    assert_eq!(pos.x, 5.0);
+}
