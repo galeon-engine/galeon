@@ -47,6 +47,16 @@ impl Resources {
             .and_then(|v| v.downcast_ref::<T>())
     }
 
+    /// Remove and return a resource. Panics if not present.
+    pub fn take<T: 'static>(&mut self) -> T {
+        *self
+            .map
+            .remove(&TypeId::of::<T>())
+            .unwrap_or_else(|| panic!("resource not found: {}", type_name::<T>()))
+            .downcast::<T>()
+            .unwrap()
+    }
+
     /// Returns `true` if the resource exists.
     pub fn contains<T: 'static>(&self) -> bool {
         self.map.contains_key(&TypeId::of::<T>())

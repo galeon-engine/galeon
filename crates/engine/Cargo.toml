@@ -9,3 +9,6 @@ repository.workspace = true
 galeon-engine-macros = { path = "../engine-macros" }
 serde = { workspace = true }
 ron = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
