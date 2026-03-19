@@ -309,4 +309,53 @@ mod tests {
         assert_eq!(results[0].1.x, 2.0);
         assert_eq!(results[0].2.x, 5.0);
     }
+
+    #[test]
+    fn query2_mut_mutates_both_components() {
+        let mut world = World::new();
+        let e1 = world.spawn((Pos { x: 1.0, y: 1.0 }, Vel { x: 10.0, y: 10.0 }));
+        let e2 = world.spawn((Pos { x: 2.0, y: 2.0 }, Vel { x: 20.0, y: 20.0 }));
+        let e3 = world.spawn((Pos { x: 3.0, y: 3.0 }, Vel { x: 30.0, y: 30.0 }));
+
+        for (_, pos, vel) in world.query2_mut::<Pos, Vel>() {
+            pos.x += 100.0;
+            vel.y += 200.0;
+        }
+
+        assert_eq!(world.get::<Pos>(e1).unwrap().x, 101.0);
+        assert_eq!(world.get::<Vel>(e1).unwrap().y, 210.0);
+        assert_eq!(world.get::<Pos>(e2).unwrap().x, 102.0);
+        assert_eq!(world.get::<Vel>(e2).unwrap().y, 220.0);
+        assert_eq!(world.get::<Pos>(e3).unwrap().x, 103.0);
+        assert_eq!(world.get::<Vel>(e3).unwrap().y, 230.0);
+    }
+
+    #[test]
+    fn query2_mut_skips_entities_missing_one_component() {
+        let mut world = World::new();
+        let e1 = world.spawn((Pos { x: 5.0, y: 5.0 },));
+        let e2 = world.spawn((Pos { x: 7.0, y: 7.0 }, Vel { x: 9.0, y: 9.0 }));
+        let e3 = world.spawn((Vel { x: 11.0, y: 11.0 },));
+
+        let results = world.query2_mut::<Pos, Vel>();
+        assert_eq!(results.len(), 1);
+
+        let (entity, pos, vel) = &results[0];
+        assert_eq!(*entity, e2);
+        assert_eq!(pos.x, 7.0);
+        assert_eq!(vel.x, 9.0);
+
+        // e1's Pos must be unchanged.
+        assert_eq!(world.get::<Pos>(e1).unwrap().x, 5.0);
+        // e3's Vel must be unchanged.
+        assert_eq!(world.get::<Vel>(e3).unwrap().x, 11.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot borrow the same sparse set mutably twice")]
+    fn query2_mut_same_type_panics() {
+        let mut world = World::new();
+        world.spawn((Pos { x: 0.0, y: 0.0 },));
+        world.query2_mut::<Pos, Pos>();
+    }
 }
