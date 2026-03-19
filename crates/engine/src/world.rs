@@ -9,15 +9,27 @@ use crate::resource::Resources;
 /// Implemented for tuples of components up to 8 elements.
 pub trait Bundle {
     #[doc(hidden)]
-    fn insert_into(self, storage: &mut ComponentStorage, entity_index: u32, tick: u64);
+    fn insert_into(
+        self,
+        storage: &mut ComponentStorage,
+        entity_index: u32,
+        tick: u64,
+        change_cursor: u64,
+    );
 }
 
 // Implement Bundle for single component.
 impl<A: Component> Bundle for (A,) {
-    fn insert_into(self, storage: &mut ComponentStorage, entity_index: u32, tick: u64) {
+    fn insert_into(
+        self,
+        storage: &mut ComponentStorage,
+        entity_index: u32,
+        tick: u64,
+        change_cursor: u64,
+    ) {
         storage
             .typed_set_mut::<A>()
-            .insert(entity_index, self.0, tick);
+            .insert(entity_index, self.0, tick, change_cursor);
     }
 }
 
@@ -26,9 +38,15 @@ macro_rules! impl_bundle {
     ($($t:ident),+) => {
         #[allow(non_snake_case)]
         impl<$($t: Component),+> Bundle for ($($t,)+) {
-            fn insert_into(self, storage: &mut ComponentStorage, entity_index: u32, tick: u64) {
+            fn insert_into(
+                self,
+                storage: &mut ComponentStorage,
+                entity_index: u32,
+                tick: u64,
+                change_cursor: u64,
+            ) {
                 let ($($t,)+) = self;
-                $(storage.typed_set_mut::<$t>().insert(entity_index, $t, tick);)+
+                $(storage.typed_set_mut::<$t>().insert(entity_index, $t, tick, change_cursor);)+
             }
         }
     };
@@ -48,6 +66,7 @@ pub struct World {
     components: ComponentStorage,
     resources: Resources,
     tick: u64,
+    change_cursor: u64,
 }
 
 impl World {
@@ -58,6 +77,7 @@ impl World {
             components: ComponentStorage::new(),
             resources: Resources::new(),
             tick: 1,
+            change_cursor: 0,
         }
     }
 
@@ -66,16 +86,27 @@ impl World {
         self.tick
     }
 
+    /// Returns the current monotonic change cursor for incremental consumers.
+    pub fn current_change_cursor(&self) -> u64 {
+        self.change_cursor
+    }
+
     /// Advance the tick counter. Called at the start of each schedule run.
     pub(crate) fn advance_tick(&mut self) {
         self.tick += 1;
+    }
+
+    fn bump_change_cursor(&mut self) -> u64 {
+        self.change_cursor += 1;
+        self.change_cursor
     }
 
     /// Spawn an entity with the given component bundle.
     pub fn spawn<B: Bundle>(&mut self, bundle: B) -> Entity {
         let entity = self.entities.alloc();
         let tick = self.tick;
-        bundle.insert_into(&mut self.components, entity.index, tick);
+        let change_cursor = self.bump_change_cursor();
+        bundle.insert_into(&mut self.components, entity.index, tick, change_cursor);
         entity
     }
 
@@ -133,9 +164,10 @@ impl World {
             return None;
         }
         let tick = self.tick;
+        let change_cursor = self.bump_change_cursor();
         self.components
-            .typed_set_mut::<T>()
-            .get_mut(entity.index, tick)
+            .typed_set_existing_mut::<T>()?
+            .get_mut(entity.index, tick, change_cursor)
     }
 
     /// Returns the tick at which a component was added to an entity.
@@ -152,6 +184,16 @@ impl World {
             return None;
         }
         self.components.typed_set::<T>()?.changed_tick(entity.index)
+    }
+
+    /// Returns the change cursor for the last mutation on a component.
+    pub fn component_changed_cursor<T: Component>(&self, entity: Entity) -> Option<u64> {
+        if !self.entities.is_alive(entity) {
+            return None;
+        }
+        self.components
+            .typed_set::<T>()?
+            .changed_cursor(entity.index)
     }
 
     /// Query all entities that have component T (immutable).
@@ -174,9 +216,12 @@ impl World {
     /// Marks ALL components in the set as changed at the current tick.
     pub fn query_mut<T: Component>(&mut self) -> Vec<(Entity, &mut T)> {
         let tick = self.tick;
+        let change_cursor = self.bump_change_cursor();
         let entities = &self.entities;
-        let set = self.components.typed_set_mut::<T>();
-        set.mark_all_changed(tick);
+        let Some(set) = self.components.typed_set_existing_mut::<T>() else {
+            return Vec::new();
+        };
+        set.mark_all_changed(tick, change_cursor);
         set.iter_mut()
             .filter_map(|(idx, val)| Some((entities.entity_at(idx)?, val)))
             .collect()
@@ -234,28 +279,34 @@ impl World {
     /// Query all entities with two components (both mutable).
     pub fn query2_mut<A: Component, B: Component>(&mut self) -> Vec<(Entity, &mut A, &mut B)> {
         let tick = self.tick;
+        let change_cursor = self.bump_change_cursor();
         let (set_a, set_b) = self.components.typed_sets_two_mut::<A, B>();
         let (Some(sa), Some(sb)) = (set_a, set_b) else {
             return Vec::new();
         };
 
-        sa.mark_all_changed(tick);
-        // sb entries are marked individually via get_mut(idx, tick) below.
-
         let entities = &self.entities;
+        let indices: Vec<u32> = sa.entity_indices().collect();
         let mut result = Vec::new();
-        for (idx, a) in sa.iter_mut() {
+        let sa_ptr: *mut TypedSparseSet<A> = sa;
+        let sb_ptr: *mut TypedSparseSet<B> = sb;
+        for idx in indices {
+            if !unsafe { (&*sb_ptr).contains(idx) } {
+                continue;
+            }
             let Some(entity) = entities.entity_at(idx) else {
                 continue;
             };
             // SAFETY: sa and sb are distinct typed sparse sets backed by
             // different TypeIds (enforced by typed_sets_two_mut's TypeId
-            // assertion). Each entity index maps to a unique dense slot, so
-            // repeated get_mut calls never alias sa's data.
-            let sb_ptr: *mut TypedSparseSet<B> = sb;
-            if let Some(b) = unsafe { &mut *sb_ptr }.get_mut(idx, tick) {
-                result.push((entity, a, b));
-            }
+            // assertion). The loop only borrows one entity slot per set at a
+            // time, and we gate on `sb.contains(idx)` before taking mutable
+            // references so unmatched `A` rows are not marked as changed.
+            let a = unsafe { (&mut *sa_ptr).get_mut(idx, tick, change_cursor) }
+                .expect("entity index came from set_a");
+            let b = unsafe { (&mut *sb_ptr).get_mut(idx, tick, change_cursor) }
+                .expect("entity index was confirmed in set_b");
+            result.push((entity, a, b));
         }
         result
     }
@@ -426,6 +477,35 @@ mod tests {
         assert_eq!(world.get::<Pos>(e1).unwrap().x, 5.0);
         // e3's Vel must be unchanged.
         assert_eq!(world.get::<Vel>(e3).unwrap().x, 11.0);
+    }
+
+    #[test]
+    fn query2_mut_only_marks_intersection_changed() {
+        let mut world = World::new();
+        let e1 = world.spawn((Pos { x: 5.0, y: 5.0 },));
+        let e2 = world.spawn((Pos { x: 7.0, y: 7.0 }, Vel { x: 9.0, y: 9.0 }));
+        let e3 = world.spawn((Vel { x: 11.0, y: 11.0 },));
+
+        world.advance_tick();
+        let _ = world.query2_mut::<Pos, Vel>();
+
+        let changed_pos: Vec<_> = world
+            .query_changed::<Pos>(1)
+            .into_iter()
+            .map(|(entity, _)| entity)
+            .collect();
+        assert_eq!(changed_pos, vec![e2]);
+
+        let changed_vel: Vec<_> = world
+            .query_changed::<Vel>(1)
+            .into_iter()
+            .map(|(entity, _)| entity)
+            .collect();
+        assert_eq!(changed_vel, vec![e2]);
+
+        assert_eq!(world.component_changed_tick::<Pos>(e1), Some(1));
+        assert_eq!(world.component_changed_tick::<Pos>(e2), Some(2));
+        assert_eq!(world.component_changed_tick::<Vel>(e3), Some(1));
     }
 
     #[test]

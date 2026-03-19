@@ -28,6 +28,10 @@ pub(crate) struct TypedSparseSet<T> {
     added_ticks: Vec<u64>,
     /// Tick at which each component instance was last mutated. Parallel to `dense`.
     changed_ticks: Vec<u64>,
+    /// Monotonic change cursor for insertion. Parallel to `dense`.
+    added_cursors: Vec<u64>,
+    /// Monotonic change cursor for mutation. Parallel to `dense`.
+    changed_cursors: Vec<u64>,
 }
 
 impl<T> TypedSparseSet<T> {
@@ -38,6 +42,8 @@ impl<T> TypedSparseSet<T> {
             data: Vec::new(),
             added_ticks: Vec::new(),
             changed_ticks: Vec::new(),
+            added_cursors: Vec::new(),
+            changed_cursors: Vec::new(),
         }
     }
 
@@ -45,7 +51,7 @@ impl<T> TypedSparseSet<T> {
     ///
     /// On first insert, both `added_tick` and `changed_tick` are set to `tick`.
     /// On overwrite, only `changed_tick` is updated — `added_tick` is preserved.
-    pub fn insert(&mut self, entity_index: u32, value: T, tick: u64) {
+    pub fn insert(&mut self, entity_index: u32, value: T, tick: u64, cursor: u64) {
         let idx = entity_index as usize;
 
         // Grow sparse array if needed.
@@ -58,6 +64,7 @@ impl<T> TypedSparseSet<T> {
             let dense_idx = self.sparse[idx] as usize;
             self.data[dense_idx] = value;
             self.changed_ticks[dense_idx] = tick;
+            self.changed_cursors[dense_idx] = cursor;
         } else {
             // New entry.
             let dense_idx = self.dense.len() as u32;
@@ -66,6 +73,8 @@ impl<T> TypedSparseSet<T> {
             self.data.push(value);
             self.added_ticks.push(tick);
             self.changed_ticks.push(tick);
+            self.added_cursors.push(cursor);
+            self.changed_cursors.push(cursor);
         }
     }
 
@@ -83,11 +92,12 @@ impl<T> TypedSparseSet<T> {
     /// Get a mutable reference to the component for an entity.
     ///
     /// Stamps `changed_tick` with `tick` unconditionally.
-    pub fn get_mut(&mut self, entity_index: u32, tick: u64) -> Option<&mut T> {
+    pub fn get_mut(&mut self, entity_index: u32, tick: u64, cursor: u64) -> Option<&mut T> {
         let idx = entity_index as usize;
         if idx < self.sparse.len() && self.sparse[idx] != u32::MAX {
             let dense_idx = self.sparse[idx] as usize;
             self.changed_ticks[dense_idx] = tick;
+            self.changed_cursors[dense_idx] = cursor;
             Some(&mut self.data[dense_idx])
         } else {
             None
@@ -114,6 +124,8 @@ impl<T> TypedSparseSet<T> {
             self.data.swap(dense_idx, last_dense);
             self.added_ticks.swap(dense_idx, last_dense);
             self.changed_ticks.swap(dense_idx, last_dense);
+            self.added_cursors.swap(dense_idx, last_dense);
+            self.changed_cursors.swap(dense_idx, last_dense);
             self.sparse[swapped_entity as usize] = dense_idx as u32;
         }
 
@@ -121,6 +133,8 @@ impl<T> TypedSparseSet<T> {
         self.data.pop();
         self.added_ticks.pop();
         self.changed_ticks.pop();
+        self.added_cursors.pop();
+        self.changed_cursors.pop();
 
         true
     }
@@ -143,11 +157,25 @@ impl<T> TypedSparseSet<T> {
         Some(self.changed_ticks[self.sparse[idx] as usize])
     }
 
+    /// Returns the monotonic change cursor for the last mutation on the entity.
+    pub fn changed_cursor(&self, entity_index: u32) -> Option<u64> {
+        let idx = entity_index as usize;
+        if idx >= self.sparse.len() || self.sparse[idx] == u32::MAX {
+            return None;
+        }
+        Some(self.changed_cursors[self.sparse[idx] as usize])
+    }
+
     /// Marks all components in this set as changed at the given tick.
     /// Used by query_mut / iter_mut which grant blanket mutable access.
-    pub fn mark_all_changed(&mut self, tick: u64) {
-        for ct in &mut self.changed_ticks {
-            *ct = tick;
+    pub fn mark_all_changed(&mut self, tick: u64, cursor: u64) {
+        for (changed_tick, changed_cursor) in self
+            .changed_ticks
+            .iter_mut()
+            .zip(self.changed_cursors.iter_mut())
+        {
+            *changed_tick = tick;
+            *changed_cursor = cursor;
         }
     }
 
@@ -198,6 +226,11 @@ impl<T> TypedSparseSet<T> {
             .iter()
             .zip(self.data.iter_mut())
             .map(|(&entity_idx, data)| (entity_idx, data))
+    }
+
+    /// Returns an iterator over entity indices present in the set.
+    pub fn entity_indices(&self) -> impl Iterator<Item = u32> + '_ {
+        self.dense.iter().copied()
     }
 }
 
@@ -271,6 +304,13 @@ impl ComponentStorage {
             .expect("TypeId mismatch in component storage")
     }
 
+    /// Get the typed sparse set for a component type if it already exists.
+    pub fn typed_set_existing_mut<T: Component>(&mut self) -> Option<&mut TypedSparseSet<T>> {
+        self.sets
+            .get_mut(&TypeId::of::<T>())
+            .and_then(|s| s.as_any_mut().downcast_mut::<TypedSparseSet<T>>())
+    }
+
     /// Remove all components for a given entity index.
     pub fn remove_all(&mut self, entity_index: u32) {
         for set in self.sets.values_mut() {
@@ -318,15 +358,15 @@ mod tests {
     #[test]
     fn typed_sparse_set_insert_get() {
         let mut set = TypedSparseSet::new();
-        set.insert(5, 42_i32, 1);
+        set.insert(5, 42_i32, 1, 1);
         assert_eq!(*set.get(5).unwrap(), 42);
     }
 
     #[test]
     fn typed_sparse_set_overwrite() {
         let mut set = TypedSparseSet::new();
-        set.insert(0, 1_i32, 1);
-        set.insert(0, 2_i32, 1);
+        set.insert(0, 1_i32, 1, 1);
+        set.insert(0, 2_i32, 1, 2);
         assert_eq!(*set.get(0).unwrap(), 2);
         assert_eq!(set.len(), 1);
     }
@@ -334,9 +374,9 @@ mod tests {
     #[test]
     fn typed_sparse_set_remove() {
         let mut set = TypedSparseSet::new();
-        set.insert(0, 10_i32, 1);
-        set.insert(1, 20_i32, 1);
-        set.insert(2, 30_i32, 1);
+        set.insert(0, 10_i32, 1, 1);
+        set.insert(1, 20_i32, 1, 2);
+        set.insert(2, 30_i32, 1, 3);
         assert!(set.remove(1));
         assert!(!set.contains(1));
         assert_eq!(set.len(), 2);
@@ -355,8 +395,8 @@ mod tests {
     #[test]
     fn typed_sparse_set_iteration() {
         let mut set = TypedSparseSet::new();
-        set.insert(3, 30_i32, 1);
-        set.insert(7, 70_i32, 1);
+        set.insert(3, 30_i32, 1, 1);
+        set.insert(7, 70_i32, 1, 2);
 
         let items: Vec<_> = set.iter().map(|(idx, &val)| (idx, val)).collect();
         assert_eq!(items.len(), 2);

@@ -68,6 +68,10 @@ Each frame:
 4. `RendererCache.applyFrame(packet)` reads the typed arrays and applies bulk
    updates to the Three.js scene graph.
 
+`WasmEngine.extract_frame()` snapshots a monotonic change cursor, not just the
+schedule tick. That keeps `change_flags` correct even when extraction and
+component mutation both happen within the same schedule tick.
+
 ```
 ┌─ Rust ──────────────────────────────┐
 │  ECS tick (simulation systems)      │

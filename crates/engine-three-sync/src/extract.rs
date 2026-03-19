@@ -57,17 +57,18 @@ pub fn extract_frame(world: &World) -> FramePacket {
     packet
 }
 
-/// Extract a frame with change flags relative to `since_tick`.
+/// Extract a frame with change flags relative to `since_cursor`.
 ///
 /// All entities with a `Transform` component are included in the packet
 /// (the renderer needs the full scene graph to manage entity lifetimes), but
 /// `change_flags[i]` is `1` only when at least one render-facing component
 /// (`Transform`, `Visibility`, `MeshHandle`, or `MaterialHandle`) changed
-/// after `since_tick`, and `0` otherwise.
+/// after `since_cursor`, and `0` otherwise.
 ///
-/// Using `since_tick = 0` is equivalent to `extract_frame` — every entity
-/// gets `change_flag = 1` because `changed_tick >= 1 > 0` for all components.
-pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket {
+/// Capture the cursor with `World::current_change_cursor()` after an
+/// extraction. Using `since_cursor = 0` is equivalent to `extract_frame` —
+/// every entity gets `change_flag = 1`.
+pub fn extract_frame_incremental(world: &World, since_cursor: u64) -> FramePacket {
     // First pass: collect entity + transform data into owned values.
     // Releasing the `query::<Transform>` borrow lets us call `get()` and
     // `component_changed_tick()` per entity in the second pass.
@@ -93,22 +94,22 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
             .unwrap_or(0);
 
         // An entity is "changed" if ANY of its render-facing components has a
-        // changed_tick strictly greater than `since_tick`.
+        // change cursor strictly greater than `since_cursor`.
         let transform_changed = world
-            .component_changed_tick::<Transform>(*entity)
-            .map(|t| t > since_tick)
+            .component_changed_cursor::<Transform>(*entity)
+            .map(|cursor| cursor > since_cursor)
             .unwrap_or(false);
         let visibility_changed = world
-            .component_changed_tick::<Visibility>(*entity)
-            .map(|t| t > since_tick)
+            .component_changed_cursor::<Visibility>(*entity)
+            .map(|cursor| cursor > since_cursor)
             .unwrap_or(false);
         let mesh_changed = world
-            .component_changed_tick::<MeshHandle>(*entity)
-            .map(|t| t > since_tick)
+            .component_changed_cursor::<MeshHandle>(*entity)
+            .map(|cursor| cursor > since_cursor)
             .unwrap_or(false);
         let material_changed = world
-            .component_changed_tick::<MaterialHandle>(*entity)
-            .map(|t| t > since_tick)
+            .component_changed_cursor::<MaterialHandle>(*entity)
+            .map(|cursor| cursor > since_cursor)
             .unwrap_or(false);
 
         let change_flag =
@@ -263,8 +264,8 @@ mod tests {
         world.spawn((Transform::from_position(1.0, 0.0, 0.0),));
         world.spawn((Transform::from_position(2.0, 0.0, 0.0),));
 
-        // Record tick after first extraction (tick 1).
-        let since = world.current_tick();
+        // Record change cursor after first extraction.
+        let since = world.current_change_cursor();
 
         // Second extraction — nothing mutated, so all flags should be 0.
         let packet = extract_frame_incremental(&world, since);
@@ -284,8 +285,8 @@ mod tests {
             .world_mut()
             .spawn((Transform::from_position(2.0, 0.0, 0.0),));
 
-        // First extraction — tick 1, capture since tick.
-        let since = engine.world().current_tick();
+        // First extraction — capture the current change cursor.
+        let since = engine.world().current_change_cursor();
 
         // Advance tick and mutate only e1's transform.
         engine.run_once(); // tick → 2
@@ -328,8 +329,7 @@ mod tests {
             .world_mut()
             .spawn((Transform::identity(), Visibility { visible: true }));
 
-        let since = engine.world().current_tick();
-        engine.run_once(); // tick → 2
+        let since = engine.world().current_change_cursor();
 
         // Mutate Visibility — not Transform.
         engine.world_mut().get_mut::<Visibility>(e).unwrap().visible = false;
@@ -338,6 +338,23 @@ mod tests {
         assert_eq!(packet.entity_count(), 1);
         assert_eq!(packet.change_flags[0], 1);
         assert_eq!(packet.visibility[0], 0); // confirm the value is also updated
+    }
+
+    /// Mutations within the same schedule tick must still be visible to
+    /// incremental extraction as long as the caller snapshots the change cursor
+    /// before the mutation.
+    #[test]
+    fn incremental_same_tick_mutation_uses_change_cursor() {
+        let mut world = World::new();
+        let e = world.spawn((Transform::identity(),));
+
+        let since = world.current_change_cursor();
+        world.get_mut::<Transform>(e).unwrap().position = [42.0, 0.0, 0.0];
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.change_flags[0], 1);
+        assert_eq!(packet.transforms[0], 42.0);
     }
 
     /// Incremental extraction on an empty world produces an empty packet.

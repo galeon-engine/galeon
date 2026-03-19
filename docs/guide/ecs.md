@@ -167,6 +167,10 @@ The world maintains a monotonically increasing tick counter that advances at
 the start of each schedule run. Components record the tick at which they were
 added and last mutated.
 
+For render extraction, the engine also maintains an internal monotonic change
+cursor. That cursor advances on every component mutation, which lets the render
+path detect same-tick changes without changing the tick-based query API.
+
 ### Querying Changes
 
 Query only components that changed since a given tick:
@@ -213,5 +217,5 @@ fn my_system(world: &mut World) {
 | `spawn()` with component | Yes | Yes |
 | `get_mut()` | No | Yes |
 | `query_mut()` | No | Yes (all in set) |
-| `query2_mut()` | No | Yes (all in both sets) |
+| `query2_mut()` | No | Yes (only entities that matched both sets) |
 | Read-only `get()` / `query()` | No | No |

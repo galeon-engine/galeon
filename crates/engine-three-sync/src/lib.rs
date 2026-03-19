@@ -27,14 +27,14 @@ pub fn version() -> String {
 ///
 /// Wraps the Rust `Engine` and exposes tick + frame extraction to JavaScript.
 ///
-/// `last_extracted_tick` tracks the ECS tick at which `extract_frame` was last
-/// called. Each call to `extract_frame` stores the current tick so that the
-/// next call can compute change flags relative to that point in time.
+/// `last_extracted_cursor` tracks the monotonic change cursor observed at the
+/// previous extraction. Each call stores `World::current_change_cursor()` so
+/// the next extraction can detect same-tick mutations as well as later ticks.
 /// Initialized to `0` so that the first extraction flags everything as changed.
 #[wasm_bindgen]
 pub struct WasmEngine {
     engine: Engine,
-    last_extracted_tick: u64,
+    last_extracted_cursor: u64,
 }
 
 #[allow(clippy::new_without_default)]
@@ -45,7 +45,7 @@ impl WasmEngine {
     pub fn new() -> Self {
         Self {
             engine: Engine::new(),
-            last_extracted_tick: 0,
+            last_extracted_cursor: 0,
         }
     }
 
@@ -62,8 +62,8 @@ impl WasmEngine {
     /// indicate which entities changed since the previous call to this method.
     /// The very first call flags all entities as changed (since tick 0).
     pub fn extract_frame(&mut self) -> WasmFramePacket {
-        let since = self.last_extracted_tick;
-        self.last_extracted_tick = self.engine.world().current_tick();
+        let since = self.last_extracted_cursor;
+        self.last_extracted_cursor = self.engine.world().current_change_cursor();
         let packet = extract_frame_incremental(self.engine.world(), since);
         WasmFramePacket { inner: packet }
     }
