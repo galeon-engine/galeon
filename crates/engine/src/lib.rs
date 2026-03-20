@@ -15,6 +15,7 @@ pub mod render;
 mod resource;
 pub mod schedule;
 pub mod virtual_time;
+pub mod system_param;
 pub mod world;
 
 // Re-exports for ergonomic API.
