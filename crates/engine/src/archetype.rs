@@ -175,6 +175,16 @@ impl<T: Send + Sync + 'static> Column<T> {
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
+
+    /// Iterate all values immutably.
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        self.data.iter()
+    }
+
+    /// Iterate all values mutably.
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.data.iter_mut()
+    }
 }
 
 impl<T: Send + Sync + 'static> AnyColumn for Column<T> {
@@ -349,6 +359,72 @@ impl Archetype {
         (removed, moved)
     }
 
+    /// Swap-remove only the entity entry at `row`, WITHOUT touching columns.
+    ///
+    /// The caller must have already moved/removed column data for this row.
+    /// Returns the removed entity and the entity that was swapped into `row` (if any).
+    pub(crate) fn swap_remove_entity_entry(&mut self, row: usize) -> (Entity, Option<Entity>) {
+        let removed = self.entities.swap_remove(row);
+        let moved = if row < self.entities.len() {
+            Some(self.entities[row])
+        } else {
+            None
+        };
+        (removed, moved)
+    }
+
+    /// Split-borrow: shared entity slice + exclusive column reference.
+    ///
+    /// Returns `None` if the archetype doesn't contain type `T`.
+    pub fn entities_and_column_mut<T: Send + Sync + 'static>(
+        &mut self,
+    ) -> Option<(&[Entity], &mut Column<T>)> {
+        let Self {
+            entities, columns, ..
+        } = self;
+        let col = columns.get_mut(&TypeId::of::<T>())?;
+        let col_typed = col.as_any_mut().downcast_mut::<Column<T>>()?;
+        Some((entities, col_typed))
+    }
+
+    /// Split-borrow: shared entity slice + two exclusive column references.
+    ///
+    /// Panics if `A == B`. Returns `None` if either type is absent.
+    pub fn entities_and_two_columns_mut<A, B>(
+        &mut self,
+    ) -> Option<(&[Entity], &mut Column<A>, &mut Column<B>)>
+    where
+        A: Send + Sync + 'static,
+        B: Send + Sync + 'static,
+    {
+        assert_ne!(
+            TypeId::of::<A>(),
+            TypeId::of::<B>(),
+            "cannot borrow the same column mutably twice"
+        );
+        let Self {
+            entities, columns, ..
+        } = self;
+        let ptr = columns as *mut HashMap<TypeId, Box<dyn AnyColumn>>;
+        // SAFETY: A != B (asserted above), so `get_mut` returns pointers to two
+        // distinct Box<dyn AnyColumn> heap allocations. The two temporary &mut to
+        // HashMap entries access different keys, and because values are boxed
+        // (heap-allocated), the returned &mut Column<T> references point into
+        // separate allocations with no overlap. No insertion occurs, so no
+        // reallocation can invalidate either pointer.
+        unsafe {
+            let col_a = (*ptr)
+                .get_mut(&TypeId::of::<A>())?
+                .as_any_mut()
+                .downcast_mut::<Column<A>>()?;
+            let col_b = (*ptr)
+                .get_mut(&TypeId::of::<B>())?
+                .as_any_mut()
+                .downcast_mut::<Column<B>>()?;
+            Some((&*entities, col_a, col_b))
+        }
+    }
+
     /// Get the edge cache entry for a component type.
     pub fn edge(&self, type_id: TypeId) -> Option<&ArchetypeEdge> {
         self.edges.get(&type_id)
@@ -426,6 +502,31 @@ impl ArchetypeStore {
     /// Iterate all archetypes.
     pub fn iter(&self) -> impl Iterator<Item = &Archetype> {
         self.archetypes.iter()
+    }
+
+    /// Iterate all archetypes mutably.
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Archetype> {
+        self.archetypes.iter_mut()
+    }
+
+    /// Get mutable references to two different archetypes simultaneously.
+    ///
+    /// Panics if `a == b`.
+    pub fn get_two_mut(
+        &mut self,
+        a: ArchetypeId,
+        b: ArchetypeId,
+    ) -> (&mut Archetype, &mut Archetype) {
+        assert_ne!(a, b, "get_two_mut called with same ArchetypeId");
+        let a_idx = a.0 as usize;
+        let b_idx = b.0 as usize;
+        if a_idx < b_idx {
+            let (left, right) = self.archetypes.split_at_mut(b_idx);
+            (&mut left[a_idx], &mut right[0])
+        } else {
+            let (left, right) = self.archetypes.split_at_mut(a_idx);
+            (&mut right[0], &mut left[b_idx])
+        }
     }
 }
 
@@ -758,5 +859,141 @@ mod tests {
         let edge = store.get(id1).edge(TypeId::of::<f64>()).unwrap();
         assert_eq!(edge.add, Some(id2));
         assert_eq!(edge.remove, None);
+    }
+
+    // ---- Column iter ------------------------------------------------------
+
+    #[test]
+    fn column_iter() {
+        let mut col = Column::<u32>::new();
+        col.push(10);
+        col.push(20);
+        col.push(30);
+        let vals: Vec<&u32> = col.iter().collect();
+        assert_eq!(vals, vec![&10, &20, &30]);
+    }
+
+    #[test]
+    fn column_iter_mut() {
+        let mut col = Column::<u32>::new();
+        col.push(1);
+        col.push(2);
+        for val in col.iter_mut() {
+            *val *= 10;
+        }
+        assert_eq!(*col.get(0).unwrap(), 10);
+        assert_eq!(*col.get(1).unwrap(), 20);
+    }
+
+    // ---- ArchetypeStore::get_two_mut --------------------------------------
+
+    #[test]
+    fn archetype_store_get_two_mut() {
+        let mut store = ArchetypeStore::new();
+        store.register_column::<u32>();
+        store.register_column::<f64>();
+
+        let l1 = ArchetypeLayout::from_type_ids(&[TypeId::of::<u32>()]);
+        let l2 = ArchetypeLayout::from_type_ids(&[TypeId::of::<f64>()]);
+        let id1 = store.get_or_create(l1);
+        let id2 = store.get_or_create(l2);
+
+        let (a1, a2) = store.get_two_mut(id1, id2);
+        assert_eq!(a1.id(), id1);
+        assert_eq!(a2.id(), id2);
+    }
+
+    #[test]
+    #[should_panic(expected = "get_two_mut called with same ArchetypeId")]
+    fn archetype_store_get_two_mut_same_panics() {
+        let mut store = ArchetypeStore::new();
+        store.register_column::<u32>();
+        let l = ArchetypeLayout::from_type_ids(&[TypeId::of::<u32>()]);
+        let id = store.get_or_create(l);
+        store.get_two_mut(id, id);
+    }
+
+    // ---- Archetype split-borrow helpers -----------------------------------
+
+    #[test]
+    fn archetype_swap_remove_entity_entry() {
+        let mut store = ArchetypeStore::new();
+        store.register_column::<u32>();
+        let layout = ArchetypeLayout::from_type_ids(&[TypeId::of::<u32>()]);
+        let arch_id = store.get_or_create(layout);
+        let arch = store.get_mut(arch_id);
+
+        let e0 = Entity {
+            index: 0,
+            generation: 0,
+        };
+        let e1 = Entity {
+            index: 1,
+            generation: 0,
+        };
+
+        arch.column_mut::<u32>().unwrap().push(10);
+        arch.push_entity(e0);
+        arch.column_mut::<u32>().unwrap().push(20);
+        arch.push_entity(e1);
+
+        // Manually remove column data first
+        arch.column_mut::<u32>().unwrap().swap_remove(0);
+        // Then remove entity entry
+        let (removed, moved) = arch.swap_remove_entity_entry(0);
+        assert_eq!(removed, e0);
+        assert_eq!(moved, Some(e1));
+        assert_eq!(arch.len(), 1);
+    }
+
+    #[test]
+    fn archetype_entities_and_column_mut() {
+        let mut store = ArchetypeStore::new();
+        store.register_column::<u32>();
+        let layout = ArchetypeLayout::from_type_ids(&[TypeId::of::<u32>()]);
+        let arch_id = store.get_or_create(layout);
+        let arch = store.get_mut(arch_id);
+
+        let e0 = Entity {
+            index: 0,
+            generation: 0,
+        };
+        arch.column_mut::<u32>().unwrap().push(42);
+        arch.push_entity(e0);
+
+        {
+            let (entities, col) = arch.entities_and_column_mut::<u32>().unwrap();
+            assert_eq!(entities.len(), 1);
+            assert_eq!(entities[0], e0);
+            *col.get_mut(0).unwrap() = 99;
+        } // mutable borrow ends here
+        assert_eq!(*arch.column::<u32>().unwrap().get(0).unwrap(), 99);
+    }
+
+    #[test]
+    fn archetype_entities_and_two_columns_mut() {
+        let mut store = ArchetypeStore::new();
+        store.register_column::<u32>();
+        store.register_column::<f64>();
+        let layout = ArchetypeLayout::from_type_ids(&[TypeId::of::<u32>(), TypeId::of::<f64>()]);
+        let arch_id = store.get_or_create(layout);
+        let arch = store.get_mut(arch_id);
+
+        let e0 = Entity {
+            index: 0,
+            generation: 0,
+        };
+        arch.column_mut::<u32>().unwrap().push(10);
+        arch.column_mut::<f64>().unwrap().push(1.5);
+        arch.push_entity(e0);
+
+        {
+            let (entities, col_u, col_f) = arch.entities_and_two_columns_mut::<u32, f64>().unwrap();
+            assert_eq!(entities[0], e0);
+            *col_u.get_mut(0).unwrap() = 20;
+            *col_f.get_mut(0).unwrap() = 2.5;
+        } // mutable borrow ends here
+        assert_eq!(*arch.column::<u32>().unwrap().get(0).unwrap(), 20);
+        assert_eq!(*arch.column::<f64>().unwrap().get(0).unwrap(), 2.5);
     }
 }
