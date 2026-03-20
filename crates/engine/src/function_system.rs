@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
-use std::marker::PhantomData;
 use crate::system_param::{Access, SystemParam};
 use crate::world::World;
+use std::marker::PhantomData;
 
 /// Trait object interface for all system types.
 pub trait System {
@@ -56,7 +56,9 @@ struct ParamSystem<F, Params> {
 }
 
 impl<F, Params> System for ParamSystem<F, Params>
-where F: SystemParamFunction<Params> {
+where
+    F: SystemParamFunction<Params>,
+{
     fn name(&self) -> &'static str {
         self.name
     }
@@ -150,11 +152,12 @@ mod tests {
 
     #[test]
     fn legacy_into_system() {
-        let mut sys: Box<dyn System> = IntoSystem::<()>::into_system(legacy_increment as LegacySystemFn, "legacy");
+        let mut sys: Box<dyn System> =
+            IntoSystem::<()>::into_system(legacy_increment as LegacySystemFn, "legacy");
         let mut world = World::new();
         world.spawn((Counter(0),));
         sys.run(&mut world);
-        assert_eq!(world.query::<Counter>()[0].1 .0, 1);
+        assert_eq!(world.query::<Counter>()[0].1.0, 1);
     }
 
     fn count_entities(query: Query<'_, Counter>) {
@@ -163,7 +166,8 @@ mod tests {
 
     #[test]
     fn one_param_into_system() {
-        let mut sys: Box<dyn System> = IntoSystem::<(Query<'_, Counter>,)>::into_system(count_entities, "count");
+        let mut sys: Box<dyn System> =
+            IntoSystem::<(Query<'_, Counter>,)>::into_system(count_entities, "count");
         let mut world = World::new();
         world.spawn((Counter(0),));
         sys.run(&mut world);
@@ -176,7 +180,11 @@ mod tests {
 
     #[test]
     fn two_param_into_system() {
-        let mut sys: Box<dyn System> = IntoSystem::<(Res<'_, Speed>, Query<'_, Counter>)>::into_system(read_speed_count_entities, "two_param");
+        let mut sys: Box<dyn System> =
+            IntoSystem::<(Res<'_, Speed>, Query<'_, Counter>)>::into_system(
+                read_speed_count_entities,
+                "two_param",
+            );
         let mut world = World::new();
         world.insert_resource(Speed(1.5));
         world.spawn((Counter(0),));
@@ -189,7 +197,8 @@ mod tests {
 
     #[test]
     fn res_mut_system_mutates() {
-        let mut sys: Box<dyn System> = IntoSystem::<(ResMut<'_, Speed>,)>::into_system(increment_speed, "inc_speed");
+        let mut sys: Box<dyn System> =
+            IntoSystem::<(ResMut<'_, Speed>,)>::into_system(increment_speed, "inc_speed");
         let mut world = World::new();
         world.insert_resource(Speed(0.0));
         sys.run(&mut world);
@@ -204,7 +213,8 @@ mod tests {
 
     #[test]
     fn query_mut_system_mutates() {
-        let mut sys: Box<dyn System> = IntoSystem::<(QueryMut<'_, Counter>,)>::into_system(increment_counters, "inc_counters");
+        let mut sys: Box<dyn System> =
+            IntoSystem::<(QueryMut<'_, Counter>,)>::into_system(increment_counters, "inc_counters");
         let mut world = World::new();
         world.spawn((Counter(0),));
         world.spawn((Counter(10),));
@@ -219,12 +229,16 @@ mod tests {
     #[test]
     #[should_panic(expected = "conflicting parameter access")]
     fn self_conflict_panics_on_registration() {
-        let _ = IntoSystem::<(Res<'_, Speed>, ResMut<'_, Speed>)>::into_system(conflicting_system, "conflict");
+        let _ = IntoSystem::<(Res<'_, Speed>, ResMut<'_, Speed>)>::into_system(
+            conflicting_system,
+            "conflict",
+        );
     }
 
     #[test]
     fn system_reports_access() {
-        let sys: Box<dyn System> = IntoSystem::<(ResMut<'_, Speed>,)>::into_system(increment_speed, "inc_speed");
+        let sys: Box<dyn System> =
+            IntoSystem::<(ResMut<'_, Speed>,)>::into_system(increment_speed, "inc_speed");
         let access = sys.access();
         assert_eq!(access.len(), 1);
     }

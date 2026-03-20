@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
-use std::any::TypeId;
-use std::ops::{Deref, DerefMut};
-use crate::world::World;
 use crate::component::Component;
 use crate::entity::Entity;
+use crate::world::World;
+use std::any::TypeId;
+use std::ops::{Deref, DerefMut};
 
 /// Describes what a system parameter accesses — used for conflict detection.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -82,15 +82,21 @@ pub struct Res<'w, T: 'static> {
 
 impl<T: 'static> Deref for Res<'_, T> {
     type Target = T;
-    fn deref(&self) -> &T { self.value }
+    fn deref(&self) -> &T {
+        self.value
+    }
 }
 
 // SAFETY: access() correctly reports ResRead. fetch() only reads the resource.
 unsafe impl<T: 'static> SystemParam for Res<'_, T> {
     type Item<'w> = Res<'w, T>;
-    fn access() -> Vec<Access> { vec![Access::ResRead(TypeId::of::<T>())] }
+    fn access() -> Vec<Access> {
+        vec![Access::ResRead(TypeId::of::<T>())]
+    }
     unsafe fn fetch<'w>(world: *mut World) -> Res<'w, T> {
-        Res { value: unsafe { (*world).resource::<T>() } }
+        Res {
+            value: unsafe { (*world).resource::<T>() },
+        }
     }
 }
 
@@ -100,19 +106,27 @@ pub struct ResMut<'w, T: 'static> {
 
 impl<T: 'static> Deref for ResMut<'_, T> {
     type Target = T;
-    fn deref(&self) -> &T { self.value }
+    fn deref(&self) -> &T {
+        self.value
+    }
 }
 
 impl<T: 'static> DerefMut for ResMut<'_, T> {
-    fn deref_mut(&mut self) -> &mut T { self.value }
+    fn deref_mut(&mut self) -> &mut T {
+        self.value
+    }
 }
 
 // SAFETY: access() correctly reports ResWrite. fetch() only mutates this resource.
 unsafe impl<T: 'static> SystemParam for ResMut<'_, T> {
     type Item<'w> = ResMut<'w, T>;
-    fn access() -> Vec<Access> { vec![Access::ResWrite(TypeId::of::<T>())] }
+    fn access() -> Vec<Access> {
+        vec![Access::ResWrite(TypeId::of::<T>())]
+    }
     unsafe fn fetch<'w>(world: *mut World) -> ResMut<'w, T> {
-        ResMut { value: unsafe { (*world).resource_mut::<T>() } }
+        ResMut {
+            value: unsafe { (*world).resource_mut::<T>() },
+        }
     }
 }
 
@@ -124,16 +138,24 @@ impl<'w, T: Component> Query<'w, T> {
     pub fn iter(&self) -> impl Iterator<Item = (Entity, &T)> {
         self.results.iter().map(|&(e, v)| (e, v))
     }
-    pub fn is_empty(&self) -> bool { self.results.is_empty() }
-    pub fn len(&self) -> usize { self.results.len() }
+    pub fn is_empty(&self) -> bool {
+        self.results.is_empty()
+    }
+    pub fn len(&self) -> usize {
+        self.results.len()
+    }
 }
 
 // SAFETY: access() correctly reports CompRead.
 unsafe impl<T: Component> SystemParam for Query<'_, T> {
     type Item<'w> = Query<'w, T>;
-    fn access() -> Vec<Access> { vec![Access::CompRead(TypeId::of::<T>())] }
+    fn access() -> Vec<Access> {
+        vec![Access::CompRead(TypeId::of::<T>())]
+    }
     unsafe fn fetch<'w>(world: *mut World) -> Query<'w, T> {
-        Query { results: unsafe { (*world).query::<T>() } }
+        Query {
+            results: unsafe { (*world).query::<T>() },
+        }
     }
 }
 
@@ -145,23 +167,33 @@ impl<'w, T: Component> QueryMut<'w, T> {
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (Entity, &mut T)> + '_ {
         self.results.iter_mut().map(|(e, v)| (*e, &mut **v))
     }
-    pub fn is_empty(&self) -> bool { self.results.is_empty() }
-    pub fn len(&self) -> usize { self.results.len() }
+    pub fn is_empty(&self) -> bool {
+        self.results.is_empty()
+    }
+    pub fn len(&self) -> usize {
+        self.results.len()
+    }
 }
 
 // SAFETY: access() correctly reports CompWrite.
 unsafe impl<T: Component> SystemParam for QueryMut<'_, T> {
     type Item<'w> = QueryMut<'w, T>;
-    fn access() -> Vec<Access> { vec![Access::CompWrite(TypeId::of::<T>())] }
+    fn access() -> Vec<Access> {
+        vec![Access::CompWrite(TypeId::of::<T>())]
+    }
     unsafe fn fetch<'w>(world: *mut World) -> QueryMut<'w, T> {
-        QueryMut { results: unsafe { (*world).query_mut::<T>() } }
+        QueryMut {
+            results: unsafe { (*world).query_mut::<T>() },
+        }
     }
 }
 
 // SAFETY: No access, no fetch.
 unsafe impl SystemParam for () {
     type Item<'w> = ();
-    fn access() -> Vec<Access> { Vec::new() }
+    fn access() -> Vec<Access> {
+        Vec::new()
+    }
     unsafe fn fetch<'w>(_world: *mut World) -> Self::Item<'w> {}
 }
 
@@ -194,15 +226,17 @@ impl_system_param_tuple!(P0, P1, P2, P3, P4, P5, P6, P7);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::world::World;
     use crate::component::Component;
+    use crate::world::World;
 
     fn type_id<T: 'static>() -> TypeId {
         TypeId::of::<T>()
     }
 
     #[derive(Debug, PartialEq)]
-    struct Pos { x: f32 }
+    struct Pos {
+        x: f32,
+    }
     impl Component for Pos {}
 
     #[test]

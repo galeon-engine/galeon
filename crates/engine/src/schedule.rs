@@ -179,9 +179,17 @@ mod tests {
         world.spawn((Counter(0),));
         world.insert_resource(DeltaTime(5.0));
         let mut schedule = Schedule::new();
-        schedule.add_system::<(QueryMut<'_, Counter>, Res<'_, DeltaTime>)>("simulate", "param_increment", param_increment);
+        schedule.add_system::<(QueryMut<'_, Counter>, Res<'_, DeltaTime>)>(
+            "simulate",
+            "param_increment",
+            param_increment,
+        );
         schedule.run(&mut world);
-        let val: Vec<u32> = world.query::<Counter>().into_iter().map(|(_, c)| c.0).collect();
+        let val: Vec<u32> = world
+            .query::<Counter>()
+            .into_iter()
+            .map(|(_, c)| c.0)
+            .collect();
         assert_eq!(val, vec![5]);
     }
 
@@ -192,9 +200,17 @@ mod tests {
         world.insert_resource(DeltaTime(10.0));
         let mut schedule = Schedule::new();
         schedule.add_system::<()>("pre", "legacy", increment_system as fn(&mut World));
-        schedule.add_system::<(QueryMut<'_, Counter>, Res<'_, DeltaTime>)>("simulate", "param", param_increment);
+        schedule.add_system::<(QueryMut<'_, Counter>, Res<'_, DeltaTime>)>(
+            "simulate",
+            "param",
+            param_increment,
+        );
         schedule.run(&mut world);
-        let val: Vec<u32> = world.query::<Counter>().into_iter().map(|(_, c)| c.0).collect();
+        let val: Vec<u32> = world
+            .query::<Counter>()
+            .into_iter()
+            .map(|(_, c)| c.0)
+            .collect();
         assert_eq!(val, vec![11]);
     }
 }

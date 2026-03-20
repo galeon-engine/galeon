@@ -446,9 +446,18 @@ mod tests {
         let mut engine = Engine::new();
         engine.insert_resource(Gravity(9.8));
         engine.world_mut().spawn((Counter(0),));
-        engine.add_system::<(QueryMut<'_, Counter>, Res<'_, Gravity>)>("update", "param", param_system);
+        engine.add_system::<(QueryMut<'_, Counter>, Res<'_, Gravity>)>(
+            "update",
+            "param",
+            param_system,
+        );
         engine.run_once();
-        let counts: Vec<u32> = engine.world().query::<Counter>().into_iter().map(|(_, c)| c.0).collect();
+        let counts: Vec<u32> = engine
+            .world()
+            .query::<Counter>()
+            .into_iter()
+            .map(|(_, c)| c.0)
+            .collect();
         assert_eq!(counts, vec![1]);
     }
 }
