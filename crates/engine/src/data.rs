@@ -117,6 +117,21 @@ impl DataRegistry {
         self.units.len()
     }
 
+    /// Reload a single unit template from a RON string, replacing the existing entry.
+    ///
+    /// On success, replaces the template at `key` in the registry.
+    /// On error, returns the parse error WITHOUT modifying the registry.
+    pub fn reload_unit(&mut self, key: &str, ron_str: &str) -> Result<(), Box<DataLoadError>> {
+        let template: UnitTemplate = ron::from_str(ron_str).map_err(|e| {
+            Box::new(DataLoadError::RonParse {
+                key: key.to_string(),
+                source: e,
+            })
+        })?;
+        self.units.insert(key.to_string(), template);
+        Ok(())
+    }
+
     /// Merge another registry into this one.
     pub fn merge(&mut self, other: DataRegistry) {
         self.units.extend(other.units);
@@ -234,6 +249,41 @@ mod tests {
         let template: UnitTemplate = ron::from_str(ron_str).unwrap();
         assert_eq!(template.stats.combat_rating, 0);
         assert!((template.stats.build_time - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn reload_unit_updates_existing() {
+        let ron_v1 = r#"UnitTemplate(name: "Scout", stats: UnitStats(hp: 50, speed: 80.0))"#;
+        let mut registry = DataRegistry::load_unit_from_str("scout", ron_v1).unwrap();
+        assert_eq!(registry.unit("scout").unwrap().stats.hp, 50);
+
+        let ron_v2 = r#"UnitTemplate(name: "Scout", stats: UnitStats(hp: 75, speed: 90.0))"#;
+        registry.reload_unit("scout", ron_v2).unwrap();
+        assert_eq!(registry.unit("scout").unwrap().stats.hp, 75);
+        assert!((registry.unit("scout").unwrap().stats.speed - 90.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn reload_unit_preserves_on_error() {
+        let ron_v1 = r#"UnitTemplate(name: "Scout", stats: UnitStats(hp: 50, speed: 80.0))"#;
+        let mut registry = DataRegistry::load_unit_from_str("scout", ron_v1).unwrap();
+
+        let bad_ron = r#"UnitTemplate(name: "Scout", stats: UnitStats(hp: "not a number"))"#;
+        let result = registry.reload_unit("scout", bad_ron);
+        assert!(result.is_err());
+        // Old data preserved
+        assert_eq!(registry.unit("scout").unwrap().stats.hp, 50);
+    }
+
+    #[test]
+    fn reload_unit_adds_new_entry() {
+        let mut registry = DataRegistry::new();
+        assert_eq!(registry.unit_count(), 0);
+
+        let ron_str = r#"UnitTemplate(name: "Tank", stats: UnitStats(hp: 200, speed: 20.0))"#;
+        registry.reload_unit("tank", ron_str).unwrap();
+        assert_eq!(registry.unit_count(), 1);
+        assert_eq!(registry.unit("tank").unwrap().stats.hp, 200);
     }
 
     #[test]

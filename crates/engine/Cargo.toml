@@ -5,10 +5,15 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+hot-reload = ["dep:notify", "dep:notify-debouncer-mini"]
+
 [dependencies]
 galeon-engine-macros = { path = "../engine-macros" }
 serde = { workspace = true }
 ron = { workspace = true }
+notify = { workspace = true, optional = true }
+notify-debouncer-mini = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = "3"
