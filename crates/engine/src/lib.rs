@@ -25,9 +25,9 @@ pub use engine::{Engine, Plugin};
 pub use entity::Entity;
 pub use galeon_engine_macros::Component;
 pub use game_loop::FixedTimestep;
+pub use hot_reload::{AssetEvent, AssetEvents, TemplateRef};
 #[cfg(feature = "hot-reload")]
-pub use hot_reload::FileWatcher;
-pub use hot_reload::{AssetEvent, AssetEvents};
+pub use hot_reload::{FileWatcher, HotReloadPlugin};
 pub use render::{MaterialHandle, MeshHandle, Transform, Visibility};
 pub use schedule::Schedule;
 pub use virtual_time::VirtualTime;

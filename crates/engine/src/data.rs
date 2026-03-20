@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
+use crate::component::Component;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -15,6 +16,8 @@ pub struct UnitStats {
     #[serde(default)]
     pub build_time: f32,
 }
+
+impl Component for UnitStats {}
 
 /// A unit template loaded from a RON file.
 ///
