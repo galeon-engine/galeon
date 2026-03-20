@@ -239,7 +239,6 @@ pub struct ArchetypeEdge {
 ///
 /// Columns are independently borrowable — no double-borrow of a `HashMap`
 /// needed for multi-component queries.
-#[allow(dead_code)]
 pub struct Archetype {
     id: ArchetypeId,
     layout: ArchetypeLayout,
@@ -251,7 +250,6 @@ pub struct Archetype {
     edges: HashMap<TypeId, ArchetypeEdge>,
 }
 
-#[allow(dead_code)]
 impl Archetype {
     /// Create a new empty archetype. Each type in `layout` gets an empty column
     /// created by `column_factories` — one factory per `TypeId`.
@@ -431,6 +429,7 @@ impl Archetype {
     }
 
     /// Insert or update an edge cache entry.
+    #[allow(dead_code)]
     pub(crate) fn set_edge(&mut self, type_id: TypeId, edge: ArchetypeEdge) {
         self.edges.insert(type_id, edge);
     }
