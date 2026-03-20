@@ -83,3 +83,4 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - WASM bridge (`engine-three-sync`) with `wasm-bindgen` version export
 - Dual license: AGPL-3.0 + Commercial with tiered royalties
 - GitHub Actions CI: Rust (fmt, clippy, test, WASM check) + TypeScript (tsc)
+

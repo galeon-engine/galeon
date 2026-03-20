@@ -1,4 +1,4 @@
-# Systems — Parameter Extraction
+# Systems - Parameter Extraction
 
 Systems in Galeon are plain Rust functions. Instead of manually extracting
 data from the world, systems declare what they need in their signature:
@@ -18,9 +18,9 @@ fn movement_system(world: &mut World) {
 
 ```rust
 fn movement_system(
-    mut positions: QueryMut<Position>,
-    velocities: Query<Velocity>,
-    dt: Res<DeltaTime>,
+    mut positions: QueryMut<'_, Position>,
+    velocities: Query<'_, Velocity>,
+    dt: Res<'_, DeltaTime>,
 ) {
     for (_, pos) in positions.iter_mut() {
         pos.x += dt.0 as f32;
@@ -41,11 +41,21 @@ Systems support up to 8 parameters.
 
 ## Registration
 
+Parameterized systems currently require an explicit parameter tuple at registration:
+
 ```rust
-engine.add_system("simulate", "movement", movement_system);
+engine.add_system::<(QueryMut<'_, Position>, Query<'_, Velocity>, Res<'_, DeltaTime>)>(
+    "simulate",
+    "movement",
+    movement_system,
+);
 ```
 
-Old-style `fn(&mut World)` systems continue to work unchanged.
+Legacy `fn(&mut World)` systems still work, but registration must also be explicit:
+
+```rust
+engine.add_system::<()>("update", "legacy", legacy_system as fn(&mut World));
+```
 
 ## Conflict Detection
 
@@ -54,9 +64,8 @@ parameters. For example, `Res<T>` and `ResMut<T>` for the same `T` in the
 same system will panic:
 
 ```rust
-// This panics at registration:
-fn bad_system(a: Res<Time>, b: ResMut<Time>) { ... }
-engine.add_system("update", "bad", bad_system); // PANIC
+fn bad_system(a: Res<'_, Time>, b: ResMut<'_, Time>) { todo!() }
+engine.add_system::<(Res<'_, Time>, ResMut<'_, Time>)>("update", "bad", bad_system); // PANIC
 ```
 
 Different types never conflict: `Res<Time>` + `ResMut<Config>` is fine.
@@ -66,8 +75,5 @@ a component, which is unusual but valid).
 
 ## Limitations
 
-- Queries are single-component. For multi-component queries (like
-  `query2_mut`), use `fn(&mut World)` style or combine two separate
-  Query/QueryMut params.
-- No `Changed<T>` or `Added<T>` filter parameters yet — use
-  `world.query_changed::<T>(since)` directly.
+- Queries are single-component. For multi-component queries (like `query2_mut`), use `fn(&mut World)` style or combine two separate `Query`/`QueryMut` params.
+- No `Changed<T>` or `Added<T>` filter parameters yet - use `world.query_changed::<T>(since)` directly.

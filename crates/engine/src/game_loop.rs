@@ -137,11 +137,11 @@ mod tests {
         let mut schedule = Schedule::new();
         schedule.add_system::<()>("simulate", "count", count_system as fn(&mut World));
 
-        // 0.05s — not enough for a tick
+        // 0.05s â€” not enough for a tick
         let ticks = tick(&mut world, &mut schedule, 0.05);
         assert_eq!(ticks, 0);
 
-        // Another 0.06s — total 0.11s, enough for 1 tick (0.01s remainder)
+        // Another 0.06s â€” total 0.11s, enough for 1 tick (0.01s remainder)
         let ticks = tick(&mut world, &mut schedule, 0.06);
         assert_eq!(ticks, 1);
 
@@ -189,7 +189,7 @@ mod tests {
         world.spawn((TickCounter(0),));
 
         let mut schedule = Schedule::new();
-        schedule.add_system("simulate", "count", count_system);
+        schedule.add_system::<()>("simulate", "count", count_system as fn(&mut World));
 
         let ticks = tick(&mut world, &mut schedule, 0.25);
         assert_eq!(ticks, 2);
@@ -205,7 +205,7 @@ mod tests {
         world.spawn((TickCounter(0),));
 
         let mut schedule = Schedule::new();
-        schedule.add_system("simulate", "count", count_system);
+        schedule.add_system::<()>("simulate", "count", count_system as fn(&mut World));
 
         let ticks = tick(&mut world, &mut schedule, 1.0);
         assert_eq!(ticks, 0);
@@ -228,7 +228,7 @@ mod tests {
         world.spawn((TickCounter(0),));
 
         let mut schedule = Schedule::new();
-        schedule.add_system("simulate", "count", count_system);
+        schedule.add_system::<()>("simulate", "count", count_system as fn(&mut World));
 
         // 0.1s real at 2x scale = 0.2s virtual = 2 ticks at 10 Hz
         let ticks = tick(&mut world, &mut schedule, 0.1);
@@ -243,7 +243,7 @@ mod tests {
         world.spawn((TickCounter(0),));
 
         let mut schedule = Schedule::new();
-        schedule.add_system("simulate", "count", count_system);
+        schedule.add_system::<()>("simulate", "count", count_system as fn(&mut World));
 
         // 5.0s real, clamped to 0.25s virtual = 2 ticks (not 50!)
         let ticks = tick(&mut world, &mut schedule, 5.0);

@@ -104,7 +104,7 @@ A system is a function that operates on world data. Systems can declare
 their parameters directly in the function signature:
 
 ```rust
-fn movement_system(mut positions: QueryMut<Position>, dt: Res<DeltaTime>) {
+fn movement_system(mut positions: QueryMut<'_, Position>, dt: Res<'_, DeltaTime>) {
     for (_, pos) in positions.iter_mut() {
         pos.x += dt.0 as f32;
     }
@@ -130,10 +130,10 @@ Within a stage, systems run in registration order.
 
 ```rust
 let mut schedule = Schedule::new();
-schedule.add_system("input",    "read_input",  input_system);
-schedule.add_system("simulate", "movement",    movement_system);
-schedule.add_system("simulate", "combat",      combat_system);
-schedule.add_system("sync",     "three_sync",  sync_system);
+schedule.add_system::<()>("input", "read_input", input_system as fn(&mut World));
+schedule.add_system::<(QueryMut<'_, Position>, Res<'_, DeltaTime>)>("simulate", "movement", movement_system);
+schedule.add_system::<()>("simulate", "combat", combat_system as fn(&mut World));
+schedule.add_system::<()>("sync", "three_sync", sync_system as fn(&mut World));
 
 // Run one tick
 schedule.run(&mut world);
@@ -166,3 +166,4 @@ and downcast on every access.
 
 Currently all components use typed sparse sets. Cold/sparse-side storage for
 editor metadata is a planned future addition.
+

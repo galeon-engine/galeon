@@ -334,8 +334,8 @@ mod tests {
     #[test]
     fn tick_inserts_default_timestep_when_absent() {
         let mut engine = Engine::new();
-        // No FixedTimestep inserted — tick should not panic.
-        let ticks = engine.tick(0.05); // 0.05 s < 0.1 s step → 0 ticks
+        // No FixedTimestep inserted â€” tick should not panic.
+        let ticks = engine.tick(0.05); // 0.05 s < 0.1 s step â†’ 0 ticks
         assert_eq!(ticks, 0);
     }
 
@@ -347,7 +347,7 @@ mod tests {
         engine.world_mut().spawn((Counter(0),));
         engine.add_system::<()>("update", "increment", increment as fn(&mut World));
 
-        // 0.35 s at 10 Hz → 3 ticks (same as game_loop test)
+        // 0.35 s at 10 Hz â†’ 3 ticks (same as game_loop test)
         let ticks = engine.tick(0.35);
         assert_eq!(ticks, 3);
 
@@ -363,7 +363,7 @@ mod tests {
     #[test]
     fn tick_returns_correct_tick_count() {
         let mut engine = Engine::new();
-        // Default 10 Hz → 0.25 s yields 2 ticks
+        // Default 10 Hz â†’ 0.25 s yields 2 ticks
         let ticks = engine.tick(0.25);
         assert_eq!(ticks, 2);
     }
@@ -388,7 +388,7 @@ mod tests {
     fn pause_stops_ticks() {
         let mut engine = Engine::new();
         engine.world_mut().spawn((Counter(0),));
-        engine.add_system("update", "increment", increment);
+        engine.add_system::<()>("update", "increment", increment as fn(&mut World));
 
         engine.pause();
         engine.tick(1.0);
@@ -406,7 +406,7 @@ mod tests {
     fn set_speed_doubles_ticks() {
         let mut engine = Engine::new();
         engine.world_mut().spawn((Counter(0),));
-        engine.add_system("update", "increment", increment);
+        engine.add_system::<()>("update", "increment", increment as fn(&mut World));
 
         engine.set_speed(2.0);
         // 0.1s real at 2x = 0.2s virtual, default 10 Hz = 2 ticks
