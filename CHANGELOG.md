@@ -9,6 +9,20 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Archetype storage core types: `ArchetypeId`, `ArchetypeLayout`, `Column<T>`,
+  `AnyColumn` trait, `Archetype`, `ArchetypeStore`, and edge cache for O(1)
+  archetype transitions
+  ([#27](https://github.com/galeon-engine/galeon/issues/27))
+- `EntityMeta` + `EntityMetaStore` — location-aware entity allocator tracking
+  archetype ID and row for O(1) entity lookup
+  ([#27](https://github.com/galeon-engine/galeon/issues/27))
+
+### Changed
+
+- `Component` trait now requires `Send + Sync + 'static` (previously only
+  `'static`), preparing for thread-safe archetype storage
+  ([#27](https://github.com/galeon-engine/galeon/issues/27))
+
 - Virtual time resource: pause, speed scaling (0–8×), and max-delta clamping
   to prevent death spirals. Opt-in via `VirtualTime` resource; backward
   compatible when absent
