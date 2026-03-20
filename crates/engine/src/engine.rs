@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
+use crate::function_system::IntoSystem;
 use crate::game_loop::{self, FixedTimestep};
-use crate::schedule::{Schedule, SystemFn};
+use crate::schedule::Schedule;
 use crate::virtual_time::VirtualTime;
 use crate::world::World;
 
@@ -20,7 +21,7 @@ use crate::world::World;
 /// struct MyPlugin;
 /// impl Plugin for MyPlugin {
 ///     fn build(&self, engine: &mut Engine) {
-///         engine.add_system("update", "my_system", my_system);
+///         engine.add_system::<()>("update", "my_system", my_system as fn(&mut galeon_engine::World));
 ///     }
 /// }
 ///
@@ -68,13 +69,13 @@ impl Engine {
     /// Add a system to the schedule.
     ///
     /// Delegates to [`Schedule::add_system`]. Returns `&mut Self` for chaining.
-    pub fn add_system(
+    pub fn add_system<P>(
         &mut self,
         stage: &'static str,
         name: &'static str,
-        func: SystemFn,
+        system: impl IntoSystem<P>,
     ) -> &mut Self {
-        self.schedule.add_system(stage, name, func);
+        self.schedule.add_system(stage, name, system);
         self
     }
 
@@ -109,7 +110,7 @@ impl Engine {
         if !self.has_timestep() {
             self.world.insert_resource(FixedTimestep::default_rts());
         }
-        game_loop::tick(&mut self.world, &self.schedule, elapsed)
+        game_loop::tick(&mut self.world, &mut self.schedule, elapsed)
     }
 
     /// Run the schedule exactly once without any fixed-timestep logic.
@@ -204,7 +205,7 @@ impl Default for Engine {
 ///
 /// impl Plugin for PhysicsPlugin {
 ///     fn build(&self, engine: &mut Engine) {
-///         engine.add_system("simulate", "physics", physics_system);
+///         engine.add_system::<()>("simulate", "physics", physics_system as fn(&mut World));
 ///     }
 /// }
 /// ```
@@ -257,7 +258,7 @@ mod tests {
     #[test]
     fn add_system_registers_system() {
         let mut engine = Engine::new();
-        engine.add_system("update", "increment", increment);
+        engine.add_system::<()>("update", "increment", increment as fn(&mut World));
         assert_eq!(engine.schedule().system_count(), 1);
     }
 
@@ -265,8 +266,8 @@ mod tests {
     fn add_system_is_chainable() {
         let mut engine = Engine::new();
         engine
-            .add_system("pre", "increment", increment)
-            .add_system("post", "increment", increment);
+            .add_system::<()>("pre", "increment", increment as fn(&mut World))
+            .add_system::<()>("post", "increment", increment as fn(&mut World));
         assert_eq!(engine.schedule().system_count(), 2);
     }
 
@@ -286,7 +287,7 @@ mod tests {
     struct IncrementPlugin;
     impl Plugin for IncrementPlugin {
         fn build(&self, engine: &mut Engine) {
-            engine.add_system("update", "increment", increment);
+            engine.add_system::<()>("update", "increment", increment as fn(&mut World));
         }
     }
 
@@ -314,7 +315,7 @@ mod tests {
     fn run_once_executes_schedule() {
         let mut engine = Engine::new();
         engine.world_mut().spawn((Counter(0),));
-        engine.add_system("update", "increment", increment);
+        engine.add_system::<()>("update", "increment", increment as fn(&mut World));
         engine.run_once();
 
         let counts: Vec<u32> = engine
@@ -344,7 +345,7 @@ mod tests {
         // Use 10 Hz (0.1 s/tick) to avoid floating-point accumulation issues.
         engine.world_mut().insert_resource(FixedTimestep::new(10.0));
         engine.world_mut().spawn((Counter(0),));
-        engine.add_system("update", "increment", increment);
+        engine.add_system::<()>("update", "increment", increment as fn(&mut World));
 
         // 0.35 s at 10 Hz → 3 ticks (same as game_loop test)
         let ticks = engine.tick(0.35);
@@ -428,5 +429,26 @@ mod tests {
 
         engine.pause();
         assert!(engine.world().try_resource::<VirtualTime>().is_some());
+    }
+
+    use crate::system_param::{QueryMut, Res};
+
+    struct Gravity(f32);
+
+    fn param_system(mut counters: QueryMut<'_, Counter>, _gravity: Res<'_, Gravity>) {
+        for (_, c) in counters.iter_mut() {
+            c.0 += 1;
+        }
+    }
+
+    #[test]
+    fn engine_accepts_parameterized_system() {
+        let mut engine = Engine::new();
+        engine.insert_resource(Gravity(9.8));
+        engine.world_mut().spawn((Counter(0),));
+        engine.add_system::<(QueryMut<'_, Counter>, Res<'_, Gravity>)>("update", "param", param_system);
+        engine.run_once();
+        let counts: Vec<u32> = engine.world().query::<Counter>().into_iter().map(|(_, c)| c.0).collect();
+        assert_eq!(counts, vec![1]);
     }
 }
