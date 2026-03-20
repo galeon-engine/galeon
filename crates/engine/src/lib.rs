@@ -14,6 +14,7 @@ pub mod game_loop;
 pub mod render;
 mod resource;
 pub mod schedule;
+pub mod virtual_time;
 pub mod world;
 
 // Re-exports for ergonomic API.
@@ -25,6 +26,7 @@ pub use galeon_engine_macros::Component;
 pub use game_loop::FixedTimestep;
 pub use render::{MaterialHandle, MeshHandle, Transform, Visibility};
 pub use schedule::Schedule;
+pub use virtual_time::VirtualTime;
 pub use world::World;
 
 /// Returns the engine version string.

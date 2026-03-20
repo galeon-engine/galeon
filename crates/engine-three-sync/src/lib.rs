@@ -62,6 +62,26 @@ impl WasmEngine {
         let snap = extract_debug_snapshot(self.engine.world());
         snapshot_to_json(&snap)
     }
+
+    /// Pause the simulation.
+    pub fn pause(&mut self) {
+        self.engine.pause();
+    }
+
+    /// Resume the simulation.
+    pub fn resume(&mut self) {
+        self.engine.resume();
+    }
+
+    /// Set simulation speed (1.0 = normal, 2.0 = fast, 0.5 = slow).
+    pub fn set_speed(&mut self, scale: f64) {
+        self.engine.set_speed(scale);
+    }
+
+    /// Returns true if paused.
+    pub fn is_paused(&self) -> bool {
+        self.engine.is_paused()
+    }
 }
 
 // =============================================================================

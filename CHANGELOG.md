@@ -9,6 +9,18 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Virtual time resource: pause, speed scaling (0–8×), and max-delta clamping
+  to prevent death spirals. Opt-in via `VirtualTime` resource; backward
+  compatible when absent
+  ([#13](https://github.com/galeon-engine/galeon/issues/13))
+- `Engine::pause()`, `Engine::resume()`, `Engine::set_speed(scale)` convenience
+  API with lazy `VirtualTime` insertion
+  ([#13](https://github.com/galeon-engine/galeon/issues/13))
+- `WasmEngine::pause()`, `resume()`, `set_speed()`, `is_paused()` WASM bindings
+  for JS host time control
+  ([#13](https://github.com/galeon-engine/galeon/issues/13))
+- `docs/guide/time.md` — virtual time guide
+  ([#13](https://github.com/galeon-engine/galeon/issues/13))
 - Render extraction pipeline: `Transform`, `Visibility`, `MeshHandle`,
   `MaterialHandle` components with flat array layout for typed-buffer transport
   ([#15](https://github.com/galeon-engine/galeon/issues/15))
