@@ -17,6 +17,7 @@ pub trait Component: Send + Sync + 'static {}
 /// Stores components in a dense `Vec<T>` — no boxing, no runtime downcasts.
 /// Sparse set gives O(1) insert/get/remove and dense iteration — ideal for
 /// RTS entities that frequently gain/lose components.
+#[allow(dead_code)]
 pub(crate) struct TypedSparseSet<T> {
     /// Sparse array: entity index → dense index (or `u32::MAX` if absent).
     sparse: Vec<u32>,
@@ -26,6 +27,7 @@ pub(crate) struct TypedSparseSet<T> {
     data: Vec<T>,
 }
 
+#[allow(dead_code)]
 impl<T> TypedSparseSet<T> {
     pub fn new() -> Self {
         Self {
@@ -161,6 +163,7 @@ impl<T> TypedSparseSet<T> {
 /// This allows `ComponentStorage` to hold heterogeneous `TypedSparseSet<T>`
 /// values in a single `HashMap` while still supporting operations like
 /// `remove_all` that don't need the concrete type.
+#[allow(dead_code)]
 pub(crate) trait AnyComponentStore: Any {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
@@ -192,10 +195,12 @@ impl<T: 'static> AnyComponentStore for TypedSparseSet<T> {
 /// object happens once per query call (at the storage level), not once per
 /// entity — a major improvement over the previous `Box<dyn Any>` per-component
 /// design.
+#[allow(dead_code)]
 pub(crate) struct ComponentStorage {
     sets: HashMap<TypeId, Box<dyn AnyComponentStore>>,
 }
 
+#[allow(dead_code)]
 impl ComponentStorage {
     pub fn new() -> Self {
         Self {
