@@ -100,17 +100,28 @@ let dt = world.resource::<DeltaTime>().0;
 
 ## Systems
 
-A system is a plain function that takes `&mut World`:
+A system is a function that operates on world data. Systems can declare
+their parameters directly in the function signature:
 
 ```rust
-fn movement_system(world: &mut World) {
-    let dt = world.resource::<DeltaTime>().0;
-    for (_, pos, vel) in world.query2_mut::<Position, Velocity>() {
-        pos.x += vel.x * dt;
-        pos.y += vel.y * dt;
+fn movement_system(mut positions: QueryMut<Position>, dt: Res<DeltaTime>) {
+    for (_, pos) in positions.iter_mut() {
+        pos.x += dt.0 as f32;
     }
 }
 ```
+
+The old `fn(&mut World)` style also works:
+
+```rust
+fn legacy_system(world: &mut World) {
+    for (_, pos) in world.query_mut::<Position>() {
+        pos.x += 1.0;
+    }
+}
+```
+
+See [systems.md](systems.md) for the full parameter extraction guide.
 
 ## Schedule
 

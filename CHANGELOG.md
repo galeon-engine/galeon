@@ -9,7 +9,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Virtual time resource: pause, speed scaling (0–8×), and max-delta clamping
+- Virtual time resource: pause, speed scaling (0-8x), and max-delta clamping
   to prevent death spirals. Opt-in via `VirtualTime` resource; backward
   compatible when absent
   ([#13](https://github.com/galeon-engine/galeon/issues/13))
@@ -19,8 +19,13 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `WasmEngine::pause()`, `resume()`, `set_speed()`, `is_paused()` WASM bindings
   for JS host time control
   ([#13](https://github.com/galeon-engine/galeon/issues/13))
-- `docs/guide/time.md` — virtual time guide
+- `docs/guide/time.md` - virtual time guide
   ([#13](https://github.com/galeon-engine/galeon/issues/13))
+- System parameter extraction (#9): systems can now declare data access in
+  their signature - `Res<T>`, `ResMut<T>`, `Query<T>`, `QueryMut<T>`.
+  Supports up to 8 parameters. Old-style `fn(&mut World)` systems continue
+  to work unchanged. Intra-system conflict detection panics at registration
+  time if parameters would alias.
 - Render extraction pipeline: `Transform`, `Visibility`, `MeshHandle`,
   `MaterialHandle` components with flat array layout for typed-buffer transport
   ([#15](https://github.com/galeon-engine/galeon/issues/15))
@@ -32,10 +37,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `WasmEngine` (tick + extract) and `WasmFramePacket` (getter-based flat array
   access) WASM bindings
   ([#15](https://github.com/galeon-engine/galeon/issues/15))
-- `RendererCache` in `@galeon/engine-ts` — Three.js scene graph sync from
+- `RendererCache` in `@galeon/engine-ts` - Three.js scene graph sync from
   extraction tables with create/update/remove lifecycle
   ([#15](https://github.com/galeon-engine/galeon/issues/15))
-- `DebugSnapshot` tooling path — JSON serialisation of render-facing world
+- `DebugSnapshot` tooling path - JSON serialisation of render-facing world
   state, separate from the hot render path
   ([#15](https://github.com/galeon-engine/galeon/issues/15))
 - `docs/guide/three-sync.md` documenting the render extraction hot-path
@@ -56,10 +61,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `Plugin` trait (`fn build(&self, engine: &mut Engine)`) for bundling systems
   and resources into reusable units
   ([#8](https://github.com/galeon-engine/galeon/issues/8))
-- `World::try_resource<T>()` — non-panicking resource probe returning
+- `World::try_resource<T>()` - non-panicking resource probe returning
   `Option<&T>`
   ([#8](https://github.com/galeon-engine/galeon/issues/8))
-- `docs/guide/plugins.md` — guide covering the builder API and plugin system
+- `docs/guide/plugins.md` - guide covering the builder API and plugin system
   ([#8](https://github.com/galeon-engine/galeon/issues/8))
 - Fixed-step game loop with time accumulator (default 10 Hz for RTS)
   ([#6](https://github.com/galeon-engine/galeon/issues/6))
