@@ -211,7 +211,11 @@ mod tests {
         let ticks = tick(&mut world, &schedule, 1.0);
         assert_eq!(ticks, 0);
 
-        let counts: Vec<u32> = world.query::<TickCounter>().into_iter().map(|(_, c)| c.0).collect();
+        let counts: Vec<u32> = world
+            .query::<TickCounter>()
+            .into_iter()
+            .map(|(_, c)| c.0)
+            .collect();
         assert_eq!(counts, vec![0]);
     }
 

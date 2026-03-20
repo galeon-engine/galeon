@@ -2,6 +2,7 @@
 
 use crate::game_loop::{self, FixedTimestep};
 use crate::schedule::{Schedule, SystemFn};
+use crate::virtual_time::VirtualTime;
 use crate::world::World;
 
 /// The central game engine object.
@@ -119,6 +120,45 @@ impl Engine {
     }
 
     // -------------------------------------------------------------------------
+    // Virtual time controls
+    // -------------------------------------------------------------------------
+
+    /// Pause the simulation. Ticks will produce zero simulation steps.
+    ///
+    /// Lazily inserts a default `VirtualTime` if not already present.
+    pub fn pause(&mut self) {
+        self.ensure_virtual_time();
+        self.world.resource_mut::<VirtualTime>().paused = true;
+    }
+
+    /// Resume the simulation after a pause.
+    ///
+    /// Lazily inserts a default `VirtualTime` if not already present.
+    pub fn resume(&mut self) {
+        self.ensure_virtual_time();
+        self.world.resource_mut::<VirtualTime>().paused = false;
+    }
+
+    /// Set the simulation speed multiplier (clamped to `[0.0, 8.0]` at tick time).
+    ///
+    /// - 1.0 = normal speed
+    /// - 2.0 = double speed (RTS fast-forward)
+    /// - 0.5 = half speed (slow-mo)
+    ///
+    /// Lazily inserts a default `VirtualTime` if not already present.
+    pub fn set_speed(&mut self, scale: f64) {
+        self.ensure_virtual_time();
+        self.world.resource_mut::<VirtualTime>().scale = scale;
+    }
+
+    /// Returns `true` if the simulation is paused.
+    pub fn is_paused(&self) -> bool {
+        self.world
+            .try_resource::<VirtualTime>()
+            .is_some_and(|vt| vt.paused)
+    }
+
+    // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
 
@@ -129,6 +169,13 @@ impl Engine {
         // internal try_get once it is available. For now we track it via a
         // small sentinel resource.
         self.world.try_resource::<FixedTimestep>().is_some()
+    }
+
+    /// Ensures a `VirtualTime` resource exists, inserting a default if absent.
+    fn ensure_virtual_time(&mut self) {
+        if self.world.try_resource::<VirtualTime>().is_none() {
+            self.world.insert_resource(VirtualTime::new());
+        }
     }
 }
 
@@ -318,5 +365,68 @@ mod tests {
         // Default 10 Hz → 0.25 s yields 2 ticks
         let ticks = engine.tick(0.25);
         assert_eq!(ticks, 2);
+    }
+
+    // -------------------------------------------------------------------------
+    // Virtual time convenience API
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn pause_and_resume() {
+        let mut engine = Engine::new();
+        assert!(!engine.is_paused());
+
+        engine.pause();
+        assert!(engine.is_paused());
+
+        engine.resume();
+        assert!(!engine.is_paused());
+    }
+
+    #[test]
+    fn pause_stops_ticks() {
+        let mut engine = Engine::new();
+        engine.world_mut().spawn((Counter(0),));
+        engine.add_system("update", "increment", increment);
+
+        engine.pause();
+        engine.tick(1.0);
+
+        let counts: Vec<u32> = engine
+            .world()
+            .query::<Counter>()
+            .into_iter()
+            .map(|(_, c)| c.0)
+            .collect();
+        assert_eq!(counts, vec![0]);
+    }
+
+    #[test]
+    fn set_speed_doubles_ticks() {
+        let mut engine = Engine::new();
+        engine.world_mut().spawn((Counter(0),));
+        engine.add_system("update", "increment", increment);
+
+        engine.set_speed(2.0);
+        // 0.1s real at 2x = 0.2s virtual, default 10 Hz = 2 ticks
+        let ticks = engine.tick(0.1);
+        assert_eq!(ticks, 2);
+    }
+
+    #[test]
+    fn set_speed_persists() {
+        let mut engine = Engine::new();
+        engine.set_speed(4.0);
+        let vt = engine.world().resource::<VirtualTime>();
+        assert!((vt.scale - 4.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn lazy_insert_virtual_time() {
+        let mut engine = Engine::new();
+        assert!(engine.world().try_resource::<VirtualTime>().is_none());
+
+        engine.pause();
+        assert!(engine.world().try_resource::<VirtualTime>().is_some());
     }
 }
