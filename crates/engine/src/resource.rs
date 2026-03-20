@@ -57,6 +57,14 @@ impl Resources {
             .unwrap()
     }
 
+    /// Try to remove and return a resource. Returns `None` if not present.
+    pub fn try_take<T: 'static>(&mut self) -> Option<T> {
+        self.map
+            .remove(&TypeId::of::<T>())
+            .and_then(|v| v.downcast::<T>().ok())
+            .map(|b| *b)
+    }
+
     /// Returns `true` if the resource exists.
     pub fn contains<T: 'static>(&self) -> bool {
         self.map.contains_key(&TypeId::of::<T>())

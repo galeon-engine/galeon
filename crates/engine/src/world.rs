@@ -104,6 +104,11 @@ impl World {
         self.resources.take::<T>()
     }
 
+    /// Try to remove and return a resource. Returns `None` if not present.
+    pub fn try_take_resource<T: 'static>(&mut self) -> Option<T> {
+        self.resources.try_take::<T>()
+    }
+
     /// Get a component for an entity.
     pub fn get<T: Component>(&self, entity: Entity) -> Option<&T> {
         if !self.entities.is_alive(entity) {
