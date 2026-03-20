@@ -24,11 +24,13 @@ pub use component::Component;
 pub use data::{DataRegistry, UnitStats, UnitTemplate};
 pub use engine::{Engine, Plugin};
 pub use entity::Entity;
+pub use function_system::{IntoSystem, System};
 pub use galeon_engine_macros::Component;
 pub use game_loop::FixedTimestep;
 pub use render::{MaterialHandle, MeshHandle, Transform, Visibility};
 pub use schedule::Schedule;
 pub use virtual_time::VirtualTime;
+pub use system_param::{Access, Query, QueryMut, Res, ResMut, SystemParam};
 pub use world::World;
 
 /// Returns the engine version string.
