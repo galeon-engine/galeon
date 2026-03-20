@@ -192,7 +192,9 @@ let all: Vec<_> = world.query_changed::<Position>(0);
 
 ### Tracking Your Own "Last Seen" Tick
 
-Systems that need incremental processing should store their own tick:
+Systems that need incremental processing should store their own tick. Read the
+saved tick first, run the query, then write back the current tick after
+processing:
 
 ```rust
 struct MySystemState {
@@ -200,15 +202,21 @@ struct MySystemState {
 }
 
 fn my_system(world: &mut World) {
-    let state = world.resource_mut::<MySystemState>();
-    let since = state.last_tick;
-    state.last_tick = world.current_tick();
+    let since = world.resource::<MySystemState>().last_tick;
 
     for (entity, pos) in world.query_changed::<Position>(since) {
         // Process only changed entities
     }
+
+    world.resource_mut::<MySystemState>().last_tick = world.current_tick();
 }
 ```
+
+This pattern tracks changes between completed schedule ticks. Run the reader
+after all systems that mutate `Position` for the current tick; same-tick writes
+that happen later in the same schedule run will not appear until the next tick.
+For same-tick visibility inside one run, use a dedicated change cursor at the
+integration boundary, as the render extraction path does.
 
 ### What Counts as a Change
 
