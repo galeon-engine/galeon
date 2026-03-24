@@ -9,6 +9,14 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **BREAKING: `protocol::Query` renamed to `protocol::ProtocolQuery`** — frees up the `Query`
+  name for the ECS system parameter. Code using `galeon_engine::Query` as the protocol trait must
+  update to `galeon_engine::ProtocolQuery`. The `#[galeon::query]` attribute macro is unchanged.
+  ([#57](https://github.com/galeon-engine/galeon/issues/57))
+- **BREAKING: `QueryParam` / `QueryParamMut` root aliases removed** — `galeon_engine::Query` and
+  `galeon_engine::QueryMut` now refer directly to the ECS system parameters (previously
+  `system_param::Query` / `system_param::QueryMut`). No alias needed.
+  ([#57](https://github.com/galeon-engine/galeon/issues/57))
 - **Schedule::run** takes `&mut self` (was `&self`) because `System::run` requires `&mut self`
   ([#33](https://github.com/galeon-engine/galeon/issues/33))
 - **Schedule::add_system** now generic over `impl IntoSystem<P>` — accepts both legacy `fn(&mut World)` (with turbofish `::<()>` + cast) and parameterized systems like `fn(Res<T>, QueryMut<U>)` (with turbofish for param types)
