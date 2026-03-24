@@ -56,7 +56,7 @@ let unit = world.spawn((
 Read components:
 
 ```rust
-for (entity, pos) in world.query::<Position>() {
+for (entity, pos) in world.query::<&Position>() {
     println!("Entity at ({}, {})", pos.x, pos.y);
 }
 ```
@@ -64,7 +64,7 @@ for (entity, pos) in world.query::<Position>() {
 Modify components:
 
 ```rust
-for (entity, pos) in world.query_mut::<Position>() {
+for (entity, pos) in world.query_mut::<&mut Position>() {
     pos.x += 1.0;
 }
 ```
@@ -72,17 +72,27 @@ for (entity, pos) in world.query_mut::<Position>() {
 Query two components at once:
 
 ```rust
-for (entity, pos, vel) in world.query2::<Position, Velocity>() {
+for (entity, (pos, vel)) in world.query::<(&Position, &Velocity)>() {
     println!("Moving entity at ({}, {}) with velocity ({}, {})", pos.x, pos.y, vel.x, vel.y);
 }
 ```
 
 > Queries return lazy iterators — call `.collect::<Vec<_>>()` if you need `len()` or indexing.
 
+Query with filters:
+
+```rust
+use galeon_engine::{With, Without};
+
+for (entity, pos) in world.query_filtered::<&Position, (With<Velocity>, Without<Health>)>() {
+    println!("Only units that can move and are not health-tracked");
+}
+```
+
 Query three components (immutable):
 
 ```rust
-for (entity, pos, vel, hp) in world.query3::<Position, Velocity, Health>() {
+for (entity, (pos, vel, hp)) in world.query::<(&Position, &Velocity, &Health)>() {
     // Process entities with all three components
 }
 ```
@@ -90,17 +100,21 @@ for (entity, pos, vel, hp) in world.query3::<Position, Velocity, Health>() {
 Query three components (mutable):
 
 ```rust
-for (entity, pos, vel, hp) in world.query3_mut::<Position, Velocity, Health>() {
+for (entity, (pos, vel, hp)) in world.query_mut::<(&mut Position, &mut Velocity, &mut Health)>() {
     pos.x += vel.x;
     hp.current -= 1;
 }
 ```
 
-Direct access by entity:
+Direct typed access by entity:
 
 ```rust
-if let Some(health) = world.get::<Health>(unit) {
+if let Some((health, vel)) = world.one::<(&Health, &Velocity)>(unit) {
     println!("HP: {}/{}", health.current, health.max);
+}
+
+if let Some(health) = world.one_mut::<&mut Health>(unit) {
+    health.current -= 10;
 }
 ```
 
@@ -124,7 +138,7 @@ A system is a plain function that takes `&mut World`:
 ```rust
 fn movement_system(world: &mut World) {
     let dt = world.resource::<DeltaTime>().0;
-    for (_, pos, vel) in world.query2_mut::<Position, Velocity>() {
+    for (_, (pos, vel)) in world.query_mut::<(&mut Position, &mut Velocity)>() {
         pos.x += vel.x * dt;
         pos.y += vel.y * dt;
     }
@@ -231,8 +245,9 @@ How the public API maps to internals:
 | `get` / `get_mut` | `EntityLocation` → archetype → column → row index — O(1) |
 | `insert<C>(entity, val)` | Migrates entity to `current_layout + C` archetype |
 | `remove<C>(entity)` | Migrates entity to `current_layout − C` archetype |
-| `query` / `query_mut` | Iterates only archetypes whose layout contains the queried type |
-| `query2_mut` | Uses `Archetype::entities_and_two_columns_mut` (split-borrow, no unsafe at World level) |
+| `query` / `query_mut` | Iterates only archetypes whose layout matches the typed query spec |
+| `query_filtered` | Adds `With<T>` / `Without<T>` archetype filtering with no per-entity checks |
+| `one` / `one_mut` | Uses `EntityLocation` for typed single-entity fetch |
 
 Benefits of this design:
 

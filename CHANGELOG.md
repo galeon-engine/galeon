@@ -15,6 +15,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([#28](https://github.com/galeon-engine/galeon/issues/28))
 - **query2_mut**: Eliminated `typed_sets_two_mut` unsafe from World — unsafe is now contained in `Archetype::entities_and_two_columns_mut`
   ([#28](https://github.com/galeon-engine/galeon/issues/28))
+- **Queries use typed query specs**: `world.query::<&T>()`, `world.query::<(&A, &B)>()`, and `world.query_mut::<(&mut A, &mut B)>()` now return zero-allocation archetype iterators instead of `Vec`
+  ([#29](https://github.com/galeon-engine/galeon/issues/29))
 
 ### Added
 
@@ -30,6 +32,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([#28](https://github.com/galeon-engine/galeon/issues/28))
 - `Column::iter` / `Column::iter_mut` — dense column iteration
   ([#28](https://github.com/galeon-engine/galeon/issues/28))
+- `QuerySpec`, `QuerySpecMut`, and `QueryFilter` traits for typed archetype queries
+  ([#29](https://github.com/galeon-engine/galeon/issues/29))
+- `World::query_filtered`, `World::query_filtered_mut`, `World::one`, and `World::one_mut`
+  ([#29](https://github.com/galeon-engine/galeon/issues/29))
+- `With<T>` / `Without<T>` archetype filters
+  ([#29](https://github.com/galeon-engine/galeon/issues/29))
 
 ### Removed
 
@@ -37,8 +45,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([#28](https://github.com/galeon-engine/galeon/issues/28))
 - `TypedSparseSet<T>`, `AnyComponentStore`, `ComponentStorage` — superseded by archetype `Column<T>` and `ArchetypeStore`
   ([#28](https://github.com/galeon-engine/galeon/issues/28))
-- `QueryIter`, `QueryIterMut`, `Query2Iter`, `Query2MutIter`, `Query3Iter`, `Query3MutIter` — superseded by archetype-based Vec queries
-  ([#28](https://github.com/galeon-engine/galeon/issues/28))
+- `QueryIter<'w, T>`, `QueryIterMut<'w, T>`, `Query2Iter`, `Query2MutIter`, `Query3Iter`, `Query3MutIter` — replaced by generic `QueryIter<'w, Q, F>` / `QueryIterMut<'w, Q, F>` (breaking: different generic signatures)
+  ([#28](https://github.com/galeon-engine/galeon/issues/28), [#29](https://github.com/galeon-engine/galeon/issues/29))
 
 - Archetype storage core types: `ArchetypeId`, `ArchetypeLayout`, `Column<T>`,
   `AnyColumn` trait, `Archetype`, `ArchetypeStore`, and edge cache for O(1)

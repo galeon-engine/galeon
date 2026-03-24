@@ -5,6 +5,7 @@ use std::any::TypeId;
 use crate::archetype::{ArchetypeLayout, ArchetypeStore, EntityLocation};
 use crate::component::Component;
 use crate::entity::{Entity, EntityMetaStore};
+use crate::query::{QueryFilter, QueryIter, QueryIterMut, QuerySpec, QuerySpecMut};
 use crate::resource::Resources;
 
 // =============================================================================
@@ -201,18 +202,37 @@ impl World {
 
     /// Get a component for an entity.
     pub fn get<T: Component>(&self, entity: Entity) -> Option<&T> {
-        let loc = self.meta.get_location(entity)?;
-        let arch = self.archetypes.get(loc.archetype_id);
-        let col = arch.column::<T>()?;
-        col.get(loc.row as usize)
+        self.one::<&T>(entity)
     }
 
     /// Get a mutable component for an entity.
     pub fn get_mut<T: Component>(&mut self, entity: Entity) -> Option<&mut T> {
+        self.one_mut::<&mut T>(entity)
+    }
+
+    /// Fetch a typed query item for a single entity.
+    pub fn one<Q: QuerySpec>(&self, entity: Entity) -> Option<Q::Item<'_>> {
+        let loc = self.meta.get_location(entity)?;
+        let arch = self.archetypes.get(loc.archetype_id);
+        if !Q::matches(arch.layout()) {
+            return None;
+        }
+        let state = Q::init_state(arch)?;
+        Some(Q::fetch(&state, loc.row as usize))
+    }
+
+    /// Fetch a typed mutable query item for a single entity.
+    pub fn one_mut<Q: QuerySpecMut>(&mut self, entity: Entity) -> Option<Q::Item<'_>> {
         let loc = self.meta.get_location(entity)?;
         let arch = self.archetypes.get_mut(loc.archetype_id);
-        let col = arch.column_mut::<T>()?;
-        col.get_mut(loc.row as usize)
+        if !Q::matches(arch.layout()) {
+            return None;
+        }
+        let mut state = Q::init_state(arch)?;
+        // SAFETY: `loc.row` identifies one concrete row in the matched
+        // archetype, so returning the fetched mutable references cannot alias
+        // any other result from this method call.
+        Some(unsafe { Q::fetch(&mut state, loc.row as usize) })
     }
 
     // -------------------------------------------------------------------------
@@ -371,64 +391,26 @@ impl World {
     // Queries
     // -------------------------------------------------------------------------
 
-    /// Query all entities that have component T (immutable).
-    ///
-    /// Returns a Vec of `(Entity, &T)` pairs.
-    pub fn query<T: Component>(&self) -> Vec<(Entity, &T)> {
-        let mut results = Vec::new();
-        for arch in self.archetypes.iter() {
-            if let Some(col) = arch.column::<T>() {
-                for (entity, val) in arch.entities().iter().zip(col.iter()) {
-                    results.push((*entity, val));
-                }
-            }
-        }
-        results
+    /// Query all entities matching `Q`.
+    pub fn query<Q: QuerySpec>(&self) -> QueryIter<'_, Q> {
+        QueryIter::new(&self.archetypes)
     }
 
-    /// Query all entities that have component T (mutable).
-    pub fn query_mut<T: Component>(&mut self) -> Vec<(Entity, &mut T)> {
-        let mut results = Vec::new();
-        for arch in self.archetypes.iter_mut() {
-            if let Some((entities, col)) = arch.entities_and_column_mut::<T>() {
-                for (entity, val) in entities.iter().zip(col.iter_mut()) {
-                    results.push((*entity, val));
-                }
-            }
-        }
-        results
+    /// Query all entities matching `Q` and `F`.
+    pub fn query_filtered<Q: QuerySpec, F: QueryFilter>(&self) -> QueryIter<'_, Q, F> {
+        QueryIter::new(&self.archetypes)
     }
 
-    /// Query all entities with two components (both immutable).
-    pub fn query2<A: Component, B: Component>(&self) -> Vec<(Entity, &A, &B)> {
-        let mut results = Vec::new();
-        for arch in self.archetypes.iter() {
-            if let (Some(col_a), Some(col_b)) = (arch.column::<A>(), arch.column::<B>()) {
-                for ((entity, a), b) in arch.entities().iter().zip(col_a.iter()).zip(col_b.iter()) {
-                    results.push((*entity, a, b));
-                }
-            }
-        }
-        results
+    /// Query all entities mutably matching `Q`.
+    pub fn query_mut<Q: QuerySpecMut>(&mut self) -> QueryIterMut<'_, Q> {
+        QueryIterMut::new(&mut self.archetypes)
     }
 
-    /// Query all entities with two components (both mutable).
-    pub fn query2_mut<A: Component, B: Component>(&mut self) -> Vec<(Entity, &mut A, &mut B)> {
-        assert_ne!(
-            TypeId::of::<A>(),
-            TypeId::of::<B>(),
-            "cannot borrow the same column mutably twice"
-        );
-        let mut results = Vec::new();
-        for arch in self.archetypes.iter_mut() {
-            if let Some((entities, col_a, col_b)) = arch.entities_and_two_columns_mut::<A, B>() {
-                for (entity, (a, b)) in entities.iter().zip(col_a.iter_mut().zip(col_b.iter_mut()))
-                {
-                    results.push((*entity, a, b));
-                }
-            }
-        }
-        results
+    /// Query all entities mutably matching `Q` and `F`.
+    pub fn query_filtered_mut<Q: QuerySpecMut, F: QueryFilter>(
+        &mut self,
+    ) -> QueryIterMut<'_, Q, F> {
+        QueryIterMut::new(&mut self.archetypes)
     }
 
     /// Returns the number of alive entities.
@@ -466,6 +448,7 @@ mod tests {
     impl Component for Vel {}
 
     #[derive(Debug, Clone)]
+    #[allow(dead_code)]
     struct Health(i32);
     impl Component for Health {}
 
@@ -506,7 +489,7 @@ mod tests {
         world.spawn((Pos { x: 2.0, y: 0.0 }, Vel { x: 0.0, y: 0.0 }));
         world.spawn((Vel { x: 3.0, y: 0.0 },)); // no Pos
 
-        let positions: Vec<f32> = world.query::<Pos>().into_iter().map(|(_, p)| p.x).collect();
+        let positions: Vec<f32> = world.query::<&Pos>().map(|(_, p)| p.x).collect();
         assert_eq!(positions.len(), 2);
         assert!(positions.contains(&1.0));
         assert!(positions.contains(&2.0));
@@ -518,11 +501,11 @@ mod tests {
         world.spawn((Pos { x: 0.0, y: 0.0 },));
         world.spawn((Pos { x: 10.0, y: 10.0 },));
 
-        for (_, pos) in world.query_mut::<Pos>() {
+        for (_, pos) in world.query_mut::<&mut Pos>() {
             pos.x += 1.0;
         }
 
-        let xs: Vec<f32> = world.query::<Pos>().into_iter().map(|(_, p)| p.x).collect();
+        let xs: Vec<f32> = world.query::<&Pos>().map(|(_, p)| p.x).collect();
         assert!(xs.contains(&1.0));
         assert!(xs.contains(&11.0));
     }
@@ -558,10 +541,10 @@ mod tests {
         world.spawn((Pos { x: 2.0, y: 0.0 }, Vel { x: 5.0, y: 0.0 }));
         world.spawn((Vel { x: 3.0, y: 0.0 },));
 
-        let results = world.query2::<Pos, Vel>();
+        let results: Vec<_> = world.query::<(&Pos, &Vel)>().collect();
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0].1.x, 2.0);
-        assert_eq!(results[0].2.x, 5.0);
+        assert_eq!(results[0].1.0.x, 2.0);
+        assert_eq!(results[0].1.1.x, 5.0);
     }
 
     #[test]
@@ -571,7 +554,7 @@ mod tests {
         let e2 = world.spawn((Pos { x: 2.0, y: 2.0 }, Vel { x: 20.0, y: 20.0 }));
         let e3 = world.spawn((Pos { x: 3.0, y: 3.0 }, Vel { x: 30.0, y: 30.0 }));
 
-        for (_, pos, vel) in world.query2_mut::<Pos, Vel>() {
+        for (_, (pos, vel)) in world.query_mut::<(&mut Pos, &mut Vel)>() {
             pos.x += 100.0;
             vel.y += 200.0;
         }
@@ -591,10 +574,10 @@ mod tests {
         let e2 = world.spawn((Pos { x: 7.0, y: 7.0 }, Vel { x: 9.0, y: 9.0 }));
         let e3 = world.spawn((Vel { x: 11.0, y: 11.0 },));
 
-        let results = world.query2_mut::<Pos, Vel>();
+        let results: Vec<_> = world.query_mut::<(&mut Pos, &mut Vel)>().collect();
         assert_eq!(results.len(), 1);
 
-        let (entity, pos, vel) = &results[0];
+        let (entity, (pos, vel)) = &results[0];
         assert_eq!(*entity, e2);
         assert_eq!(pos.x, 7.0);
         assert_eq!(vel.x, 9.0);
@@ -610,7 +593,39 @@ mod tests {
     fn query2_mut_same_type_panics() {
         let mut world = World::new();
         world.spawn((Pos { x: 0.0, y: 0.0 },));
-        world.query2_mut::<Pos, Pos>();
+        let _ = world.query_mut::<(&mut Pos, &mut Pos)>().next();
+    }
+
+    #[test]
+    fn query_filtered_with_and_without() {
+        let mut world = World::new();
+        let e1 = world.spawn((Pos { x: 1.0, y: 0.0 }, Vel { x: 2.0, y: 0.0 }));
+        let _e2 = world.spawn((Pos { x: 3.0, y: 0.0 },));
+        let _e3 = world.spawn((Pos { x: 4.0, y: 0.0 }, Health(100)));
+
+        let results: Vec<_> = world
+            .query_filtered::<&Pos, (crate::query::With<Vel>, crate::query::Without<Health>)>()
+            .collect();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, e1);
+        assert_eq!(results[0].1.x, 1.0);
+    }
+
+    #[test]
+    fn one_and_one_mut_fetch_single_entity() {
+        let mut world = World::new();
+        let e = world.spawn((Pos { x: 1.0, y: 2.0 }, Vel { x: 3.0, y: 4.0 }));
+
+        let (pos, vel) = world.one::<(&Pos, &Vel)>(e).unwrap();
+        assert_eq!(pos.x, 1.0);
+        assert_eq!(vel.x, 3.0);
+
+        let (pos, vel) = world.one_mut::<(&mut Pos, &mut Vel)>(e).unwrap();
+        pos.x = 10.0;
+        vel.y = 20.0;
+
+        assert_eq!(world.get::<Pos>(e).unwrap().x, 10.0);
+        assert_eq!(world.get::<Vel>(e).unwrap().y, 20.0);
     }
 
     // -- New tests for insert/remove (archetype migration) --
@@ -711,7 +726,7 @@ mod tests {
         world.insert(e1, Vel { x: 10.0, y: 0.0 });
 
         // Both entities now have Pos+Vel
-        let results = world.query2::<Pos, Vel>();
+        let results: Vec<_> = world.query::<(&Pos, &Vel)>().collect();
         assert_eq!(results.len(), 2);
     }
 
@@ -746,6 +761,6 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(world.entity_count(), 0);
-        assert!(world.query::<Pos>().is_empty());
+        assert!(world.query::<&Pos>().next().is_none());
     }
 }

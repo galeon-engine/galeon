@@ -81,13 +81,13 @@ mod tests {
     impl Component for Counter {}
 
     fn increment_system(world: &mut World) {
-        for (_, counter) in world.query_mut::<Counter>() {
+        for (_, counter) in world.query_mut::<&mut Counter>() {
             counter.0 += 1;
         }
     }
 
     fn double_system(world: &mut World) {
-        for (_, counter) in world.query_mut::<Counter>() {
+        for (_, counter) in world.query_mut::<&mut Counter>() {
             counter.0 *= 2;
         }
     }
@@ -105,11 +105,7 @@ mod tests {
         schedule.run(&mut world);
 
         // 1 + 1 = 2, then 2 * 2 = 4
-        let val: Vec<u32> = world
-            .query::<Counter>()
-            .into_iter()
-            .map(|(_, c)| c.0)
-            .collect();
+        let val: Vec<u32> = world.query::<&Counter>().map(|(_, c)| c.0).collect();
         assert_eq!(val, vec![4]);
     }
 
@@ -126,11 +122,7 @@ mod tests {
         schedule.run(&mut world);
 
         // 1 + 1 = 2, then 2 * 2 = 4
-        let val: Vec<u32> = world
-            .query::<Counter>()
-            .into_iter()
-            .map(|(_, c)| c.0)
-            .collect();
+        let val: Vec<u32> = world.query::<&Counter>().map(|(_, c)| c.0).collect();
         assert_eq!(val, vec![4]);
     }
 
@@ -147,11 +139,7 @@ mod tests {
         schedule.run(&mut world);
 
         // 1 * 2 = 2, then 2 + 1 = 3
-        let val: Vec<u32> = world
-            .query::<Counter>()
-            .into_iter()
-            .map(|(_, c)| c.0)
-            .collect();
+        let val: Vec<u32> = world.query::<&Counter>().map(|(_, c)| c.0).collect();
         assert_eq!(val, vec![3]);
     }
 

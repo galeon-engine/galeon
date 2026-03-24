@@ -95,7 +95,7 @@ mod tests {
     impl Component for TickCounter {}
 
     fn count_system(world: &mut World) {
-        for (_, counter) in world.query_mut::<TickCounter>() {
+        for (_, counter) in world.query_mut::<&mut TickCounter>() {
             counter.0 += 1;
         }
     }
@@ -121,11 +121,7 @@ mod tests {
         let ticks = tick(&mut world, &schedule, 0.25);
         assert_eq!(ticks, 2);
 
-        let counts: Vec<u32> = world
-            .query::<TickCounter>()
-            .into_iter()
-            .map(|(_, c)| c.0)
-            .collect();
+        let counts: Vec<u32> = world.query::<&TickCounter>().map(|(_, c)| c.0).collect();
         assert_eq!(counts, vec![2]);
     }
 
@@ -146,11 +142,7 @@ mod tests {
         let ticks = tick(&mut world, &schedule, 0.06);
         assert_eq!(ticks, 1);
 
-        let counts: Vec<u32> = world
-            .query::<TickCounter>()
-            .into_iter()
-            .map(|(_, c)| c.0)
-            .collect();
+        let counts: Vec<u32> = world.query::<&TickCounter>().map(|(_, c)| c.0).collect();
         assert_eq!(counts, vec![1]);
     }
 
@@ -211,11 +203,7 @@ mod tests {
         let ticks = tick(&mut world, &schedule, 1.0);
         assert_eq!(ticks, 0);
 
-        let counts: Vec<u32> = world
-            .query::<TickCounter>()
-            .into_iter()
-            .map(|(_, c)| c.0)
-            .collect();
+        let counts: Vec<u32> = world.query::<&TickCounter>().map(|(_, c)| c.0).collect();
         assert_eq!(counts, vec![0]);
     }
 
