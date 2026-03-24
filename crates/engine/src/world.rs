@@ -16,7 +16,10 @@ use crate::resource::Resources;
 /// Implemented for tuples of components up to 8 elements.
 /// Provides type IDs for archetype layout computation and column registration.
 pub trait Bundle: 'static {
-    /// Sorted, deduplicated type IDs for all component types in this bundle.
+    /// Sorted type IDs for all component types in this bundle.
+    ///
+    /// Duplicate component types are rejected to preserve the invariant that
+    /// each archetype column has exactly one value per entity row.
     fn type_ids() -> Vec<TypeId>;
 
     /// Register column factories for all component types in this bundle.
@@ -50,8 +53,14 @@ macro_rules! impl_bundle {
         impl<$($t: Component),+> Bundle for ($($t,)+) {
             fn type_ids() -> Vec<TypeId> {
                 let mut ids = vec![$(TypeId::of::<$t>()),+];
+                let original_len = ids.len();
                 ids.sort();
                 ids.dedup();
+                assert_eq!(
+                    ids.len(),
+                    original_len,
+                    "duplicate component types are not allowed in a Bundle"
+                );
                 ids
             }
 
@@ -105,9 +114,10 @@ impl World {
 
     /// Spawn an entity with the given component bundle.
     pub fn spawn<B: Bundle>(&mut self, bundle: B) -> Entity {
+        let type_ids = B::type_ids();
         let entity = self.meta.alloc();
         B::register_columns(&mut self.archetypes);
-        let layout = ArchetypeLayout::from_type_ids(&B::type_ids());
+        let layout = ArchetypeLayout::from_type_ids(&type_ids);
         let arch_id = self.archetypes.get_or_create(layout);
         let arch = self.archetypes.get_mut(arch_id);
         bundle.push_into_columns(arch);
@@ -724,5 +734,18 @@ mod tests {
         assert!(world.despawn(e));
         assert!(!world.is_alive(e));
         assert_eq!(world.entity_count(), 0);
+    }
+
+    #[test]
+    fn spawn_duplicate_component_types_panics_without_mutating_world() {
+        let mut world = World::new();
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            world.spawn((Pos { x: 1.0, y: 2.0 }, Pos { x: 3.0, y: 4.0 }));
+        }));
+
+        assert!(result.is_err());
+        assert_eq!(world.entity_count(), 0);
+        assert!(world.query::<Pos>().is_empty());
     }
 }
