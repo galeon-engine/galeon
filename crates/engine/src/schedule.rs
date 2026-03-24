@@ -49,6 +49,22 @@ impl Schedule {
         self
     }
 
+    /// Add a legacy `fn(&mut World)` system without requiring turbofish or cast.
+    ///
+    /// This is a convenience wrapper for the common case where a system takes
+    /// `&mut World` directly. Equivalent to:
+    /// ```ignore
+    /// schedule.add_system::<()>("stage", "name", my_fn as fn(&mut World));
+    /// ```
+    pub fn add_legacy_system(
+        &mut self,
+        stage: &'static str,
+        name: &'static str,
+        func: fn(&mut World),
+    ) -> &mut Self {
+        self.add_system::<()>(stage, name, func)
+    }
+
     /// Run all systems in stage order.
     pub fn run(&mut self, world: &mut World) {
         for stage_idx in 0..self.stage_order.len() {
@@ -229,5 +245,30 @@ mod tests {
         schedule.run(&mut world);
 
         assert!((world.resource::<Speed>().0 - 2.0).abs() < f32::EPSILON);
+    }
+
+    // -- add_legacy_system convenience wrapper (#56) --
+
+    #[test]
+    fn add_legacy_system_registers_and_runs() {
+        let mut world = World::new();
+        world.spawn((Counter(0),));
+
+        let mut schedule = Schedule::new();
+        schedule.add_legacy_system("update", "increment", increment_system);
+
+        schedule.run(&mut world);
+
+        let val: Vec<u32> = world.query::<&Counter>().map(|(_, c)| c.0).collect();
+        assert_eq!(val, vec![1]);
+    }
+
+    #[test]
+    fn add_legacy_system_is_chainable() {
+        let mut schedule = Schedule::new();
+        schedule
+            .add_legacy_system("pre", "increment", increment_system)
+            .add_legacy_system("post", "double", double_system);
+        assert_eq!(schedule.system_count(), 2);
     }
 }
