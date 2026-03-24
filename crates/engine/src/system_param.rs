@@ -590,8 +590,7 @@ mod tests {
         let cell = unsafe { UnsafeWorldCell::new(&mut world as *mut World) };
         unsafe {
             let positions: Query<'_, Pos> = <Query<'_, Pos> as SystemParam>::fetch(cell);
-            let mut velocities: QueryMut<'_, Vel> =
-                <QueryMut<'_, Vel> as SystemParam>::fetch(cell);
+            let mut velocities: QueryMut<'_, Vel> = <QueryMut<'_, Vel> as SystemParam>::fetch(cell);
 
             assert_eq!(positions.len(), 2);
             assert_eq!(velocities.len(), 2);
@@ -603,10 +602,7 @@ mod tests {
         }
 
         // Verify mutations applied.
-        let ys: Vec<f32> = world
-            .query::<&Vel>()
-            .map(|(_, v)| v.y)
-            .collect();
+        let ys: Vec<f32> = world.query::<&Vel>().map(|(_, v)| v.y).collect();
         assert!(ys.iter().all(|&y| y > 10.0));
     }
 }
