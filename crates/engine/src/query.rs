@@ -221,6 +221,31 @@ where
         }
     }
 
+    /// Construct from a raw pointer without creating `&mut ArchetypeStore`.
+    ///
+    /// This is the `UnsafeWorldCell` path: avoids the intermediate
+    /// `&mut ArchetypeStore` that `new()` requires, eliminating the
+    /// `&ArchetypeStore` / `&mut ArchetypeStore` overlap when `Query<A>`
+    /// and `QueryMut<B>` are fetched concurrently.
+    ///
+    /// # Safety
+    ///
+    /// - `store` must be a valid, non-null pointer to an `ArchetypeStore`
+    ///   that lives for `'w`.
+    /// - The caller must guarantee exclusive mutable access to the columns
+    ///   that `Q` touches (enforced by conflict detection).
+    pub(crate) unsafe fn new_from_ptr(store: *mut ArchetypeStore) -> Self {
+        Self {
+            archetype_len: unsafe { (*store).len() },
+            store,
+            archetype_index: 0,
+            row: 0,
+            current: None,
+            _filter: PhantomData,
+            _marker: PhantomData,
+        }
+    }
+
     fn remaining(&self) -> usize {
         let current = self
             .current
@@ -266,17 +291,22 @@ where
                 return None;
             }
 
-            // SAFETY: The iterator owns the only mutable borrow of the store
-            // for `'w` (via `_marker: PhantomData<&'w mut ArchetypeStore>`).
+            // SAFETY: Uses `get_by_index_mut_ptr` which reaches the
+            // `archetypes` Vec via `addr_of_mut!` — no `&mut ArchetypeStore`
+            // is created, only `&mut Vec<Archetype>` at the field level.
+            // This prevents Stacked Borrows invalidation of any concurrent
+            // `&ArchetypeStore` borrows (e.g., from a `Query<A>` that was
+            // fetched before this `QueryMut<B>`).
+            //
             // `current` is cleared before borrowing a new archetype, so no
             // mutable state references the archetype being re-borrowed.
             // Items yielded from prior archetypes carry `&'w mut T` into
             // the caller, but those point into distinct per-archetype
             // `Column<T>` heap allocations — different archetypes own
             // separate column `Vec`s, so references from archetype A never
-            // alias data in archetype B. Re-borrowing the store here is
-            // therefore safe despite the caller holding prior items.
-            let archetype = unsafe { (&mut *self.store).get_by_index_mut(self.archetype_index)? };
+            // alias data in archetype B.
+            let archetype =
+                unsafe { ArchetypeStore::get_by_index_mut_ptr(self.store, self.archetype_index)? };
             self.archetype_index += 1;
 
             if !Q::matches(archetype.layout()) || !F::matches(archetype.layout()) {

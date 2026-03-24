@@ -3,7 +3,7 @@
 use std::marker::PhantomData;
 
 use crate::system_param::{Access, SystemParam};
-use crate::world::World;
+use crate::world::{UnsafeWorldCell, World};
 
 // =============================================================================
 // System trait — trait-object interface for all system types
@@ -156,23 +156,15 @@ macro_rules! impl_system_param_function {
             Func: FnMut($($P::Item<'_>),+) + 'static,
         {
             fn run(&mut self, world: &mut World) {
-                let world_ptr = world as *mut World;
                 // SAFETY: Conflict detection at registration ensures no two
-                // params access the same TypeId mutably. The final returned
-                // references point to separate heap allocations (Box in
-                // HashMap) and do not alias at the data level.
-                //
-                // KNOWN LIMITATION: The intermediate &World / &mut World
-                // references created inside each fetch() call are formally
-                // unsound under strict Stacked Borrows — creating &mut World
-                // in a later fetch invalidates the borrow stack of an earlier
-                // &World from the same *mut World. This matches the pre-
-                // UnsafeWorldCell pattern used by Bevy <0.13. It works in
-                // practice because LLVM does not exploit this; a proper
-                // UnsafeWorldCell that bypasses intermediate World references
-                // is tracked as a hardening follow-up.
+                // params access the same TypeId mutably. UnsafeWorldCell
+                // provides field-level access via addr_of!, so fetch()
+                // impls never create intermediate &World / &mut World
+                // references — only field-level references to `resources`
+                // or `archetypes`, which live in separate memory regions.
+                let cell = unsafe { UnsafeWorldCell::new(world as *mut World) };
                 unsafe {
-                    self($($P::fetch(world_ptr),)+);
+                    self($($P::fetch(cell),)+);
                 }
             }
 
