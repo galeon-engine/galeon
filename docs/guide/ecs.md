@@ -165,13 +165,31 @@ struct Position { x: f32, y: f32 }
 
 The `#[derive(Component)]` macro generates the trait impl automatically.
 
+## Modifying Component Sets
+
+Beyond spawning and despawning, you can add or remove individual components
+from an existing entity. These operations migrate the entity to a new archetype.
+
+```rust
+// Add a component to an existing entity
+world.insert(entity, Velocity { x: 1.0, y: 0.0 });
+
+// Remove a component from an entity (returns the value)
+let vel = world.remove::<Velocity>(entity);
+```
+
+Both operations are O(1) after the first transition thanks to the archetype
+edge cache (see Storage Internals below).
+
 ## Storage Internals
 
-### Archetype Storage (new)
+### Archetype Storage
 
-Entities are grouped into **archetypes** — tables where each row is an entity
-and each column is a component type. All entities in an archetype share the
-same set of component types.
+`World` stores all entity state in **archetype tables**. An archetype is a
+group of entities that share exactly the same set of component types. Within an
+archetype, each component type occupies a contiguous `Column<T>` (a typed
+`Vec<T>`), so iterating any component type is a linear scan with no pointer
+chasing.
 
 ```
 Archetype [Position, Velocity]     Archetype [Position, Health]
@@ -185,37 +203,58 @@ Archetype [Position, Velocity]     Archetype [Position, Health]
 
 Key data structures:
 
-- **`ArchetypeLayout`** — sorted set of `TypeId`s identifying which components
-  an archetype holds. Two layouts with the same types (regardless of input
-  order) are equal and hash the same.
-- **`Column<T>`** — a typed `Vec<T>` storing one component type within one
-  archetype. Columns are independently borrowable (no double-borrow needed for
-  multi-component queries).
-- **`Archetype`** — owns the entity list and columns. Maintains the invariant
-  that `entities.len() == column.len()` for all columns at all times.
-- **`ArchetypeStore`** — registry of all archetypes, indexed by layout.
-  `get_or_create(layout)` returns the existing archetype or creates a new one.
-- **`EntityMetaStore`** — extends entity metadata with `EntityLocation`
-  (archetype ID + row), enabling O(1) entity-to-archetype lookup.
+- **`EntityMetaStore`** — tracks every live entity with an `EntityLocation`
+  (archetype ID + row index), enabling O(1) lookup from entity to component
+  data.
+- **`ArchetypeLayout`** — a sorted set of `TypeId`s that uniquely identifies
+  which component types an archetype holds. Two layouts with the same types
+  (in any order) are equal and hash the same.
+- **`Column<T>`** — a typed `Vec<T>` storing one component type for all
+  entities in an archetype. Columns are independently borrowable, eliminating
+  any need for unsafe double-borrows when querying multiple components.
+- **`Archetype`** — owns the entity list and all columns. Upholds the
+  invariant that `entities.len() == column.len()` for every column.
+- **`ArchetypeStore`** — the registry of all archetypes, keyed by layout.
+  `get_or_create(layout)` returns the existing archetype or allocates a new
+  one. Provides `get_two_mut` for safe simultaneous mutable access to two
+  archetypes via `split_at_mut`.
 - **Edge cache** — each archetype caches the target archetype for adding or
-  removing a specific component type, making archetype migrations O(1) after
-  the first transition.
+  removing a specific component type, making `insert<C>` and `remove<C>`
+  migrations O(1) after the first transition.
 
-Benefits over the previous sparse set design:
+How the public API maps to internals:
+
+| Operation | Mechanism |
+|-----------|-----------|
+| `spawn(bundle)` | Computes layout from bundle `type_ids()`, calls `get_or_create`, appends row |
+| `despawn(entity)` | Looks up `EntityLocation`, swap-removes the row — O(1) |
+| `get` / `get_mut` | `EntityLocation` → archetype → column → row index — O(1) |
+| `insert<C>(entity, val)` | Migrates entity to `current_layout + C` archetype |
+| `remove<C>(entity)` | Migrates entity to `current_layout − C` archetype |
+| `query` / `query_mut` | Iterates only archetypes whose layout contains the queried type |
+| `query2_mut` | Uses `Archetype::entities_and_two_columns_mut` (split-borrow, no unsafe at World level) |
+
+Benefits of this design:
 
 - **No unsafe double-borrow** — columns are separate `Vec<T>`s, not entries in
   a shared `HashMap`
-- **O(1) entity location** — `EntityMeta` tracks exactly where each entity lives
+- **O(1) entity location** — `EntityMetaStore` tracks exactly where each entity lives
 - **Cache-friendly iteration** — entities with the same components are
   co-located in contiguous memory
 - **Structural grouping** — queries only visit archetypes that match, skipping
   irrelevant entities entirely
+- **O(1) despawn** — swap-remove leaves no gaps and requires no compaction
 
-### Sparse Sets (legacy)
+### Bundle Trait
 
-The previous storage model used per-type sparse sets. These remain in the
-codebase during the transition and will be removed when World migrates to
-archetype storage.
+The `Bundle` trait drives archetype-aware spawning. It requires three methods:
+
+- `type_ids()` — returns the sorted `TypeId` slice used to compute the archetype layout
+- `register_columns(archetype)` — ensures the archetype has a column for each type
+- `push_into_columns(archetype)` — moves component values into the matching columns
+
+Tuple bundles up to size 8 are provided by the engine. Custom bundle types can
+implement the trait directly.
 
 ### Hot vs Cold Storage
 

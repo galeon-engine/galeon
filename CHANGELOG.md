@@ -8,11 +8,37 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
-- **Queries return lazy iterators instead of `Vec`** — `query()`, `query_mut()`, `query2()`, `query2_mut()` now return zero-allocation iterator structs that borrow directly from the sparse set ([#11](https://github.com/galeon-engine/galeon/issues/11))
+
+- **World internals**: Replaced sparse-set storage with archetype table storage for cache-friendly iteration and O(1) despawn
+  ([#28](https://github.com/galeon-engine/galeon/issues/28))
+- **Bundle trait**: Now provides `type_ids()`, `register_columns()`, and `push_into_columns()` for archetype-aware spawning
+  ([#28](https://github.com/galeon-engine/galeon/issues/28))
+- **query2_mut**: Eliminated `typed_sets_two_mut` unsafe from World — unsafe is now contained in `Archetype::entities_and_two_columns_mut`
+  ([#28](https://github.com/galeon-engine/galeon/issues/28))
 
 ### Added
-- `query3()` and `query3_mut()` — three-component lazy queries ([#11](https://github.com/galeon-engine/galeon/issues/11))
-- `QueryIter`, `QueryIterMut`, `Query2Iter`, `Query2MutIter`, `Query3Iter`, `Query3MutIter` iterator types ([#11](https://github.com/galeon-engine/galeon/issues/11))
+
+- `World::insert<C: Component>(entity, value)` — add a component to an existing entity (archetype migration)
+  ([#28](https://github.com/galeon-engine/galeon/issues/28))
+- `World::remove<C: Component>(entity)` — remove a component from an entity (archetype migration)
+  ([#28](https://github.com/galeon-engine/galeon/issues/28))
+- `ArchetypeStore::get_two_mut` — safe dual mutable archetype access via `split_at_mut`
+  ([#28](https://github.com/galeon-engine/galeon/issues/28))
+- `Archetype::entities_and_column_mut` — split-borrow for mutable query iteration
+  ([#28](https://github.com/galeon-engine/galeon/issues/28))
+- `Archetype::entities_and_two_columns_mut` — split-borrow for two-component mutable queries
+  ([#28](https://github.com/galeon-engine/galeon/issues/28))
+- `Column::iter` / `Column::iter_mut` — dense column iteration
+  ([#28](https://github.com/galeon-engine/galeon/issues/28))
+
+### Removed
+
+- `EntityAllocator` — superseded by `EntityMetaStore` with archetype location tracking
+  ([#28](https://github.com/galeon-engine/galeon/issues/28))
+- `TypedSparseSet<T>`, `AnyComponentStore`, `ComponentStorage` — superseded by archetype `Column<T>` and `ArchetypeStore`
+  ([#28](https://github.com/galeon-engine/galeon/issues/28))
+- `QueryIter`, `QueryIterMut`, `Query2Iter`, `Query2MutIter`, `Query3Iter`, `Query3MutIter` — superseded by archetype-based Vec queries
+  ([#28](https://github.com/galeon-engine/galeon/issues/28))
 
 - Archetype storage core types: `ArchetypeId`, `ArchetypeLayout`, `Column<T>`,
   `AnyColumn` trait, `Archetype`, `ArchetypeStore`, and edge cache for O(1)

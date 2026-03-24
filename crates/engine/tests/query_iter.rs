@@ -14,57 +14,51 @@ struct Vel {
     dy: f32,
 }
 
-#[derive(Component, Debug, Clone, PartialEq)]
-struct Health(i32);
-
 #[test]
-fn query_iter_yields_matching_entities() {
+fn query_yields_matching_entities() {
     let mut world = World::new();
     world.spawn((Pos { x: 1.0, y: 0.0 },));
     world.spawn((Pos { x: 2.0, y: 0.0 }, Vel { dx: 0.0, dy: 0.0 }));
     world.spawn((Vel { dx: 3.0, dy: 0.0 },)); // no Pos
 
-    // query() returns a lazy iterator — no Vec allocation.
-    let positions: Vec<f32> = world.query::<Pos>().map(|(_, p)| p.x).collect();
+    let positions: Vec<f32> = world.query::<Pos>().into_iter().map(|(_, p)| p.x).collect();
     assert_eq!(positions.len(), 2);
     assert!(positions.contains(&1.0));
     assert!(positions.contains(&2.0));
 }
 
 #[test]
-fn query_iter_empty_world() {
+fn query_empty_world() {
     let world = World::new();
-    let results: Vec<_> = world.query::<Pos>().collect();
+    let results = world.query::<Pos>();
     assert!(results.is_empty());
 }
 
 #[test]
-fn query_iter_skips_despawned_entities() {
+fn query_skips_despawned_entities() {
     let mut world = World::new();
     let e1 = world.spawn((Pos { x: 1.0, y: 0.0 },));
     let _e2 = world.spawn((Pos { x: 2.0, y: 0.0 },));
     world.despawn(e1);
 
-    // e1 was despawned but its data may still be in the dense array.
-    // The iterator should skip it via entity_at() check.
-    let results: Vec<_> = world.query::<Pos>().collect();
+    let results = world.query::<Pos>();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].1.x, 2.0);
 }
 
 #[test]
-fn query_iter_entity_is_copy_not_ref() {
+fn query_entity_is_copy_not_ref() {
     let mut world = World::new();
     let e = world.spawn((Pos { x: 5.0, y: 0.0 },));
 
-    // Entity from iterator is owned (Copy), not a reference.
-    let (entity, pos) = world.query::<Pos>().next().unwrap();
-    assert_eq!(entity, e);
+    let results = world.query::<Pos>();
+    let (entity, pos) = &results[0];
+    assert_eq!(*entity, e);
     assert_eq!(pos.x, 5.0);
 }
 
 #[test]
-fn query_iter_mut_allows_modification() {
+fn query_mut_allows_modification() {
     let mut world = World::new();
     world.spawn((Pos { x: 0.0, y: 0.0 },));
     world.spawn((Pos { x: 10.0, y: 10.0 },));
@@ -73,43 +67,43 @@ fn query_iter_mut_allows_modification() {
         pos.x += 1.0;
     }
 
-    let xs: Vec<f32> = world.query::<Pos>().map(|(_, p)| p.x).collect();
+    let xs: Vec<f32> = world.query::<Pos>().into_iter().map(|(_, p)| p.x).collect();
     assert!(xs.contains(&1.0));
     assert!(xs.contains(&11.0));
 }
 
 #[test]
-fn query_iter_mut_empty_world() {
+fn query_mut_empty_world() {
     let mut world = World::new();
-    let results: Vec<_> = world.query_mut::<Pos>().collect();
+    let results = world.query_mut::<Pos>();
     assert!(results.is_empty());
 }
 
 #[test]
-fn query2_iter_yields_entities_with_both() {
+fn query2_yields_entities_with_both() {
     let mut world = World::new();
     world.spawn((Pos { x: 1.0, y: 0.0 },));
     world.spawn((Pos { x: 2.0, y: 0.0 }, Vel { dx: 5.0, dy: 0.0 }));
     world.spawn((Vel { dx: 3.0, dy: 0.0 },));
 
-    let results: Vec<_> = world.query2::<Pos, Vel>().collect();
+    let results = world.query2::<Pos, Vel>();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].1.x, 2.0);
     assert_eq!(results[0].2.dx, 5.0);
 }
 
 #[test]
-fn query2_iter_empty_when_no_overlap() {
+fn query2_empty_when_no_overlap() {
     let mut world = World::new();
     world.spawn((Pos { x: 1.0, y: 0.0 },));
     world.spawn((Vel { dx: 2.0, dy: 0.0 },));
 
-    let results: Vec<_> = world.query2::<Pos, Vel>().collect();
+    let results = world.query2::<Pos, Vel>();
     assert!(results.is_empty());
 }
 
 #[test]
-fn query2_mut_iter_mutates_both() {
+fn query2_mut_mutates_both() {
     let mut world = World::new();
     let e = world.spawn((Pos { x: 1.0, y: 1.0 }, Vel { dx: 10.0, dy: 10.0 }));
 
@@ -123,67 +117,21 @@ fn query2_mut_iter_mutates_both() {
 }
 
 #[test]
-fn query2_mut_iter_skips_missing() {
+fn query2_mut_skips_missing() {
     let mut world = World::new();
     world.spawn((Pos { x: 5.0, y: 0.0 },));
     let e = world.spawn((Pos { x: 7.0, y: 0.0 }, Vel { dx: 9.0, dy: 0.0 }));
     world.spawn((Vel { dx: 11.0, dy: 0.0 },));
 
-    let results: Vec<_> = world.query2_mut::<Pos, Vel>().collect();
+    let results = world.query2_mut::<Pos, Vel>();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].0, e);
 }
 
 #[test]
-#[should_panic(expected = "cannot borrow the same sparse set mutably twice")]
-fn query2_mut_iter_same_type_panics() {
+#[should_panic(expected = "cannot borrow the same column mutably twice")]
+fn query2_mut_same_type_panics() {
     let mut world = World::new();
     world.spawn((Pos { x: 0.0, y: 0.0 },));
-    let _ = world.query2_mut::<Pos, Pos>().collect::<Vec<_>>();
-}
-
-#[test]
-fn query3_iter_yields_entities_with_all_three() {
-    let mut world = World::new();
-    world.spawn((
-        Pos { x: 1.0, y: 0.0 },
-        Vel { dx: 2.0, dy: 0.0 },
-        Health(100),
-    ));
-    world.spawn((Pos { x: 3.0, y: 0.0 }, Vel { dx: 4.0, dy: 0.0 })); // no Health
-    world.spawn((Health(50),)); // no Pos or Vel
-
-    let results: Vec<_> = world.query3::<Pos, Vel, Health>().collect();
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].1.x, 1.0);
-    assert_eq!(results[0].2.dx, 2.0);
-    assert_eq!(results[0].3.0, 100);
-}
-
-#[test]
-fn query3_mut_iter_mutates_all_three() {
-    let mut world = World::new();
-    let e = world.spawn((
-        Pos { x: 1.0, y: 0.0 },
-        Vel { dx: 2.0, dy: 0.0 },
-        Health(100),
-    ));
-
-    for (_, pos, vel, hp) in world.query3_mut::<Pos, Vel, Health>() {
-        pos.x += 10.0;
-        vel.dx += 20.0;
-        hp.0 -= 50;
-    }
-
-    assert_eq!(world.get::<Pos>(e).unwrap().x, 11.0);
-    assert_eq!(world.get::<Vel>(e).unwrap().dx, 22.0);
-    assert_eq!(world.get::<Health>(e).unwrap().0, 50);
-}
-
-#[test]
-#[should_panic(expected = "cannot borrow the same sparse set")]
-fn query3_mut_duplicate_type_panics() {
-    let mut world = World::new();
-    world.spawn((Pos { x: 0.0, y: 0.0 },));
-    let _ = world.query3_mut::<Pos, Vel, Pos>().collect::<Vec<_>>();
+    let _ = world.query2_mut::<Pos, Pos>();
 }
