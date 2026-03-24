@@ -41,15 +41,14 @@ pub use game_loop::FixedTimestep;
 pub use manifest::{
     FieldEntry, ManifestEntry, ManifestField, ProtocolManifest, ProtocolRegistration,
 };
-pub use protocol::{Command, Dto, Event, ProtocolKind, ProtocolMeta, Query};
+pub use protocol::{Command, Dto, Event, ProtocolKind, ProtocolMeta, ProtocolQuery};
 pub use query::{
     NoFilter, Query2Iter, Query2MutIter, Query3Iter, Query3MutIter, QueryFilter, QueryIter,
     QueryIterMut, QuerySpec, QuerySpecMut, With, Without,
 };
 pub use render::{MaterialHandle, MeshHandle, Transform, Visibility};
 pub use schedule::Schedule;
-pub use system_param::{Access, Res, ResMut, SystemParam};
-pub use system_param::{Query as QueryParam, QueryMut as QueryParamMut};
+pub use system_param::{Access, Query, QueryMut, Res, ResMut, SystemParam};
 pub use virtual_time::VirtualTime;
 pub use world::{UnsafeWorldCell, World};
 

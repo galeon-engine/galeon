@@ -105,7 +105,7 @@ fn dto_is_clone() {
 // --- Marker traits are implemented ---
 
 fn _assert_command<T: galeon_engine::protocol::Command>() {}
-fn _assert_query<T: galeon_engine::protocol::Query>() {}
+fn _assert_query<T: galeon_engine::protocol::ProtocolQuery>() {}
 fn _assert_event<T: galeon_engine::protocol::Event>() {}
 fn _assert_dto<T: galeon_engine::protocol::Dto>() {}
 

@@ -6,7 +6,7 @@
 //! in-process, over HTTP/WS, or through native bindings:
 //!
 //! - [`Command`] — state-changing requests
-//! - [`Query`] — read-only requests
+//! - [`ProtocolQuery`] — read-only requests
 //! - [`Event`] — authoritative facts emitted after state transitions
 //! - [`Dto`] — boundary-facing data structures
 //!
@@ -78,7 +78,10 @@ pub trait Command: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static
 /// # Bounds
 ///
 /// Same as [`Command`]: `Serialize + Deserialize + Send + Sync + 'static`.
-pub trait Query: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static {}
+///
+/// Renamed from `Query` to `ProtocolQuery` in #57 to free up the `Query` name
+/// for the far more frequently used ECS system parameter.
+pub trait ProtocolQuery: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static {}
 
 /// Marker trait for authoritative facts emitted after state transitions.
 ///
@@ -124,7 +127,7 @@ mod tests {
 
     #[derive(Debug, Serialize, Deserialize, PartialEq)]
     struct GetFleetSnapshot;
-    impl Query for GetFleetSnapshot {}
+    impl ProtocolQuery for GetFleetSnapshot {}
     impl ProtocolMeta for GetFleetSnapshot {
         fn name() -> &'static str {
             "GetFleetSnapshot"

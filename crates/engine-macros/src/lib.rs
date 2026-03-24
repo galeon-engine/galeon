@@ -196,7 +196,7 @@ pub fn command(_attr: TokenStream, input: TokenStream) -> TokenStream {
 
 /// Marks a struct as a protocol **query** (read-only request).
 ///
-/// Derives `Serialize`, `Deserialize`, implements [`Query`] and [`ProtocolMeta`].
+/// Derives `Serialize`, `Deserialize`, implements [`ProtocolQuery`] and [`ProtocolMeta`].
 ///
 /// # Example
 ///
@@ -206,7 +206,7 @@ pub fn command(_attr: TokenStream, input: TokenStream) -> TokenStream {
 /// ```
 #[proc_macro_attribute]
 pub fn query(_attr: TokenStream, input: TokenStream) -> TokenStream {
-    protocol_attr(input, "Query", "Query", &[])
+    protocol_attr(input, "ProtocolQuery", "Query", &[])
 }
 
 /// Marks a struct as a protocol **event** (authoritative fact).
