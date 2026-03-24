@@ -13,8 +13,8 @@ struct SystemEntry {
 /// Systems are grouped into stages. Stages run in the order they were first
 /// registered. Within a stage, systems run in registration order.
 ///
-/// Systems can be either legacy `fn(&mut World)` or parameterized functions
-/// that declare their data access via [`SystemParam`](crate::system_param::SystemParam).
+/// Systems are parameterized functions that declare their data access via
+/// [`SystemParam`](crate::system_param::SystemParam).
 pub struct Schedule {
     systems: Vec<SystemEntry>,
     stage_order: Vec<&'static str>,
@@ -30,9 +30,8 @@ impl Schedule {
 
     /// Add a system to a named stage.
     ///
-    /// Accepts any function that implements [`IntoSystem`]: both legacy
-    /// `fn(&mut World)` (pass as `my_fn as fn(&mut World)`) and
-    /// parameterized functions like `fn(Res<T>, QueryMut<U>)`.
+    /// Accepts any function that implements [`IntoSystem`] — parameterized
+    /// functions like `fn(Res<T>, QueryMut<U>)`.
     pub fn add_system<P>(
         &mut self,
         stage: &'static str,
@@ -47,22 +46,6 @@ impl Schedule {
             system: func.into_system(name),
         });
         self
-    }
-
-    /// Add a legacy `fn(&mut World)` system without requiring turbofish or cast.
-    ///
-    /// This is a convenience wrapper for the common case where a system takes
-    /// `&mut World` directly. Equivalent to:
-    /// ```ignore
-    /// schedule.add_system::<()>("stage", "name", my_fn as fn(&mut World));
-    /// ```
-    pub fn add_legacy_system(
-        &mut self,
-        stage: &'static str,
-        name: &'static str,
-        func: fn(&mut World),
-    ) -> &mut Self {
-        self.add_system::<()>(stage, name, func)
     }
 
     /// Run all systems in stage order.
@@ -104,15 +87,14 @@ mod tests {
     struct Counter(u32);
     impl Component for Counter {}
 
-    // Legacy system (fn(&mut World)):
-    fn increment_system(world: &mut World) {
-        for (_, counter) in world.query_mut::<&mut Counter>() {
+    fn increment_system(mut counters: QueryMut<'_, Counter>) {
+        for (_, counter) in counters.iter_mut() {
             counter.0 += 1;
         }
     }
 
-    fn double_system(world: &mut World) {
-        for (_, counter) in world.query_mut::<&mut Counter>() {
+    fn double_system(mut counters: QueryMut<'_, Counter>) {
+        for (_, counter) in counters.iter_mut() {
             counter.0 *= 2;
         }
     }
@@ -123,8 +105,8 @@ mod tests {
         world.spawn((Counter(1),));
 
         let mut schedule = Schedule::new();
-        schedule.add_system::<()>("simulate", "increment", increment_system as fn(&mut World));
-        schedule.add_system::<()>("post", "double", double_system as fn(&mut World));
+        schedule.add_system::<(QueryMut<'_, Counter>,)>("simulate", "increment", increment_system);
+        schedule.add_system::<(QueryMut<'_, Counter>,)>("post", "double", double_system);
 
         schedule.run(&mut world);
 
@@ -139,8 +121,8 @@ mod tests {
         world.spawn((Counter(1),));
 
         let mut schedule = Schedule::new();
-        schedule.add_system::<()>("simulate", "increment", increment_system as fn(&mut World));
-        schedule.add_system::<()>("simulate", "double", double_system as fn(&mut World));
+        schedule.add_system::<(QueryMut<'_, Counter>,)>("simulate", "increment", increment_system);
+        schedule.add_system::<(QueryMut<'_, Counter>,)>("simulate", "double", double_system);
 
         schedule.run(&mut world);
 
@@ -155,8 +137,8 @@ mod tests {
         world.spawn((Counter(1),));
 
         let mut schedule = Schedule::new();
-        schedule.add_system::<()>("pre", "double", double_system as fn(&mut World));
-        schedule.add_system::<()>("simulate", "increment", increment_system as fn(&mut World));
+        schedule.add_system::<(QueryMut<'_, Counter>,)>("pre", "double", double_system);
+        schedule.add_system::<(QueryMut<'_, Counter>,)>("simulate", "increment", increment_system);
 
         schedule.run(&mut world);
 
@@ -207,15 +189,13 @@ mod tests {
     }
 
     #[test]
-    fn schedule_mixed_legacy_and_parameterized() {
+    fn schedule_multi_param_systems_across_stages() {
         let mut world = World::new();
         world.insert_resource(Speed(10.0));
         world.spawn((Counter(0),));
 
         let mut schedule = Schedule::new();
-        // Legacy system first
-        schedule.add_system::<()>("pre", "legacy_inc", increment_system as fn(&mut World));
-        // Parameterized system second
+        schedule.add_system::<(QueryMut<'_, Counter>,)>("pre", "increment", increment_system);
         schedule.add_system::<(Res<'_, Speed>, QueryMut<'_, Counter>)>(
             "post",
             "apply_speed",
@@ -245,30 +225,5 @@ mod tests {
         schedule.run(&mut world);
 
         assert!((world.resource::<Speed>().0 - 2.0).abs() < f32::EPSILON);
-    }
-
-    // -- add_legacy_system convenience wrapper (#56) --
-
-    #[test]
-    fn add_legacy_system_registers_and_runs() {
-        let mut world = World::new();
-        world.spawn((Counter(0),));
-
-        let mut schedule = Schedule::new();
-        schedule.add_legacy_system("update", "increment", increment_system);
-
-        schedule.run(&mut world);
-
-        let val: Vec<u32> = world.query::<&Counter>().map(|(_, c)| c.0).collect();
-        assert_eq!(val, vec![1]);
-    }
-
-    #[test]
-    fn add_legacy_system_is_chainable() {
-        let mut schedule = Schedule::new();
-        schedule
-            .add_legacy_system("pre", "increment", increment_system)
-            .add_legacy_system("post", "double", double_system);
-        assert_eq!(schedule.system_count(), 2);
     }
 }

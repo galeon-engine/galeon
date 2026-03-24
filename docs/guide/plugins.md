@@ -14,27 +14,32 @@ let mut engine = Engine::new();
 
 ## Adding Systems
 
-Systems are plain Rust functions `fn(&mut World)`. Register legacy systems with
-an explicit cast and turbofish:
+Systems are parameterized Rust functions that declare their data access in
+their signature:
 
 ```rust
-use galeon_engine::{Engine, World};
+use galeon_engine::{Engine, QueryMut, Component};
 
-fn move_units(world: &mut World) {
-    // query and mutate components here
+#[derive(Component)]
+struct Position { x: f32, y: f32 }
+
+fn move_units(mut positions: QueryMut<'_, Position>) {
+    for (_, pos) in positions.iter_mut() {
+        pos.x += 1.0;
+    }
 }
 
 let mut engine = Engine::new();
-engine.add_system::<()>("simulate", "move_units", move_units as fn(&mut World));
+engine.add_system::<(QueryMut<'_, Position>,)>("simulate", "move_units", move_units);
 ```
 
 Calls are chainable:
 
 ```rust
 engine
-    .add_system::<()>("pre", "input", input_system as fn(&mut World))
-    .add_system::<()>("simulate", "physics", physics_system as fn(&mut World))
-    .add_system::<()>("post", "render_sync", render_sync_system as fn(&mut World));
+    .add_system::<(QueryMut<'_, Input>,)>("pre", "input", input_system)
+    .add_system::<(Res<'_, Gravity>, QueryMut<'_, Velocity>,)>("simulate", "physics", physics_system)
+    .add_system::<(Query<'_, Transform>,)>("post", "render_sync", render_sync_system);
 ```
 
 Stages run in the order they are first registered. Systems within the same
@@ -57,18 +62,32 @@ This is also chainable with `add_system` and `add_plugin`.
 A `Plugin` bundles related systems and resources into a reusable unit.
 
 ```rust
-use galeon_engine::{Engine, Plugin, World};
+use galeon_engine::{Engine, Plugin, QueryMut, Res, Component};
 
-fn physics_system(_world: &mut World) {}
-fn collision_system(_world: &mut World) {}
+#[derive(Component)]
+struct RigidBody { x: f32 }
+
+struct Gravity(f32);
+
+fn physics_system(gravity: Res<'_, Gravity>, mut bodies: QueryMut<'_, RigidBody>) {
+    for (_, b) in bodies.iter_mut() { b.x -= gravity.0; }
+}
+
+fn collision_system(mut bodies: QueryMut<'_, RigidBody>) {
+    for (_, b) in bodies.iter_mut() { b.x = b.x.max(0.0); }
+}
 
 pub struct PhysicsPlugin;
 
 impl Plugin for PhysicsPlugin {
     fn build(&self, engine: &mut Engine) {
         engine
-            .add_system::<()>("simulate", "physics", physics_system as fn(&mut World))
-            .add_system::<()>("simulate", "collision", collision_system as fn(&mut World));
+            .add_system::<(Res<'_, Gravity>, QueryMut<'_, RigidBody>)>(
+                "simulate", "physics", physics_system,
+            )
+            .add_system::<(QueryMut<'_, RigidBody>,)>(
+                "simulate", "collision", collision_system,
+            );
     }
 }
 ```
@@ -137,18 +156,17 @@ let num_systems = engine.schedule().system_count();
 ## Full Example
 
 ```rust
-use galeon_engine::{Engine, Plugin, World};
+use galeon_engine::{Engine, Plugin, QueryMut, Component};
 
 // --- Components ---
 
-#[derive(galeon_engine::Component)]
+#[derive(Component)]
 struct Position { x: f32, y: f32 }
 
 // --- Systems ---
 
-fn gravity(world: &mut World) {
-    // apply gravity to all entities with Position
-    for (_, pos) in world.query_mut::<&mut Position>() {
+fn gravity(mut positions: QueryMut<'_, Position>) {
+    for (_, pos) in positions.iter_mut() {
         pos.y -= 9.8 * 0.1; // step = 0.1 s at 10 Hz
     }
 }
@@ -159,7 +177,7 @@ pub struct GravityPlugin;
 
 impl Plugin for GravityPlugin {
     fn build(&self, engine: &mut Engine) {
-        engine.add_system::<()>("simulate", "gravity", gravity as fn(&mut World));
+        engine.add_system::<(QueryMut<'_, Position>,)>("simulate", "gravity", gravity);
     }
 }
 

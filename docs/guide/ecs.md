@@ -161,23 +161,6 @@ fn apply_gravity(gravity: Res<'_, Gravity>, mut velocities: QueryMut<'_, Velocit
 Conflict detection: if two parameters in the same system would alias (e.g.,
 `Res<T>` + `ResMut<T>`), the engine panics at registration time.
 
-### Legacy Systems
-
-Legacy systems take `&mut World` directly. Pass them with an explicit cast
-and turbofish:
-
-```rust
-fn movement_system(world: &mut World) {
-    let dt = world.resource::<DeltaTime>().0;
-    for (_, (pos, vel)) in world.query_mut::<(&mut Position, &mut Velocity)>() {
-        pos.x += vel.x * dt;
-        pos.y += vel.y * dt;
-    }
-}
-
-engine.add_system::<()>("simulate", "movement", movement_system as fn(&mut World));
-```
-
 ## Schedule
 
 Systems are grouped into stages. Stages run in the order they're registered.
@@ -186,11 +169,9 @@ Within a stage, systems run in registration order.
 ```rust
 let mut schedule = Schedule::new();
 
-// Parameterized systems — turbofish required for type inference:
+// Turbofish required for type inference:
 schedule.add_system::<(QueryMut<'_, Position>,)>("simulate", "movement", movement_fn);
-
-// Legacy systems — cast + turbofish:
-schedule.add_system::<()>("sync", "three_sync", sync_system as fn(&mut World));
+schedule.add_system::<(Res<'_, DeltaTime>,)>("sync", "three_sync", sync_system);
 
 // Run one tick
 schedule.run(&mut world);

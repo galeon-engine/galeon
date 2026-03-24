@@ -20,9 +20,6 @@ pub trait System {
     /// Declare what world data this system accesses.
     ///
     /// Returns the union of all parameter accesses for parameterized systems.
-    /// Legacy `fn(&mut World)` systems return an empty `Vec` because their
-    /// access is opaque — they should be treated as having exclusive world
-    /// access for any future inter-system scheduling.
     fn access(&self) -> Vec<Access>;
 }
 
@@ -32,43 +29,10 @@ pub trait System {
 
 /// Converts a compatible function into a boxed [`System`].
 ///
-/// Implemented for:
-/// - `fn(&mut World)` (legacy systems, `Params = ()`)
-/// - `fn(P0, P1, ...)` where each `P` is a [`SystemParam`]
+/// Implemented for parameterized functions `fn(P0, P1, ...)` where each `P`
+/// is a [`SystemParam`].
 pub trait IntoSystem<Params> {
     fn into_system(self, name: &'static str) -> Box<dyn System>;
-}
-
-// =============================================================================
-// Legacy system — fn(&mut World)
-// =============================================================================
-
-type LegacySystemFn = fn(&mut World);
-
-struct LegacySystem {
-    name: &'static str,
-    func: LegacySystemFn,
-}
-
-impl System for LegacySystem {
-    fn name(&self) -> &'static str {
-        self.name
-    }
-
-    fn run(&mut self, world: &mut World) {
-        (self.func)(world);
-    }
-
-    fn access(&self) -> Vec<Access> {
-        // Legacy systems have opaque access — they take &mut World.
-        Vec::new()
-    }
-}
-
-impl IntoSystem<()> for LegacySystemFn {
-    fn into_system(self, name: &'static str) -> Box<dyn System> {
-        Box::new(LegacySystem { name, func: self })
-    }
 }
 
 // =============================================================================
@@ -216,23 +180,6 @@ mod tests {
     impl Component for Counter {}
 
     struct Speed(f32);
-
-    fn legacy_increment(world: &mut World) {
-        for (_, c) in world.query_mut::<&mut Counter>() {
-            c.0 += 1;
-        }
-    }
-
-    #[test]
-    fn legacy_into_system() {
-        let mut sys: Box<dyn System> =
-            IntoSystem::<()>::into_system(legacy_increment as LegacySystemFn, "legacy");
-        let mut world = World::new();
-        world.spawn((Counter(0),));
-        sys.run(&mut world);
-        let vals: Vec<u32> = world.query::<&Counter>().map(|(_, c)| c.0).collect();
-        assert_eq!(vals, vec![1]);
-    }
 
     fn count_entities(query: Query<'_, Counter>) {
         let _ = query.len();

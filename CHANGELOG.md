@@ -7,6 +7,14 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Removed
+
+- **BREAKING: Legacy `fn(&mut World)` system path removed** — `LegacySystem`, `LegacySystemFn`,
+  `IntoSystem<()> for fn(&mut World)`, `Schedule::add_legacy_system`, and `Engine::add_legacy_system`
+  are all gone. Parameterized systems (`fn(Res<T>, QueryMut<U>)`) are now the only supported
+  scheduling API. This is intentional pre-release surface reduction — the engine is not public yet.
+  ([#65](https://github.com/galeon-engine/galeon/issues/65))
+
 ### Changed
 
 - **BREAKING: `protocol::Query` renamed to `protocol::ProtocolQuery`** — frees up the `Query`
@@ -19,7 +27,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([#57](https://github.com/galeon-engine/galeon/issues/57))
 - **Schedule::run** takes `&mut self` (was `&self`) because `System::run` requires `&mut self`
   ([#33](https://github.com/galeon-engine/galeon/issues/33))
-- **Schedule::add_system** now generic over `impl IntoSystem<P>` — accepts both legacy `fn(&mut World)` (with turbofish `::<()>` + cast) and parameterized systems like `fn(Res<T>, QueryMut<U>)` (with turbofish for param types)
+- **Schedule::add_system** now generic over `impl IntoSystem<P>` — accepts parameterized systems like `fn(Res<T>, QueryMut<U>)` (with turbofish for param types)
   ([#33](https://github.com/galeon-engine/galeon/issues/33))
 - **Engine::add_system** follows the same generic signature as `Schedule::add_system`
   ([#33](https://github.com/galeon-engine/galeon/issues/33))
