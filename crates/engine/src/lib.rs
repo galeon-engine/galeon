@@ -51,7 +51,7 @@ pub use schedule::Schedule;
 pub use system_param::{Access, Res, ResMut, SystemParam};
 pub use system_param::{Query as QueryParam, QueryMut as QueryParamMut};
 pub use virtual_time::VirtualTime;
-pub use world::World;
+pub use world::{UnsafeWorldCell, World};
 
 /// Returns the engine version string.
 pub fn engine_version() -> &'static str {

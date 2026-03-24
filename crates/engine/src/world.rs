@@ -89,6 +89,116 @@ impl_bundle!(A, B, C, D, E, F, G);
 impl_bundle!(A, B, C, D, E, F, G, H);
 
 // =============================================================================
+// UnsafeWorldCell
+// =============================================================================
+
+/// A raw pointer wrapper around `World` that provides field-level access
+/// without creating intermediate `&World` or `&mut World` references.
+///
+/// This eliminates the Stacked Borrows aliasing UB that occurs when
+/// multiple `SystemParam::fetch()` calls create overlapping shared/exclusive
+/// world references. Instead of `(*world).resource::<T>()` (which creates
+/// `&World`), the cell uses `addr_of!` to reach individual fields directly.
+///
+/// # Safety Contract
+///
+/// The caller must ensure:
+/// - The pointed-to `World` is valid for the `'w` lifetime of any returned
+///   reference.
+/// - No two accessors create aliasing mutable references to the same
+///   underlying data. This is guaranteed by the conflict detection system
+///   at system registration time.
+#[derive(Copy, Clone)]
+pub struct UnsafeWorldCell(*mut World);
+
+impl UnsafeWorldCell {
+    /// Create a new cell from a raw world pointer.
+    ///
+    /// # Safety
+    ///
+    /// The pointer must be non-null, well-aligned, and the `World` must
+    /// live for the duration of all accesses through this cell.
+    #[inline]
+    pub unsafe fn new(world: *mut World) -> Self {
+        debug_assert!(!world.is_null());
+        Self(world)
+    }
+
+    /// Get a shared reference to a resource without creating `&World`.
+    ///
+    /// Uses `addr_of!` to reach the `resources` field directly from the
+    /// raw world pointer, avoiding an intermediate `&World`.
+    ///
+    /// # Safety
+    ///
+    /// - The resource of type `T` must exist in the world.
+    /// - No mutable reference to the same resource may exist concurrently.
+    #[inline]
+    pub unsafe fn get_resource<'w, T: 'static>(self) -> &'w T {
+        // SAFETY: Caller guarantees the world pointer is valid and no
+        // mutable reference to this resource exists concurrently.
+        unsafe {
+            let resources_ptr: *const Resources =
+                std::ptr::addr_of!((*self.0).resources);
+            (*resources_ptr).get::<T>()
+        }
+    }
+
+    /// Get a mutable reference to a resource without creating `&mut World`.
+    ///
+    /// Uses `addr_of_mut!` to reach the `resources` field directly from the
+    /// raw world pointer, avoiding an intermediate `&mut World`.
+    ///
+    /// # Safety
+    ///
+    /// - The resource of type `T` must exist in the world.
+    /// - No other reference (shared or mutable) to the same resource may
+    ///   exist concurrently.
+    #[inline]
+    pub unsafe fn get_resource_mut<'w, T: 'static>(self) -> &'w mut T {
+        // SAFETY: Caller guarantees the world pointer is valid and no
+        // other reference to this resource exists concurrently.
+        unsafe {
+            let resources_ptr: *mut Resources =
+                std::ptr::addr_of_mut!((*self.0).resources);
+            (*resources_ptr).get_mut::<T>()
+        }
+    }
+
+    /// Get shared access to the archetype store without creating `&World`.
+    ///
+    /// # Safety
+    ///
+    /// No mutable reference to the archetype store may exist concurrently
+    /// (i.e., no `QueryMut` for any component type may be live).
+    #[inline]
+    pub unsafe fn archetypes<'w>(self) -> &'w ArchetypeStore {
+        // SAFETY: Caller guarantees no mutable archetype access exists.
+        unsafe {
+            let ptr: *const ArchetypeStore =
+                std::ptr::addr_of!((*self.0).archetypes);
+            &*ptr
+        }
+    }
+
+    /// Get mutable access to the archetype store without creating `&mut World`.
+    ///
+    /// # Safety
+    ///
+    /// No other reference (shared or mutable) to the archetype store may
+    /// exist concurrently.
+    #[inline]
+    pub unsafe fn archetypes_mut<'w>(self) -> &'w mut ArchetypeStore {
+        // SAFETY: Caller guarantees exclusive archetype access.
+        unsafe {
+            let ptr: *mut ArchetypeStore =
+                std::ptr::addr_of_mut!((*self.0).archetypes);
+            &mut *ptr
+        }
+    }
+}
+
+// =============================================================================
 // World
 // =============================================================================
 

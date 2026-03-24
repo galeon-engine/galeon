@@ -5,7 +5,8 @@ use std::ops::{Deref, DerefMut};
 
 use crate::component::Component;
 use crate::entity::Entity;
-use crate::world::World;
+use crate::query::{QueryIter, QueryIterMut};
+use crate::world::UnsafeWorldCell;
 
 // =============================================================================
 // Access — describes what a system parameter touches
@@ -81,11 +82,11 @@ pub unsafe trait SystemParam {
     /// # Safety
     ///
     /// Caller must guarantee no aliasing mutable access to the data declared
-    /// in `access()`. Note: implementations currently create intermediate
-    /// `&World` or `&mut World` references from the raw pointer, which is
-    /// formally unsound under Stacked Borrows when multiple params are
-    /// fetched in sequence. See `UnsafeWorldCell` hardening plan.
-    unsafe fn fetch<'w>(world: *mut World) -> Self::Item<'w>;
+    /// in `access()`. The cell provides field-level access via `addr_of!`
+    /// to avoid creating intermediate `&World` or `&mut World` references,
+    /// preventing Stacked Borrows aliasing UB when multiple params are
+    /// fetched in sequence.
+    unsafe fn fetch<'w>(world: UnsafeWorldCell) -> Self::Item<'w>;
 }
 
 // =============================================================================
@@ -112,9 +113,9 @@ unsafe impl<T: 'static> SystemParam for Res<'_, T> {
         vec![Access::ResRead(TypeId::of::<T>())]
     }
 
-    unsafe fn fetch<'w>(world: *mut World) -> Res<'w, T> {
+    unsafe fn fetch<'w>(world: UnsafeWorldCell) -> Res<'w, T> {
         Res {
-            value: unsafe { (*world).resource::<T>() },
+            value: unsafe { world.get_resource::<T>() },
         }
     }
 }
@@ -149,9 +150,9 @@ unsafe impl<T: 'static> SystemParam for ResMut<'_, T> {
         vec![Access::ResWrite(TypeId::of::<T>())]
     }
 
-    unsafe fn fetch<'w>(world: *mut World) -> ResMut<'w, T> {
+    unsafe fn fetch<'w>(world: UnsafeWorldCell) -> ResMut<'w, T> {
         ResMut {
-            value: unsafe { (*world).resource_mut::<T>() },
+            value: unsafe { world.get_resource_mut::<T>() },
         }
     }
 }
@@ -183,7 +184,8 @@ impl<'w, T: Component> Query<'w, T> {
 }
 
 // SAFETY: access() correctly reports CompRead. fetch() collects an immutable
-// query — the archetype iterator borrows world.archetypes immutably.
+// query — the archetype iterator borrows world.archetypes immutably via
+// UnsafeWorldCell::archetypes() (no intermediate &World).
 unsafe impl<T: Component> SystemParam for Query<'_, T> {
     type Item<'w> = Query<'w, T>;
 
@@ -191,9 +193,11 @@ unsafe impl<T: Component> SystemParam for Query<'_, T> {
         vec![Access::CompRead(TypeId::of::<T>())]
     }
 
-    unsafe fn fetch<'w>(world: *mut World) -> Query<'w, T> {
+    unsafe fn fetch<'w>(world: UnsafeWorldCell) -> Query<'w, T> {
         Query {
-            results: unsafe { (*world).query::<&T>().collect() },
+            results: unsafe {
+                QueryIter::<'w, &T>::new(world.archetypes()).collect()
+            },
         }
     }
 }
@@ -226,7 +230,8 @@ impl<'w, T: Component> QueryMut<'w, T> {
 
 // SAFETY: access() correctly reports CompWrite. fetch() collects a mutable
 // query — the archetype iterator yields `&'w mut T` references into distinct
-// column heap allocations per archetype.
+// column heap allocations per archetype. Accesses archetypes via
+// UnsafeWorldCell::archetypes_mut() (no intermediate &mut World).
 unsafe impl<T: Component> SystemParam for QueryMut<'_, T> {
     type Item<'w> = QueryMut<'w, T>;
 
@@ -234,9 +239,11 @@ unsafe impl<T: Component> SystemParam for QueryMut<'_, T> {
         vec![Access::CompWrite(TypeId::of::<T>())]
     }
 
-    unsafe fn fetch<'w>(world: *mut World) -> QueryMut<'w, T> {
+    unsafe fn fetch<'w>(world: UnsafeWorldCell) -> QueryMut<'w, T> {
         QueryMut {
-            results: unsafe { (*world).query_mut::<&mut T>().collect() },
+            results: unsafe {
+                QueryIterMut::<'w, &mut T>::new(world.archetypes_mut()).collect()
+            },
         }
     }
 }
@@ -253,7 +260,7 @@ unsafe impl SystemParam for () {
         Vec::new()
     }
 
-    unsafe fn fetch<'w>(_world: *mut World) -> Self::Item<'w> {}
+    unsafe fn fetch<'w>(_world: UnsafeWorldCell) -> Self::Item<'w> {}
 }
 
 // =============================================================================
@@ -272,7 +279,7 @@ macro_rules! impl_system_param_tuple {
                 acc
             }
 
-            unsafe fn fetch<'w>(world: *mut World) -> Self::Item<'w> {
+            unsafe fn fetch<'w>(world: UnsafeWorldCell) -> Self::Item<'w> {
                 ($(unsafe { $P::fetch(world) },)+)
             }
         }
@@ -296,6 +303,7 @@ impl_system_param_tuple!(P0, P1, P2, P3, P4, P5, P6, P7);
 mod tests {
     use super::*;
     use crate::component::Component;
+    use crate::world::World;
 
     fn type_id<T: 'static>() -> TypeId {
         TypeId::of::<T>()
@@ -379,9 +387,9 @@ mod tests {
     fn res_fetches_resource() {
         let mut world = World::new();
         world.insert_resource(42_i32);
-        let world_ptr = &mut world as *mut World;
+        let cell = unsafe { UnsafeWorldCell::new(&mut world as *mut World) };
         unsafe {
-            let res: Res<'_, i32> = <Res<'_, i32> as SystemParam>::fetch(world_ptr);
+            let res: Res<'_, i32> = <Res<'_, i32> as SystemParam>::fetch(cell);
             assert_eq!(*res, 42);
         }
     }
@@ -396,9 +404,9 @@ mod tests {
     fn res_mut_fetches_and_mutates() {
         let mut world = World::new();
         world.insert_resource(10_u32);
-        let world_ptr = &mut world as *mut World;
+        let cell = unsafe { UnsafeWorldCell::new(&mut world as *mut World) };
         unsafe {
-            let mut res: ResMut<'_, u32> = <ResMut<'_, u32> as SystemParam>::fetch(world_ptr);
+            let mut res: ResMut<'_, u32> = <ResMut<'_, u32> as SystemParam>::fetch(cell);
             *res = 20;
         }
         assert_eq!(*world.resource::<u32>(), 20);
@@ -431,9 +439,9 @@ mod tests {
         let mut world = World::new();
         world.spawn((Pos { x: 1.0 },));
         world.spawn((Pos { x: 2.0 },));
-        let world_ptr = &mut world as *mut World;
+        let cell = unsafe { UnsafeWorldCell::new(&mut world as *mut World) };
         unsafe {
-            let q: Query<'_, Pos> = <Query<'_, Pos> as SystemParam>::fetch(world_ptr);
+            let q: Query<'_, Pos> = <Query<'_, Pos> as SystemParam>::fetch(cell);
             assert_eq!(q.len(), 2);
         }
     }
@@ -448,9 +456,9 @@ mod tests {
     fn query_mut_allows_mutation() {
         let mut world = World::new();
         let e = world.spawn((Pos { x: 5.0 },));
-        let world_ptr = &mut world as *mut World;
+        let cell = unsafe { UnsafeWorldCell::new(&mut world as *mut World) };
         unsafe {
-            let mut q: QueryMut<'_, Pos> = <QueryMut<'_, Pos> as SystemParam>::fetch(world_ptr);
+            let mut q: QueryMut<'_, Pos> = <QueryMut<'_, Pos> as SystemParam>::fetch(cell);
             for (_, pos) in q.iter_mut() {
                 pos.x += 10.0;
             }
@@ -467,9 +475,9 @@ mod tests {
     #[test]
     fn query_empty_world() {
         let mut world = World::new();
-        let world_ptr = &mut world as *mut World;
+        let cell = unsafe { UnsafeWorldCell::new(&mut world as *mut World) };
         unsafe {
-            let q: Query<'_, Pos> = <Query<'_, Pos> as SystemParam>::fetch(world_ptr);
+            let q: Query<'_, Pos> = <Query<'_, Pos> as SystemParam>::fetch(cell);
             assert!(q.is_empty());
         }
     }
