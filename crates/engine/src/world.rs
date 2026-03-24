@@ -2,7 +2,7 @@
 
 use crate::component::{Component, ComponentStorage, TypedSparseSet};
 use crate::entity::{Entity, EntityAllocator};
-use crate::query::{QueryIter, QueryIterMut};
+use crate::query::{Query2Iter, QueryIter, QueryIterMut};
 use crate::resource::Resources;
 
 /// A bundle of components that can be spawned together.
@@ -148,22 +148,17 @@ impl World {
     }
 
     /// Query all entities with two components (both immutable).
-    pub fn query2<A: Component, B: Component>(&self) -> Vec<(Entity, &A, &B)> {
+    ///
+    /// Returns a lazy iterator — iterates set A, probes set B.
+    pub fn query2<A: Component, B: Component>(&self) -> Query2Iter<'_, A, B> {
         let (Some(set_a), Some(set_b)) = (
             self.components.typed_set::<A>(),
             self.components.typed_set::<B>(),
         ) else {
-            return Vec::new();
+            return Query2Iter::empty(&self.entities);
         };
-
-        // Iterate the first set and probe the second.
-        set_a
-            .iter()
-            .filter_map(|(idx, a)| {
-                let b = set_b.get(idx)?;
-                Some((self.entities.entity_at(idx)?, a, b))
-            })
-            .collect()
+        let (dense_a, data_a) = set_a.dense_data();
+        Query2Iter::new(&self.entities, dense_a, data_a, set_b)
     }
 
     /// Query all entities with two components (both mutable).
@@ -307,7 +302,7 @@ mod tests {
         world.spawn((Pos { x: 2.0, y: 0.0 }, Vel { x: 5.0, y: 0.0 }));
         world.spawn((Vel { x: 3.0, y: 0.0 },));
 
-        let results = world.query2::<Pos, Vel>();
+        let results: Vec<_> = world.query2::<Pos, Vel>().collect();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].1.x, 2.0);
         assert_eq!(results[0].2.x, 5.0);

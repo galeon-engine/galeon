@@ -67,3 +67,26 @@ fn query_iter_mut_empty_world() {
     let results: Vec<_> = world.query_mut::<Pos>().collect();
     assert!(results.is_empty());
 }
+
+#[test]
+fn query2_iter_yields_entities_with_both() {
+    let mut world = World::new();
+    world.spawn((Pos { x: 1.0, y: 0.0 },));
+    world.spawn((Pos { x: 2.0, y: 0.0 }, Vel { dx: 5.0, dy: 0.0 }));
+    world.spawn((Vel { dx: 3.0, dy: 0.0 },));
+
+    let results: Vec<_> = world.query2::<Pos, Vel>().collect();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].1.x, 2.0);
+    assert_eq!(results[0].2.dx, 5.0);
+}
+
+#[test]
+fn query2_iter_empty_when_no_overlap() {
+    let mut world = World::new();
+    world.spawn((Pos { x: 1.0, y: 0.0 },));
+    world.spawn((Vel { dx: 2.0, dy: 0.0 },));
+
+    let results: Vec<_> = world.query2::<Pos, Vel>().collect();
+    assert!(results.is_empty());
+}

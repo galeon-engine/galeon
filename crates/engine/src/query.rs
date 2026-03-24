@@ -109,6 +109,69 @@ impl<'w, T: Component> Iterator for QueryIterMut<'w, T> {
     }
 }
 
+/// Lazy iterator for immutable two-component queries.
+///
+/// Iterates entities in set A and probes set B for each.
+/// Yields `(Entity, &A, &B)` for entities that have both components.
+pub struct Query2Iter<'w, A: Component, B: Component> {
+    entities: &'w EntityAllocator,
+    dense_a: &'w [u32],
+    data_a: &'w [A],
+    set_b: Option<&'w TypedSparseSet<B>>,
+    pos: usize,
+}
+
+impl<'w, A: Component, B: Component> Query2Iter<'w, A, B> {
+    pub(crate) fn new(
+        entities: &'w EntityAllocator,
+        dense_a: &'w [u32],
+        data_a: &'w [A],
+        set_b: &'w TypedSparseSet<B>,
+    ) -> Self {
+        Self {
+            entities,
+            dense_a,
+            data_a,
+            set_b: Some(set_b),
+            pos: 0,
+        }
+    }
+
+    pub(crate) fn empty(entities: &'w EntityAllocator) -> Self {
+        Self {
+            entities,
+            dense_a: &[],
+            data_a: &[],
+            set_b: None,
+            pos: 0,
+        }
+    }
+}
+
+impl<'w, A: Component, B: Component> Iterator for Query2Iter<'w, A, B> {
+    type Item = (Entity, &'w A, &'w B);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let set_b = self.set_b?;
+        while self.pos < self.dense_a.len() {
+            let idx = self.dense_a[self.pos];
+            let a = &self.data_a[self.pos];
+            self.pos += 1;
+            if let Some(b) = set_b.get(idx) {
+                if let Some(entity) = self.entities.entity_at(idx) {
+                    return Some((entity, a, b));
+                }
+            }
+        }
+        None
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.dense_a.len() - self.pos;
+        (0, Some(remaining))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
