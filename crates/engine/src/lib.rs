@@ -22,6 +22,8 @@ pub mod world;
 // Re-export dependencies that macros reference so consumers only need
 // `galeon-engine` in their Cargo.toml.
 #[doc(hidden)]
+pub use inventory;
+#[doc(hidden)]
 pub use serde;
 
 // Re-exports for ergonomic API.
