@@ -21,6 +21,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([#13](https://github.com/galeon-engine/galeon/issues/13))
 - `docs/guide/time.md` — virtual time guide
   ([#13](https://github.com/galeon-engine/galeon/issues/13))
+- Protocol marker traits: `Command`, `Query`, `Event`, `Dto` with serde +
+  `Send + Sync + 'static` bounds; `ProtocolMeta` metadata trait; `ProtocolKind`
+  enum. Re-exported from `galeon_engine::protocol`
+  ([#45](https://github.com/galeon-engine/galeon/issues/45))
 - Render extraction pipeline: `Transform`, `Visibility`, `MeshHandle`,
   `MaterialHandle` components with flat array layout for typed-buffer transport
   ([#15](https://github.com/galeon-engine/galeon/issues/15))
