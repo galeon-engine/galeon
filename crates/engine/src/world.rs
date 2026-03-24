@@ -141,8 +141,7 @@ impl UnsafeWorldCell {
         // is shared — combined with get_unchecked (which also uses &self),
         // no &mut Resources is ever created on this path.
         unsafe {
-            let resources_ptr: *const Resources =
-                std::ptr::addr_of!((*self.0).resources);
+            let resources_ptr: *const Resources = std::ptr::addr_of!((*self.0).resources);
             (*resources_ptr).get_unchecked::<T>()
         }
     }
@@ -166,8 +165,7 @@ impl UnsafeWorldCell {
         // only &Resources (shared). get_mut_unchecked uses UnsafeCell for
         // interior mutability — caller guarantees exclusive resource access.
         unsafe {
-            let resources_ptr: *const Resources =
-                std::ptr::addr_of!((*self.0).resources);
+            let resources_ptr: *const Resources = std::ptr::addr_of!((*self.0).resources);
             (*resources_ptr).get_mut_unchecked::<T>()
         }
     }
@@ -182,8 +180,7 @@ impl UnsafeWorldCell {
     pub unsafe fn archetypes<'w>(self) -> &'w ArchetypeStore {
         // SAFETY: Caller guarantees no mutable archetype access exists.
         unsafe {
-            let ptr: *const ArchetypeStore =
-                std::ptr::addr_of!((*self.0).archetypes);
+            let ptr: *const ArchetypeStore = std::ptr::addr_of!((*self.0).archetypes);
             &*ptr
         }
     }
