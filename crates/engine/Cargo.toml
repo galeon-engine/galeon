@@ -7,10 +7,11 @@ repository.workspace = true
 
 [dependencies]
 galeon-engine-macros = { path = "../engine-macros" }
+inventory = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 ron = { workspace = true }
 
 [dev-dependencies]
-serde_json = { workspace = true }
 tempfile = "3"
 trybuild = "1"

@@ -62,6 +62,36 @@ fn validate_struct(item: &syn::Item) -> Result<&syn::ItemStruct, syn::Error> {
     }
 }
 
+/// Extract the first `#[doc = "..."]` attribute value as a doc string.
+fn extract_doc(attrs: &[syn::Attribute]) -> String {
+    for attr in attrs {
+        if attr.path().is_ident("doc")
+            && let syn::Meta::NameValue(nv) = &attr.meta
+            && let syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Str(s),
+                ..
+            }) = &nv.value
+        {
+            return s.value().trim().to_string();
+        }
+    }
+    String::new()
+}
+
+/// Convert a type to its string representation for manifest field metadata.
+///
+/// Collapses runs of whitespace to single spaces but preserves them so
+/// composite types like `Vec < ShipView >` render as `Vec<ShipView>`.
+fn type_to_string(ty: &syn::Type) -> String {
+    let raw = quote!(#ty).to_string();
+    raw.replace(" < ", "<")
+        .replace("< ", "<")
+        .replace(" >", ">")
+        .replace(" ,", ",")
+        .replace(" ::", "::")
+        .replace(":: ", "::")
+}
+
 /// Shared implementation for protocol attribute macros.
 fn protocol_attr(
     input: TokenStream,
@@ -97,6 +127,26 @@ fn protocol_attr(
     // Build serde crate path string for #[serde(crate = "...")] attribute.
     let serde_crate_path = format!("{}::serde", krate);
 
+    // Extract field metadata for manifest generation.
+    let doc_str = extract_doc(&s.attrs);
+    let field_entries: Vec<proc_macro2::TokenStream> = match &s.fields {
+        syn::Fields::Named(fields) => fields
+            .named
+            .iter()
+            .map(|f| {
+                let fname = f.ident.as_ref().unwrap().to_string();
+                let ftype = type_to_string(&f.ty);
+                quote! {
+                    #krate::manifest::FieldEntry {
+                        name: #fname,
+                        ty: #ftype,
+                    }
+                }
+            })
+            .collect(),
+        _ => Vec::new(), // Unit struct — no fields.
+    };
+
     let expanded = quote! {
         #[derive(#krate::serde::Serialize, #krate::serde::Deserialize, #(#extra),*)]
         #[serde(crate = #serde_crate_path)]
@@ -110,6 +160,15 @@ fn protocol_attr(
             }
             fn kind() -> #krate::protocol::ProtocolKind {
                 #krate::protocol::ProtocolKind::#kind_variant_ident
+            }
+        }
+
+        #krate::inventory::submit! {
+            #krate::manifest::ProtocolRegistration {
+                name: #name_str,
+                kind: #krate::protocol::ProtocolKind::#kind_variant_ident,
+                fields: &[#(#field_entries),*],
+                doc: #doc_str,
             }
         }
     };
