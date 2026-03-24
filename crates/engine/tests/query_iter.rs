@@ -45,3 +45,25 @@ fn query_iter_entity_is_copy_not_ref() {
     assert_eq!(entity, e);
     assert_eq!(pos.x, 5.0);
 }
+
+#[test]
+fn query_iter_mut_allows_modification() {
+    let mut world = World::new();
+    world.spawn((Pos { x: 0.0, y: 0.0 },));
+    world.spawn((Pos { x: 10.0, y: 10.0 },));
+
+    for (_, pos) in world.query_mut::<Pos>() {
+        pos.x += 1.0;
+    }
+
+    let xs: Vec<f32> = world.query::<Pos>().map(|(_, p)| p.x).collect();
+    assert!(xs.contains(&1.0));
+    assert!(xs.contains(&11.0));
+}
+
+#[test]
+fn query_iter_mut_empty_world() {
+    let mut world = World::new();
+    let results: Vec<_> = world.query_mut::<Pos>().collect();
+    assert!(results.is_empty());
+}

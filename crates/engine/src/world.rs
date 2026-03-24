@@ -2,7 +2,7 @@
 
 use crate::component::{Component, ComponentStorage, TypedSparseSet};
 use crate::entity::{Entity, EntityAllocator};
-use crate::query::QueryIter;
+use crate::query::{QueryIter, QueryIterMut};
 use crate::resource::Resources;
 
 /// A bundle of components that can be spawned together.
@@ -139,14 +139,12 @@ impl World {
 
     /// Query all entities that have component T (mutable).
     ///
-    /// Returns a `Vec` since we can't return iterators over `&mut` with
-    /// the current storage model without GATs or complex lifetime tricks.
-    pub fn query_mut<T: Component>(&mut self) -> Vec<(Entity, &mut T)> {
+    /// Returns a lazy iterator of `(Entity, &mut T)` pairs — no heap allocation.
+    pub fn query_mut<T: Component>(&mut self) -> QueryIterMut<'_, T> {
         let entities = &self.entities;
         let set = self.components.typed_set_mut::<T>();
-        set.iter_mut()
-            .filter_map(|(idx, val)| Some((entities.entity_at(idx)?, val)))
-            .collect()
+        let (dense, data) = set.dense_data_mut();
+        QueryIterMut::new(entities, dense, data)
     }
 
     /// Query all entities with two components (both immutable).
