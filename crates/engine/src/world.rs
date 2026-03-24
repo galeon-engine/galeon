@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
-use crate::component::{Component, ComponentStorage, TypedSparseSet};
+use crate::component::{Component, ComponentStorage};
 use crate::entity::{Entity, EntityAllocator};
+use crate::query::{Query2Iter, Query2MutIter, Query3Iter, Query3MutIter, QueryIter, QueryIterMut};
 use crate::resource::Resources;
 
 /// A bundle of components that can be spawned together.
@@ -127,65 +128,78 @@ impl World {
 
     /// Query all entities that have component T (immutable).
     ///
-    /// Returns an iterator of `(Entity, &T)` pairs.
-    pub fn query<T: Component>(&self) -> Vec<(Entity, &T)> {
+    /// Returns a lazy iterator of `(Entity, &T)` pairs — no heap allocation.
+    pub fn query<T: Component>(&self) -> QueryIter<'_, T> {
         let Some(set) = self.components.typed_set::<T>() else {
-            return Vec::new();
+            return QueryIter::new(&self.entities, &[], &[]);
         };
-        set.iter()
-            .filter_map(|(idx, val)| Some((self.entities.entity_at(idx)?, val)))
-            .collect()
+        let (dense, data) = set.dense_data();
+        QueryIter::new(&self.entities, dense, data)
     }
 
     /// Query all entities that have component T (mutable).
     ///
-    /// Returns a `Vec` since we can't return iterators over `&mut` with
-    /// the current storage model without GATs or complex lifetime tricks.
-    pub fn query_mut<T: Component>(&mut self) -> Vec<(Entity, &mut T)> {
+    /// Returns a lazy iterator of `(Entity, &mut T)` pairs — no heap allocation.
+    pub fn query_mut<T: Component>(&mut self) -> QueryIterMut<'_, T> {
         let entities = &self.entities;
         let set = self.components.typed_set_mut::<T>();
-        set.iter_mut()
-            .filter_map(|(idx, val)| Some((entities.entity_at(idx)?, val)))
-            .collect()
+        let (dense, data) = set.dense_data_mut();
+        QueryIterMut::new(entities, dense, data)
     }
 
     /// Query all entities with two components (both immutable).
-    pub fn query2<A: Component, B: Component>(&self) -> Vec<(Entity, &A, &B)> {
+    ///
+    /// Returns a lazy iterator — iterates set A, probes set B.
+    pub fn query2<A: Component, B: Component>(&self) -> Query2Iter<'_, A, B> {
         let (Some(set_a), Some(set_b)) = (
             self.components.typed_set::<A>(),
             self.components.typed_set::<B>(),
         ) else {
-            return Vec::new();
+            return Query2Iter::empty(&self.entities);
         };
-
-        // Iterate the first set and probe the second.
-        set_a
-            .iter()
-            .filter_map(|(idx, a)| {
-                let b = set_b.get(idx)?;
-                Some((self.entities.entity_at(idx)?, a, b))
-            })
-            .collect()
+        let (dense_a, data_a) = set_a.dense_data();
+        Query2Iter::new(&self.entities, dense_a, data_a, set_b)
     }
 
     /// Query all entities with two components (both mutable).
-    pub fn query2_mut<A: Component, B: Component>(&mut self) -> Vec<(Entity, &mut A, &mut B)> {
+    ///
+    /// Returns a lazy iterator — no heap allocation. Panics if A == B.
+    pub fn query2_mut<A: Component, B: Component>(&mut self) -> Query2MutIter<'_, A, B> {
         let entities = &self.entities;
         let (set_a, set_b) = self.components.typed_sets_two_mut::<A, B>();
         let (Some(sa), Some(sb)) = (set_a, set_b) else {
-            return Vec::new();
+            return Query2MutIter::empty(entities);
         };
+        Query2MutIter::new(entities, sa, sb)
+    }
 
-        sa.iter_mut()
-            .filter_map(|(idx, a)| {
-                // SAFETY: sa and sb are distinct typed sparse sets (enforced by
-                // typed_sets_two_mut's TypeId assertion). Each entity index maps
-                // to a unique dense slot, so repeated get_mut calls never alias.
-                let sb_ptr = sb as *mut TypedSparseSet<B>;
-                let b = unsafe { (*sb_ptr).get_mut(idx)? };
-                Some((entities.entity_at(idx)?, a, b))
-            })
-            .collect()
+    /// Query all entities with three components (all immutable).
+    ///
+    /// Returns a lazy iterator — iterates set A, probes sets B and C.
+    pub fn query3<A: Component, B: Component, C: Component>(&self) -> Query3Iter<'_, A, B, C> {
+        let (Some(set_a), Some(set_b), Some(set_c)) = (
+            self.components.typed_set::<A>(),
+            self.components.typed_set::<B>(),
+            self.components.typed_set::<C>(),
+        ) else {
+            return Query3Iter::empty(&self.entities);
+        };
+        let (dense_a, data_a) = set_a.dense_data();
+        Query3Iter::new(&self.entities, dense_a, data_a, set_b, set_c)
+    }
+
+    /// Query all entities with three components (all mutable).
+    ///
+    /// Returns a lazy iterator. Panics if any two of A, B, C are the same type.
+    pub fn query3_mut<A: Component, B: Component, C: Component>(
+        &mut self,
+    ) -> Query3MutIter<'_, A, B, C> {
+        let entities = &self.entities;
+        let (set_a, set_b, set_c) = self.components.typed_sets_three_mut::<A, B, C>();
+        let (Some(sa), Some(sb), Some(sc)) = (set_a, set_b, set_c) else {
+            return Query3MutIter::empty(entities);
+        };
+        Query3MutIter::new(entities, sa, sb, sc)
     }
 
     /// Returns the number of alive entities.
@@ -257,7 +271,7 @@ mod tests {
         world.spawn((Pos { x: 2.0, y: 0.0 }, Vel { x: 0.0, y: 0.0 }));
         world.spawn((Vel { x: 3.0, y: 0.0 },)); // no Pos
 
-        let positions: Vec<f32> = world.query::<Pos>().iter().map(|(_, p)| p.x).collect();
+        let positions: Vec<f32> = world.query::<Pos>().map(|(_, p)| p.x).collect();
         assert_eq!(positions.len(), 2);
         assert!(positions.contains(&1.0));
         assert!(positions.contains(&2.0));
@@ -273,7 +287,7 @@ mod tests {
             pos.x += 1.0;
         }
 
-        let xs: Vec<f32> = world.query::<Pos>().iter().map(|(_, p)| p.x).collect();
+        let xs: Vec<f32> = world.query::<Pos>().map(|(_, p)| p.x).collect();
         assert!(xs.contains(&1.0));
         assert!(xs.contains(&11.0));
     }
@@ -309,7 +323,7 @@ mod tests {
         world.spawn((Pos { x: 2.0, y: 0.0 }, Vel { x: 5.0, y: 0.0 }));
         world.spawn((Vel { x: 3.0, y: 0.0 },));
 
-        let results = world.query2::<Pos, Vel>();
+        let results: Vec<_> = world.query2::<Pos, Vel>().collect();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].1.x, 2.0);
         assert_eq!(results[0].2.x, 5.0);
@@ -342,7 +356,7 @@ mod tests {
         let e2 = world.spawn((Pos { x: 7.0, y: 7.0 }, Vel { x: 9.0, y: 9.0 }));
         let e3 = world.spawn((Vel { x: 11.0, y: 11.0 },));
 
-        let results = world.query2_mut::<Pos, Vel>();
+        let results: Vec<_> = world.query2_mut::<Pos, Vel>().collect();
         assert_eq!(results.len(), 1);
 
         let (entity, pos, vel) = &results[0];

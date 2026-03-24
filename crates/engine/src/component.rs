@@ -119,6 +119,7 @@ impl<T> TypedSparseSet<T> {
     }
 
     /// Returns an iterator over (entity_index, &T) pairs.
+    #[allow(dead_code)]
     pub fn iter(&self) -> impl Iterator<Item = (u32, &T)> {
         self.dense
             .iter()
@@ -127,11 +128,27 @@ impl<T> TypedSparseSet<T> {
     }
 
     /// Returns an iterator over (entity_index, &mut T) pairs.
+    #[allow(dead_code)]
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (u32, &mut T)> {
         self.dense
             .iter()
             .zip(self.data.iter_mut())
             .map(|(&entity_idx, data)| (entity_idx, data))
+    }
+
+    /// Returns immutable slices of (entity_indices, component_data).
+    ///
+    /// Used by lazy query iterators to avoid re-borrowing the whole set.
+    pub(crate) fn dense_data(&self) -> (&[u32], &[T]) {
+        (&self.dense, &self.data)
+    }
+
+    /// Returns the dense slice immutably and the data slice mutably.
+    ///
+    /// Needed by `QueryIterMut` to iterate entity indices while yielding
+    /// `&mut T` references without reborrowing `&mut self`.
+    pub(crate) fn dense_data_mut(&mut self) -> (&[u32], &mut [T]) {
+        (&self.dense, &mut self.data)
     }
 }
 
@@ -239,6 +256,50 @@ impl ComponentStorage {
             (set_a, set_b)
         }
     }
+
+    /// Get three mutable typed sparse sets at once.
+    ///
+    /// Panics if any two of A, B, C are the same type.
+    #[allow(clippy::type_complexity)]
+    pub fn typed_sets_three_mut<A: Component, B: Component, C: Component>(
+        &mut self,
+    ) -> (
+        Option<&mut TypedSparseSet<A>>,
+        Option<&mut TypedSparseSet<B>>,
+        Option<&mut TypedSparseSet<C>>,
+    ) {
+        assert_ne!(
+            TypeId::of::<A>(),
+            TypeId::of::<B>(),
+            "cannot borrow the same sparse set mutably twice (A == B)"
+        );
+        assert_ne!(
+            TypeId::of::<A>(),
+            TypeId::of::<C>(),
+            "cannot borrow the same sparse set mutably twice (A == C)"
+        );
+        assert_ne!(
+            TypeId::of::<B>(),
+            TypeId::of::<C>(),
+            "cannot borrow the same sparse set mutably twice (B == C)"
+        );
+
+        let ptr = &mut self.sets as *mut HashMap<TypeId, Box<dyn AnyComponentStore>>;
+        // SAFETY: We asserted A, B, C are all distinct, so we borrow three
+        // separate entries from the map.
+        unsafe {
+            let set_a = (*ptr)
+                .get_mut(&TypeId::of::<A>())
+                .and_then(|s| s.as_any_mut().downcast_mut::<TypedSparseSet<A>>());
+            let set_b = (*ptr)
+                .get_mut(&TypeId::of::<B>())
+                .and_then(|s| s.as_any_mut().downcast_mut::<TypedSparseSet<B>>());
+            let set_c = (*ptr)
+                .get_mut(&TypeId::of::<C>())
+                .and_then(|s| s.as_any_mut().downcast_mut::<TypedSparseSet<C>>());
+            (set_a, set_b, set_c)
+        }
+    }
 }
 
 // =============================================================================
@@ -296,5 +357,19 @@ mod tests {
         assert_eq!(items.len(), 2);
         assert!(items.contains(&(3, 30)));
         assert!(items.contains(&(7, 70)));
+    }
+
+    #[test]
+    fn typed_sparse_set_dense_data_slices() {
+        let mut set = TypedSparseSet::new();
+        set.insert(3, 30_i32);
+        set.insert(7, 70_i32);
+
+        let (dense, data) = set.dense_data();
+        assert_eq!(dense.len(), 2);
+        assert_eq!(data.len(), 2);
+        // Dense contains entity indices, data contains values (parallel).
+        assert!(dense.contains(&3));
+        assert!(dense.contains(&7));
     }
 }

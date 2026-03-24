@@ -320,7 +320,6 @@ mod tests {
         let counts: Vec<u32> = engine
             .world()
             .query::<Counter>()
-            .into_iter()
             .map(|(_, c)| c.0)
             .collect();
         assert_eq!(counts, vec![1]);
@@ -353,7 +352,6 @@ mod tests {
         let counts: Vec<u32> = engine
             .world()
             .query::<Counter>()
-            .into_iter()
             .map(|(_, c)| c.0)
             .collect();
         assert_eq!(counts, vec![3]);

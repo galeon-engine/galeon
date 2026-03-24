@@ -77,6 +77,25 @@ for (entity, pos, vel) in world.query2::<Position, Velocity>() {
 }
 ```
 
+> Queries return lazy iterators — call `.collect::<Vec<_>>()` if you need `len()` or indexing.
+
+Query three components (immutable):
+
+```rust
+for (entity, pos, vel, hp) in world.query3::<Position, Velocity, Health>() {
+    // Process entities with all three components
+}
+```
+
+Query three components (mutable):
+
+```rust
+for (entity, pos, vel, hp) in world.query3_mut::<Position, Velocity, Health>() {
+    pos.x += vel.x;
+    hp.current -= 1;
+}
+```
+
 Direct access by entity:
 
 ```rust
