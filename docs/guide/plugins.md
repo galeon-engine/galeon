@@ -14,8 +14,8 @@ let mut engine = Engine::new();
 
 ## Adding Systems
 
-Systems are plain Rust functions `fn(&mut World)`. Register them with a stage
-name and a display name:
+Systems are plain Rust functions `fn(&mut World)`. Register legacy systems with
+an explicit cast and turbofish:
 
 ```rust
 use galeon_engine::{Engine, World};
@@ -25,16 +25,16 @@ fn move_units(world: &mut World) {
 }
 
 let mut engine = Engine::new();
-engine.add_system("simulate", "move_units", move_units);
+engine.add_system::<()>("simulate", "move_units", move_units as fn(&mut World));
 ```
 
 Calls are chainable:
 
 ```rust
 engine
-    .add_system("pre", "input", input_system)
-    .add_system("simulate", "physics", physics_system)
-    .add_system("post", "render_sync", render_sync_system);
+    .add_system::<()>("pre", "input", input_system as fn(&mut World))
+    .add_system::<()>("simulate", "physics", physics_system as fn(&mut World))
+    .add_system::<()>("post", "render_sync", render_sync_system as fn(&mut World));
 ```
 
 Stages run in the order they are first registered. Systems within the same
@@ -67,8 +67,8 @@ pub struct PhysicsPlugin;
 impl Plugin for PhysicsPlugin {
     fn build(&self, engine: &mut Engine) {
         engine
-            .add_system("simulate", "physics", physics_system)
-            .add_system("simulate", "collision", collision_system);
+            .add_system::<()>("simulate", "physics", physics_system as fn(&mut World))
+            .add_system::<()>("simulate", "collision", collision_system as fn(&mut World));
     }
 }
 ```
@@ -159,7 +159,7 @@ pub struct GravityPlugin;
 
 impl Plugin for GravityPlugin {
     fn build(&self, engine: &mut Engine) {
-        engine.add_system("simulate", "gravity", gravity);
+        engine.add_system::<()>("simulate", "gravity", gravity as fn(&mut World));
     }
 }
 

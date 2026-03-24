@@ -118,6 +118,32 @@ fn validate_no_self_conflicts(access: &[Access], system_name: &'static str) {
     }
 }
 
+impl<Func> SystemParamFunction<()> for Func
+where
+    Func: FnMut() + 'static,
+{
+    fn run(&mut self, _world: &mut World) {
+        self();
+    }
+
+    fn param_access() -> Vec<Access> {
+        Vec::new()
+    }
+}
+
+impl<Func> IntoSystem<()> for Func
+where
+    Func: SystemParamFunction<()>,
+{
+    fn into_system(self, name: &'static str) -> Box<dyn System> {
+        Box::new(ParamSystem {
+            name,
+            func: self,
+            _marker: PhantomData,
+        })
+    }
+}
+
 // =============================================================================
 // Arity macros — 1..8 parameter systems
 // =============================================================================
@@ -227,6 +253,16 @@ mod tests {
         let mut world = World::new();
         world.spawn((Counter(0),));
         sys.run(&mut world);
+    }
+
+    fn noop() {}
+
+    #[test]
+    fn zero_param_into_system() {
+        let mut sys: Box<dyn System> = IntoSystem::<()>::into_system(noop, "noop");
+        let mut world = World::new();
+        sys.run(&mut world);
+        assert!(sys.access().is_empty());
     }
 
     fn read_speed_count_entities(speed: Res<'_, Speed>, query: Query<'_, Counter>) {
