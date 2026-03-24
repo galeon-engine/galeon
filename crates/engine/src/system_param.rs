@@ -195,9 +195,7 @@ unsafe impl<T: Component> SystemParam for Query<'_, T> {
 
     unsafe fn fetch<'w>(world: UnsafeWorldCell) -> Query<'w, T> {
         Query {
-            results: unsafe {
-                QueryIter::<'w, &T>::new(world.archetypes()).collect()
-            },
+            results: unsafe { QueryIter::<'w, &T>::new(world.archetypes()).collect() },
         }
     }
 }
@@ -244,8 +242,7 @@ unsafe impl<T: Component> SystemParam for QueryMut<'_, T> {
     unsafe fn fetch<'w>(world: UnsafeWorldCell) -> QueryMut<'w, T> {
         QueryMut {
             results: unsafe {
-                QueryIterMut::<'w, &mut T>::new_from_ptr(world.archetypes_mut_ptr())
-                    .collect()
+                QueryIterMut::<'w, &mut T>::new_from_ptr(world.archetypes_mut_ptr()).collect()
             },
         }
     }

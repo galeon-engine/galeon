@@ -578,8 +578,7 @@ impl ArchetypeStore {
         index: usize,
     ) -> Option<&'w mut Archetype> {
         unsafe {
-            let vec_ptr: *mut Vec<Archetype> =
-                std::ptr::addr_of_mut!((*this).archetypes);
+            let vec_ptr: *mut Vec<Archetype> = std::ptr::addr_of_mut!((*this).archetypes);
             (&mut *vec_ptr).get_mut(index)
         }
     }
