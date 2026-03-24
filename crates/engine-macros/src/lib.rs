@@ -1,8 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
 use proc_macro::TokenStream;
+use proc_macro_crate::{FoundCrate, crate_name};
 use quote::quote;
 use syn::spanned::Spanned;
+
+/// Resolve the `galeon-engine` crate path as used by the consumer.
+/// Handles renames like `engine = { package = "galeon-engine" }`.
+fn engine_crate() -> proc_macro2::TokenStream {
+    match crate_name("galeon-engine").expect("galeon-engine must be in Cargo.toml") {
+        FoundCrate::Itself => quote!(crate),
+        FoundCrate::Name(name) => {
+            let ident = syn::Ident::new(&name, proc_macro2::Span::call_site());
+            quote!(#ident)
+        }
+    }
+}
 
 /// Derive macro that implements the `Component` trait for a struct.
 ///
@@ -70,31 +83,33 @@ fn protocol_attr(
     let name_str = name.to_string();
     let (impl_generics, ty_generics, where_clause) = s.generics.split_for_impl();
 
-    let marker_path: syn::Path =
-        syn::parse_str(&format!("galeon_engine::protocol::{marker_trait}"))
-            .expect("valid marker trait path");
-    let kind_path: syn::Path = syn::parse_str(&format!(
-        "galeon_engine::protocol::ProtocolKind::{kind_variant}"
-    ))
-    .expect("valid kind variant path");
+    // Resolve the engine crate path, handling renames.
+    let krate = engine_crate();
+
+    let marker_trait_ident = syn::Ident::new(marker_trait, proc_macro2::Span::call_site());
+    let kind_variant_ident = syn::Ident::new(kind_variant, proc_macro2::Span::call_site());
 
     let extra: Vec<syn::Path> = extra_derives
         .iter()
         .map(|d| syn::parse_str(d).expect("valid derive path"))
         .collect();
 
+    // Build serde crate path string for #[serde(crate = "...")] attribute.
+    let serde_crate_path = format!("{}::serde", krate);
+
     let expanded = quote! {
-        #[derive(galeon_engine::serde::Serialize, galeon_engine::serde::Deserialize, #(#extra),*)]
+        #[derive(#krate::serde::Serialize, #krate::serde::Deserialize, #(#extra),*)]
+        #[serde(crate = #serde_crate_path)]
         #item
 
-        impl #impl_generics #marker_path for #name #ty_generics #where_clause {}
+        impl #impl_generics #krate::protocol::#marker_trait_ident for #name #ty_generics #where_clause {}
 
-        impl #impl_generics galeon_engine::protocol::ProtocolMeta for #name #ty_generics #where_clause {
+        impl #impl_generics #krate::protocol::ProtocolMeta for #name #ty_generics #where_clause {
             fn name() -> &'static str {
                 #name_str
             }
-            fn kind() -> galeon_engine::protocol::ProtocolKind {
-                #kind_path
+            fn kind() -> #krate::protocol::ProtocolKind {
+                #krate::protocol::ProtocolKind::#kind_variant_ident
             }
         }
     };
