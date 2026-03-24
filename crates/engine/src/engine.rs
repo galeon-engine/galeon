@@ -82,6 +82,25 @@ impl Engine {
         self
     }
 
+    /// Add a legacy `fn(&mut World)` system without requiring turbofish or cast.
+    ///
+    /// Convenience wrapper — equivalent to:
+    /// ```ignore
+    /// engine.add_system::<()>("stage", "name", my_fn as fn(&mut World));
+    /// ```
+    ///
+    /// Delegates to [`Schedule::add_legacy_system`]. Returns `&mut Self` for
+    /// chaining.
+    pub fn add_legacy_system(
+        &mut self,
+        stage: &'static str,
+        name: &'static str,
+        func: fn(&mut World),
+    ) -> &mut Self {
+        self.schedule.add_legacy_system(stage, name, func);
+        self
+    }
+
     /// Apply a plugin to this engine.
     ///
     /// Calls [`Plugin::build`] with `self`. Returns `&mut Self` for chaining.
@@ -429,5 +448,31 @@ mod tests {
 
         engine.pause();
         assert!(engine.world().try_resource::<VirtualTime>().is_some());
+    }
+
+    // -- add_legacy_system convenience wrapper (#56) --
+
+    #[test]
+    fn add_legacy_system_registers_and_runs() {
+        let mut engine = Engine::new();
+        engine.world_mut().spawn((Counter(0),));
+        engine.add_legacy_system("update", "increment", increment);
+        engine.run_once();
+
+        let counts: Vec<u32> = engine
+            .world()
+            .query::<&Counter>()
+            .map(|(_, c)| c.0)
+            .collect();
+        assert_eq!(counts, vec![1]);
+    }
+
+    #[test]
+    fn add_legacy_system_is_chainable() {
+        let mut engine = Engine::new();
+        engine
+            .add_legacy_system("pre", "increment", increment)
+            .add_legacy_system("post", "increment2", increment);
+        assert_eq!(engine.schedule().system_count(), 2);
     }
 }
