@@ -81,7 +81,10 @@ pub unsafe trait SystemParam {
     /// # Safety
     ///
     /// Caller must guarantee no aliasing mutable access to the data declared
-    /// in `access()`.
+    /// in `access()`. Note: implementations currently create intermediate
+    /// `&World` or `&mut World` references from the raw pointer, which is
+    /// formally unsound under Stacked Borrows when multiple params are
+    /// fetched in sequence. See `UnsafeWorldCell` hardening plan.
     unsafe fn fetch<'w>(world: *mut World) -> Self::Item<'w>;
 }
 

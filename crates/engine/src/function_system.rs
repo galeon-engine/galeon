@@ -18,6 +18,11 @@ pub trait System {
     fn run(&mut self, world: &mut World);
 
     /// Declare what world data this system accesses.
+    ///
+    /// Returns the union of all parameter accesses for parameterized systems.
+    /// Legacy `fn(&mut World)` systems return an empty `Vec` because their
+    /// access is opaque — they should be treated as having exclusive world
+    /// access for any future inter-system scheduling.
     fn access(&self) -> Vec<Access>;
 }
 
@@ -71,7 +76,7 @@ impl IntoSystem<()> for LegacySystemFn {
 // =============================================================================
 
 /// Marker trait bridging an `FnMut(P::Item<'_>, ...)` to `System::run`.
-pub trait SystemParamFunction<Params>: 'static {
+pub(crate) trait SystemParamFunction<Params>: 'static {
     fn run(&mut self, world: &mut World);
     fn param_access() -> Vec<Access>;
 }
@@ -126,10 +131,20 @@ macro_rules! impl_system_param_function {
         {
             fn run(&mut self, world: &mut World) {
                 let world_ptr = world as *mut World;
-                // SAFETY: access conflicts checked at registration time via
-                // validate_no_self_conflicts. Each resource/component lives in
-                // its own heap allocation, so distinct TypeId accesses cannot
-                // alias even through the same *mut World.
+                // SAFETY: Conflict detection at registration ensures no two
+                // params access the same TypeId mutably. The final returned
+                // references point to separate heap allocations (Box in
+                // HashMap) and do not alias at the data level.
+                //
+                // KNOWN LIMITATION: The intermediate &World / &mut World
+                // references created inside each fetch() call are formally
+                // unsound under strict Stacked Borrows — creating &mut World
+                // in a later fetch invalidates the borrow stack of an earlier
+                // &World from the same *mut World. This matches the pre-
+                // UnsafeWorldCell pattern used by Bevy <0.13. It works in
+                // practice because LLVM does not exploit this; a proper
+                // UnsafeWorldCell that bypasses intermediate World references
+                // is tracked as a hardening follow-up.
                 unsafe {
                     self($($P::fetch(world_ptr),)+);
                 }
