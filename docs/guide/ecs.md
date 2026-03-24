@@ -150,27 +150,79 @@ schedule.run(&mut world);
 The three-stage model (`input` → `simulate` → `sync`) ensures input is
 processed before simulation, and simulation completes before rendering sync.
 
+## Component Trait
+
+All component types must implement the `Component` marker trait. The trait
+requires `Send + Sync + 'static`, ensuring components are safe to share across
+threads.
+
+```rust
+use galeon_engine::Component;
+
+#[derive(Component, Clone, Debug)]
+struct Position { x: f32, y: f32 }
+```
+
+The `#[derive(Component)]` macro generates the trait impl automatically.
+
 ## Storage Internals
 
-Components are stored in **typed sparse sets** — each component type gets its
-own `Vec<T>` (no boxing, no `dyn Any`). This means:
+### Archetype Storage (new)
 
-- **Zero heap allocation per component** — data lives in a contiguous `Vec<T>`
-- **Zero runtime downcasts on hot paths** — queries iterate typed data directly
-- **O(1) insert/get/remove** — sparse set semantics
-- **Dense iteration** — ideal for systems that touch many entities
+Entities are grouped into **archetypes** — tables where each row is an entity
+and each column is a component type. All entities in an archetype share the
+same set of component types.
 
-The type erasure needed for the component registry happens once per query call
-(at the storage level), not once per entity. This is a single `TypeId`
-comparison — negligible compared to the old design which boxed every component
-and downcast on every access.
+```
+Archetype [Position, Velocity]     Archetype [Position, Health]
+┌────────┬──────────┬──────────┐   ┌────────┬──────────┬────────┐
+│ Entity │ Position │ Velocity │   │ Entity │ Position │ Health │
+├────────┼──────────┼──────────┤   ├────────┼──────────┼────────┤
+│  e0    │ (1, 2)   │ (3, 4)   │   │  e2    │ (5, 6)   │  100   │
+│  e1    │ (7, 8)   │ (9, 0)   │   │  e3    │ (0, 0)   │   80   │
+└────────┴──────────┴──────────┘   └────────┴──────────┴────────┘
+```
+
+Key data structures:
+
+- **`ArchetypeLayout`** — sorted set of `TypeId`s identifying which components
+  an archetype holds. Two layouts with the same types (regardless of input
+  order) are equal and hash the same.
+- **`Column<T>`** — a typed `Vec<T>` storing one component type within one
+  archetype. Columns are independently borrowable (no double-borrow needed for
+  multi-component queries).
+- **`Archetype`** — owns the entity list and columns. Maintains the invariant
+  that `entities.len() == column.len()` for all columns at all times.
+- **`ArchetypeStore`** — registry of all archetypes, indexed by layout.
+  `get_or_create(layout)` returns the existing archetype or creates a new one.
+- **`EntityMetaStore`** — extends entity metadata with `EntityLocation`
+  (archetype ID + row), enabling O(1) entity-to-archetype lookup.
+- **Edge cache** — each archetype caches the target archetype for adding or
+  removing a specific component type, making archetype migrations O(1) after
+  the first transition.
+
+Benefits over the previous sparse set design:
+
+- **No unsafe double-borrow** — columns are separate `Vec<T>`s, not entries in
+  a shared `HashMap`
+- **O(1) entity location** — `EntityMeta` tracks exactly where each entity lives
+- **Cache-friendly iteration** — entities with the same components are
+  co-located in contiguous memory
+- **Structural grouping** — queries only visit archetypes that match, skipping
+  irrelevant entities entirely
+
+### Sparse Sets (legacy)
+
+The previous storage model used per-type sparse sets. These remain in the
+codebase during the transition and will be removed when World migrates to
+archetype storage.
 
 ### Hot vs Cold Storage
 
 | Storage Class | Use For | Why |
 |---------------|---------|-----|
-| **Hot** (typed sparse set, default) | Transforms, movement, health, combat state, AI state | Iterated every tick, must be cache-friendly |
+| **Hot** (archetype columns, default) | Transforms, movement, health, combat state, AI state | Iterated every tick, must be cache-friendly |
 | **Cold** (future: separate store) | Names, debug tags, editor metadata | Rarely iterated, should not pollute hot storage |
 
-Currently all components use typed sparse sets. Cold/sparse-side storage for
-editor metadata is a planned future addition.
+Currently all components use archetype column storage. Cold/sparse-side storage
+for editor metadata is a planned future addition.

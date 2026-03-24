@@ -6,6 +6,7 @@
 // when used within this crate's own tests.
 extern crate self as galeon_engine;
 
+pub mod archetype;
 pub mod component;
 pub mod data;
 pub mod engine;

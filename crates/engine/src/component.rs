@@ -6,7 +6,7 @@ use std::collections::HashMap;
 /// Marker trait for types that can be stored as ECS components.
 ///
 /// Derive with `#[derive(Component)]` from `galeon_engine_macros`.
-pub trait Component: 'static {}
+pub trait Component: Send + Sync + 'static {}
 
 // =============================================================================
 // TypedSparseSet<T> — typed, cache-friendly component storage
