@@ -18,6 +18,11 @@ pub mod schedule;
 pub mod virtual_time;
 pub mod world;
 
+// Re-export dependencies that macros reference so consumers only need
+// `galeon-engine` in their Cargo.toml.
+#[doc(hidden)]
+pub use serde;
+
 // Re-exports for ergonomic API.
 pub use component::Component;
 pub use data::{DataRegistry, UnitStats, UnitTemplate};

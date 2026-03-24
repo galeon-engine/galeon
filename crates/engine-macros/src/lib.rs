@@ -84,7 +84,7 @@ fn protocol_attr(
         .collect();
 
     let expanded = quote! {
-        #[derive(::serde::Serialize, ::serde::Deserialize, #(#extra),*)]
+        #[derive(galeon_engine::serde::Serialize, galeon_engine::serde::Deserialize, #(#extra),*)]
         #item
 
         impl #impl_generics #marker_path for #name #ty_generics #where_clause {}
