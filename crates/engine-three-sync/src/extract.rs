@@ -19,7 +19,9 @@ type Renderable = (galeon_engine::Entity, [f32; 3], [f32; 4], [f32; 3]);
 
 pub fn extract_frame(world: &World) -> FramePacket {
     // First pass: collect entity IDs and transform data into owned values.
-    // This releases the borrow on `world` so we can call `get()` per entity.
+    // The `QueryIter` borrows `world.archetypes` for its lifetime; `.collect()`
+    // consumes the iterator and releases that borrow, so we can call
+    // `world.get()` per entity in the second pass.
     let renderables: Vec<Renderable> = world
         .query::<&Transform>()
         .map(|(e, t)| (e, t.position, t.rotation, t.scale))

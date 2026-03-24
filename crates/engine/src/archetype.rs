@@ -467,8 +467,13 @@ impl Archetype {
             entities, columns, ..
         } = self;
         let ptr = columns as *mut HashMap<TypeId, Box<dyn AnyColumn>>;
-        // SAFETY: A, B, and C are distinct (asserted above), so the returned
-        // mutable references point to separate boxed column allocations.
+        // SAFETY: A, B, and C are distinct (asserted above), so `get_mut`
+        // returns pointers to three distinct Box<dyn AnyColumn> heap
+        // allocations. The three temporary &mut to HashMap entries access
+        // different keys, and because values are boxed (heap-allocated), the
+        // returned &mut Column<T> references point into separate allocations
+        // with no overlap. No insertion occurs, so no reallocation can
+        // invalidate any pointer.
         unsafe {
             let col_a = (*ptr)
                 .get_mut(&TypeId::of::<A>())?

@@ -45,6 +45,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([#28](https://github.com/galeon-engine/galeon/issues/28))
 - `TypedSparseSet<T>`, `AnyComponentStore`, `ComponentStorage` — superseded by archetype `Column<T>` and `ArchetypeStore`
   ([#28](https://github.com/galeon-engine/galeon/issues/28))
+- `QueryIter<'w, T>`, `QueryIterMut<'w, T>`, `Query2Iter`, `Query2MutIter`, `Query3Iter`, `Query3MutIter` — replaced by generic `QueryIter<'w, Q, F>` / `QueryIterMut<'w, Q, F>` (breaking: different generic signatures)
+  ([#28](https://github.com/galeon-engine/galeon/issues/28), [#29](https://github.com/galeon-engine/galeon/issues/29))
 
 - Archetype storage core types: `ArchetypeId`, `ArchetypeLayout`, `Column<T>`,
   `AnyColumn` trait, `Archetype`, `ArchetypeStore`, and edge cache for O(1)

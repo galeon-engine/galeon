@@ -52,8 +52,9 @@ struct RawTransform {
 /// render hot path) and serializes their render-facing data into a
 /// human-readable structure.
 pub fn extract_debug_snapshot(world: &World) -> DebugSnapshot {
-    // Collect transform entities into owned data first (same borrow-split
-    // pattern as the hot path extraction).
+    // Collect transform entities into owned data first. The `QueryIter`
+    // borrows `world.archetypes`; `.collect()` consumes it and releases that
+    // borrow so we can call `world.get()` per entity below.
     let renderables: Vec<RawTransform> = world
         .query::<&Transform>()
         .map(|(e, t)| RawTransform {

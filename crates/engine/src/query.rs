@@ -221,9 +221,15 @@ where
             }
 
             // SAFETY: The iterator owns the only mutable borrow of the store
-            // for `'w`. `current` is cleared before borrowing a new archetype,
-            // so mutable state from one archetype is never active while
-            // another mutable archetype borrow is created.
+            // for `'w` (via `_marker: PhantomData<&'w mut ArchetypeStore>`).
+            // `current` is cleared before borrowing a new archetype, so no
+            // mutable state references the archetype being re-borrowed.
+            // Items yielded from prior archetypes carry `&'w mut T` into
+            // the caller, but those point into distinct per-archetype
+            // `Column<T>` heap allocations — different archetypes own
+            // separate column `Vec`s, so references from archetype A never
+            // alias data in archetype B. Re-borrowing the store here is
+            // therefore safe despite the caller holding prior items.
             let archetype = unsafe { (&mut *self.store).get_by_index_mut(self.archetype_index)? };
             self.archetype_index += 1;
 
