@@ -7,6 +7,14 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Removed
+
+- **BREAKING: Legacy `fn(&mut World)` system path removed** — `LegacySystem`, `LegacySystemFn`,
+  `IntoSystem<()> for fn(&mut World)`, `Schedule::add_legacy_system`, and `Engine::add_legacy_system`
+  are all gone. Parameterized systems (`fn(Res<T>, QueryMut<U>)`) are now the only supported
+  scheduling API. This is intentional pre-release surface reduction — the engine is not public yet.
+  ([#65](https://github.com/galeon-engine/galeon/issues/65))
+
 ### Changed
 
 - **BREAKING: `protocol::Query` renamed to `protocol::ProtocolQuery`** — frees up the `Query`

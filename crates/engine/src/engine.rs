@@ -14,14 +14,19 @@ use crate::world::World;
 /// # Example
 ///
 /// ```rust
-/// use galeon_engine::{Engine, Plugin, World};
+/// use galeon_engine::{Engine, Plugin, QueryMut, Component};
 ///
-/// fn my_system(_world: &mut World) {}
+/// #[derive(Component)]
+/// struct Score(u32);
+///
+/// fn add_score(mut scores: QueryMut<'_, Score>) {
+///     for (_, s) in scores.iter_mut() { s.0 += 1; }
+/// }
 ///
 /// struct MyPlugin;
 /// impl Plugin for MyPlugin {
 ///     fn build(&self, engine: &mut Engine) {
-///         engine.add_system::<()>("update", "my_system", my_system as fn(&mut World));
+///         engine.add_system::<(QueryMut<'_, Score>,)>("update", "add_score", add_score);
 ///     }
 /// }
 ///
@@ -68,8 +73,7 @@ impl Engine {
 
     /// Add a system to the schedule.
     ///
-    /// Accepts both legacy `fn(&mut World)` (pass as `my_fn as fn(&mut World)`)
-    /// and parameterized functions like `fn(Res<T>, QueryMut<U>)`.
+    /// Accepts any parameterized function like `fn(Res<T>, QueryMut<U>)`.
     ///
     /// Delegates to [`Schedule::add_system`]. Returns `&mut Self` for chaining.
     pub fn add_system<P>(
@@ -79,25 +83,6 @@ impl Engine {
         func: impl IntoSystem<P>,
     ) -> &mut Self {
         self.schedule.add_system(stage, name, func);
-        self
-    }
-
-    /// Add a legacy `fn(&mut World)` system without requiring turbofish or cast.
-    ///
-    /// Convenience wrapper — equivalent to:
-    /// ```ignore
-    /// engine.add_system::<()>("stage", "name", my_fn as fn(&mut World));
-    /// ```
-    ///
-    /// Delegates to [`Schedule::add_legacy_system`]. Returns `&mut Self` for
-    /// chaining.
-    pub fn add_legacy_system(
-        &mut self,
-        stage: &'static str,
-        name: &'static str,
-        func: fn(&mut World),
-    ) -> &mut Self {
-        self.schedule.add_legacy_system(stage, name, func);
         self
     }
 
@@ -219,15 +204,20 @@ impl Default for Engine {
 /// # Example
 ///
 /// ```rust
-/// use galeon_engine::{Engine, Plugin, World};
+/// use galeon_engine::{Engine, Plugin, QueryMut, Component};
 ///
-/// fn physics_system(_world: &mut World) {}
+/// #[derive(Component)]
+/// struct Velocity { x: f32 }
+///
+/// fn physics_system(mut vels: QueryMut<'_, Velocity>) {
+///     for (_, v) in vels.iter_mut() { v.x *= 0.98; }
+/// }
 ///
 /// pub struct PhysicsPlugin;
 ///
 /// impl Plugin for PhysicsPlugin {
 ///     fn build(&self, engine: &mut Engine) {
-///         engine.add_system::<()>("simulate", "physics", physics_system as fn(&mut World));
+///         engine.add_system::<(QueryMut<'_, Velocity>,)>("simulate", "physics", physics_system);
 ///     }
 /// }
 /// ```
@@ -244,13 +234,14 @@ pub trait Plugin {
 mod tests {
     use super::*;
     use crate::component::Component;
+    use crate::system_param::QueryMut;
 
     #[derive(Debug)]
     struct Counter(u32);
     impl Component for Counter {}
 
-    fn increment(world: &mut World) {
-        for (_, c) in world.query_mut::<&mut Counter>() {
+    fn increment(mut counters: QueryMut<'_, Counter>) {
+        for (_, c) in counters.iter_mut() {
             c.0 += 1;
         }
     }
@@ -280,7 +271,7 @@ mod tests {
     #[test]
     fn add_system_registers_system() {
         let mut engine = Engine::new();
-        engine.add_system::<()>("update", "increment", increment as fn(&mut World));
+        engine.add_system::<(QueryMut<'_, Counter>,)>("update", "increment", increment);
         assert_eq!(engine.schedule().system_count(), 1);
     }
 
@@ -288,8 +279,8 @@ mod tests {
     fn add_system_is_chainable() {
         let mut engine = Engine::new();
         engine
-            .add_system::<()>("pre", "increment", increment as fn(&mut World))
-            .add_system::<()>("post", "increment", increment as fn(&mut World));
+            .add_system::<(QueryMut<'_, Counter>,)>("pre", "increment", increment)
+            .add_system::<(QueryMut<'_, Counter>,)>("post", "increment", increment);
         assert_eq!(engine.schedule().system_count(), 2);
     }
 
@@ -309,7 +300,7 @@ mod tests {
     struct IncrementPlugin;
     impl Plugin for IncrementPlugin {
         fn build(&self, engine: &mut Engine) {
-            engine.add_system::<()>("update", "increment", increment as fn(&mut World));
+            engine.add_system::<(QueryMut<'_, Counter>,)>("update", "increment", increment);
         }
     }
 
@@ -337,7 +328,7 @@ mod tests {
     fn run_once_executes_schedule() {
         let mut engine = Engine::new();
         engine.world_mut().spawn((Counter(0),));
-        engine.add_system::<()>("update", "increment", increment as fn(&mut World));
+        engine.add_system::<(QueryMut<'_, Counter>,)>("update", "increment", increment);
         engine.run_once();
 
         let counts: Vec<u32> = engine
@@ -366,7 +357,7 @@ mod tests {
         // Use 10 Hz (0.1 s/tick) to avoid floating-point accumulation issues.
         engine.world_mut().insert_resource(FixedTimestep::new(10.0));
         engine.world_mut().spawn((Counter(0),));
-        engine.add_system::<()>("update", "increment", increment as fn(&mut World));
+        engine.add_system::<(QueryMut<'_, Counter>,)>("update", "increment", increment);
 
         // 0.35 s at 10 Hz → 3 ticks (same as game_loop test)
         let ticks = engine.tick(0.35);
@@ -408,7 +399,7 @@ mod tests {
     fn pause_stops_ticks() {
         let mut engine = Engine::new();
         engine.world_mut().spawn((Counter(0),));
-        engine.add_system::<()>("update", "increment", increment as fn(&mut World));
+        engine.add_system::<(QueryMut<'_, Counter>,)>("update", "increment", increment);
 
         engine.pause();
         engine.tick(1.0);
@@ -425,7 +416,7 @@ mod tests {
     fn set_speed_doubles_ticks() {
         let mut engine = Engine::new();
         engine.world_mut().spawn((Counter(0),));
-        engine.add_system::<()>("update", "increment", increment as fn(&mut World));
+        engine.add_system::<(QueryMut<'_, Counter>,)>("update", "increment", increment);
 
         engine.set_speed(2.0);
         // 0.1s real at 2x = 0.2s virtual, default 10 Hz = 2 ticks
@@ -448,31 +439,5 @@ mod tests {
 
         engine.pause();
         assert!(engine.world().try_resource::<VirtualTime>().is_some());
-    }
-
-    // -- add_legacy_system convenience wrapper (#56) --
-
-    #[test]
-    fn add_legacy_system_registers_and_runs() {
-        let mut engine = Engine::new();
-        engine.world_mut().spawn((Counter(0),));
-        engine.add_legacy_system("update", "increment", increment);
-        engine.run_once();
-
-        let counts: Vec<u32> = engine
-            .world()
-            .query::<&Counter>()
-            .map(|(_, c)| c.0)
-            .collect();
-        assert_eq!(counts, vec![1]);
-    }
-
-    #[test]
-    fn add_legacy_system_is_chainable() {
-        let mut engine = Engine::new();
-        engine
-            .add_legacy_system("pre", "increment", increment)
-            .add_legacy_system("post", "increment2", increment);
-        assert_eq!(engine.schedule().system_count(), 2);
     }
 }

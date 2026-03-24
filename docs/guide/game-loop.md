@@ -7,14 +7,21 @@ deterministic behavior — the same inputs always produce the same outputs.
 ## Setup
 
 ```rust
-use galeon_engine::{World, Schedule, FixedTimestep};
+use galeon_engine::{World, Schedule, FixedTimestep, QueryMut, Component};
 use galeon_engine::game_loop;
+
+#[derive(Component)]
+struct Position { x: f32 }
+
+fn movement_system(mut positions: QueryMut<'_, Position>) {
+    for (_, pos) in positions.iter_mut() { pos.x += 1.0; }
+}
 
 let mut world = World::new();
 world.insert_resource(FixedTimestep::new(10.0)); // 10 ticks per second
 
 let mut schedule = Schedule::new();
-schedule.add_system::<()>("simulate", "movement", movement_system as fn(&mut World));
+schedule.add_system::<(QueryMut<'_, Position>,)>("simulate", "movement", movement_system);
 ```
 
 ## Ticking
@@ -34,8 +41,8 @@ remainder carried to the next frame).
 Systems can read the `FixedTimestep` resource to get the step size:
 
 ```rust
-fn movement_system(world: &mut World) {
-    let dt = world.resource::<FixedTimestep>().step;
+fn movement_system(ts: Res<'_, FixedTimestep>) {
+    let dt = ts.step;
     // dt = 0.1 at 10 Hz
 }
 ```
