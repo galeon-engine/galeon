@@ -21,8 +21,7 @@ pub fn extract_frame(world: &World) -> FramePacket {
     // First pass: collect entity IDs and transform data into owned values.
     // This releases the borrow on `world` so we can call `get()` per entity.
     let renderables: Vec<Renderable> = world
-        .query::<Transform>()
-        .into_iter()
+        .query::<&Transform>()
         .map(|(e, t)| (e, t.position, t.rotation, t.scale))
         .collect();
 

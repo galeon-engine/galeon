@@ -227,7 +227,7 @@ mod tests {
     impl Component for Counter {}
 
     fn increment(world: &mut World) {
-        for (_, c) in world.query_mut::<Counter>() {
+        for (_, c) in world.query_mut::<&mut Counter>() {
             c.0 += 1;
         }
     }
@@ -319,8 +319,7 @@ mod tests {
 
         let counts: Vec<u32> = engine
             .world()
-            .query::<Counter>()
-            .into_iter()
+            .query::<&Counter>()
             .map(|(_, c)| c.0)
             .collect();
         assert_eq!(counts, vec![1]);
@@ -352,8 +351,7 @@ mod tests {
 
         let counts: Vec<u32> = engine
             .world()
-            .query::<Counter>()
-            .into_iter()
+            .query::<&Counter>()
             .map(|(_, c)| c.0)
             .collect();
         assert_eq!(counts, vec![3]);
@@ -394,8 +392,7 @@ mod tests {
 
         let counts: Vec<u32> = engine
             .world()
-            .query::<Counter>()
-            .into_iter()
+            .query::<&Counter>()
             .map(|(_, c)| c.0)
             .collect();
         assert_eq!(counts, vec![0]);

@@ -148,7 +148,7 @@ struct Position { x: f32, y: f32 }
 
 fn gravity(world: &mut World) {
     // apply gravity to all entities with Position
-    for (_, pos) in world.query_mut::<Position>() {
+    for (_, pos) in world.query_mut::<&mut Position>() {
         pos.y -= 9.8 * 0.1; // step = 0.1 s at 10 Hz
     }
 }

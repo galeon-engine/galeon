@@ -55,8 +55,7 @@ pub fn extract_debug_snapshot(world: &World) -> DebugSnapshot {
     // Collect transform entities into owned data first (same borrow-split
     // pattern as the hot path extraction).
     let renderables: Vec<RawTransform> = world
-        .query::<Transform>()
-        .into_iter()
+        .query::<&Transform>()
         .map(|(e, t)| RawTransform {
             entity: e,
             position: t.position,
