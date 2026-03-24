@@ -143,7 +143,7 @@ types: `Res<T>`, `ResMut<T>`, `Query<T>`, `QueryMut<T>`. The engine
 extracts each parameter automatically at runtime.
 
 ```rust
-use galeon_engine::{Res, ResMut, QueryParam as Query, QueryParamMut as QueryMut};
+use galeon_engine::{Res, ResMut, Query, QueryMut};
 
 fn movement_system(dt: Res<'_, DeltaTime>, mut positions: QueryMut<'_, Position>) {
     for (_, pos) in positions.iter_mut() {
