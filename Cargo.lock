@@ -64,6 +64,7 @@ dependencies = [
  "galeon-engine-macros",
  "ron",
  "serde",
+ "serde_json",
  "tempfile",
 ]
 
