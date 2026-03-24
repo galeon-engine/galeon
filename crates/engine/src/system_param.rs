@@ -503,4 +503,106 @@ mod tests {
         let access = <(Res<'_, i32>, ResMut<'_, u32>, Query<'_, Pos>) as SystemParam>::access();
         assert_eq!(access.len(), 3);
     }
+
+    // -- Missing resource panic test (#58) --
+
+    #[test]
+    #[should_panic(expected = "resource not found")]
+    fn res_fetch_panics_on_missing_resource() {
+        let mut world = World::new();
+        // Do NOT insert any i32 resource.
+        let cell = unsafe { UnsafeWorldCell::new(&mut world as *mut World) };
+        unsafe {
+            let _: Res<'_, i32> = <Res<'_, i32> as SystemParam>::fetch(cell);
+        }
+    }
+
+    // -- QueryMut on empty world (#58) --
+
+    #[test]
+    fn query_mut_empty_world() {
+        let mut world = World::new();
+        let cell = unsafe { UnsafeWorldCell::new(&mut world as *mut World) };
+        unsafe {
+            let q: QueryMut<'_, Pos> = <QueryMut<'_, Pos> as SystemParam>::fetch(cell);
+            assert!(q.is_empty());
+        }
+    }
+
+    // -- 4+ arity smoke test (#58) --
+
+    #[derive(Debug, PartialEq)]
+    struct Vel {
+        y: f32,
+    }
+    impl Component for Vel {}
+
+    struct TimeRes(f32);
+    struct GravRes(f32);
+
+    #[test]
+    fn four_arity_tuple_access_and_fetch() {
+        let mut world = World::new();
+        world.insert_resource(TimeRes(1.0));
+        world.insert_resource(GravRes(9.8));
+        world.spawn((Pos { x: 0.0 },));
+        world.spawn((Vel { y: 0.0 },));
+
+        // Verify access aggregation for 4-param tuple.
+        let access = <(
+            Res<'_, TimeRes>,
+            Res<'_, GravRes>,
+            Query<'_, Pos>,
+            Query<'_, Vel>,
+        ) as SystemParam>::access();
+        assert_eq!(access.len(), 4);
+
+        // Verify fetch works.
+        let cell = unsafe { UnsafeWorldCell::new(&mut world as *mut World) };
+        unsafe {
+            let (time, grav, positions, velocities) = <(
+                Res<'_, TimeRes>,
+                Res<'_, GravRes>,
+                Query<'_, Pos>,
+                Query<'_, Vel>,
+            ) as SystemParam>::fetch(cell);
+            assert!((time.0 - 1.0).abs() < f32::EPSILON);
+            assert!((grav.0 - 9.8).abs() < f32::EPSILON);
+            assert_eq!(positions.len(), 1);
+            assert_eq!(velocities.len(), 1);
+        }
+    }
+
+    // -- Query + QueryMut combo on different types (#58) --
+
+    #[test]
+    fn query_read_and_query_mut_different_types() {
+        let mut world = World::new();
+        world.spawn((Pos { x: 1.0 }, Vel { y: 2.0 }));
+        world.spawn((Pos { x: 3.0 }, Vel { y: 4.0 }));
+
+        // No conflict: CompRead(Pos) + CompWrite(Vel).
+        let a = <Query<'_, Pos> as SystemParam>::access();
+        let b = <QueryMut<'_, Vel> as SystemParam>::access();
+        assert!(!has_conflicts(&a, &b));
+
+        // Fetch both simultaneously.
+        let cell = unsafe { UnsafeWorldCell::new(&mut world as *mut World) };
+        unsafe {
+            let positions: Query<'_, Pos> = <Query<'_, Pos> as SystemParam>::fetch(cell);
+            let mut velocities: QueryMut<'_, Vel> = <QueryMut<'_, Vel> as SystemParam>::fetch(cell);
+
+            assert_eq!(positions.len(), 2);
+            assert_eq!(velocities.len(), 2);
+
+            // Mutate velocities while positions are live — the soundness scenario.
+            for (_, v) in velocities.iter_mut() {
+                v.y += 10.0;
+            }
+        }
+
+        // Verify mutations applied.
+        let ys: Vec<f32> = world.query::<&Vel>().map(|(_, v)| v.y).collect();
+        assert!(ys.iter().all(|&y| y > 10.0));
+    }
 }
