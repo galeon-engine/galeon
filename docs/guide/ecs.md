@@ -91,8 +91,8 @@ Query three components (mutable):
 
 ```rust
 for (entity, pos, vel, hp) in world.query3_mut::<Position, Velocity, Health>() {
-    pos.x += vel.dx;
-    hp.0 -= 1;
+    pos.x += vel.x;
+    hp.current -= 1;
 }
 ```
 
