@@ -50,3 +50,35 @@ impl<'w, T: Component> Iterator for QueryIter<'w, T> {
         (0, Some(remaining))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::world::World;
+
+    #[derive(crate::Component, Debug, Clone, PartialEq)]
+    struct TestPos {
+        x: f32,
+        y: f32,
+    }
+
+    #[test]
+    fn query_iter_basic_functionality() {
+        let mut world = World::new();
+        world.spawn((TestPos { x: 1.0, y: 0.0 },));
+        world.spawn((TestPos { x: 2.0, y: 0.0 },));
+
+        // Test that query() returns an iterator directly
+        let positions: Vec<f32> = world.query::<TestPos>().map(|(_, p)| p.x).collect();
+        assert_eq!(positions.len(), 2);
+        assert!(positions.contains(&1.0));
+        assert!(positions.contains(&2.0));
+    }
+
+    #[test]
+    fn query_iter_empty_world() {
+        let world = World::new();
+        let results: Vec<_> = world.query::<TestPos>().collect();
+        assert!(results.is_empty());
+    }
+}

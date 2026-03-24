@@ -2,6 +2,7 @@
 
 use crate::component::{Component, ComponentStorage, TypedSparseSet};
 use crate::entity::{Entity, EntityAllocator};
+use crate::query::QueryIter;
 use crate::resource::Resources;
 
 /// A bundle of components that can be spawned together.
@@ -127,14 +128,13 @@ impl World {
 
     /// Query all entities that have component T (immutable).
     ///
-    /// Returns an iterator of `(Entity, &T)` pairs.
-    pub fn query<T: Component>(&self) -> Vec<(Entity, &T)> {
+    /// Returns a lazy iterator of `(Entity, &T)` pairs — no heap allocation.
+    pub fn query<T: Component>(&self) -> QueryIter<'_, T> {
         let Some(set) = self.components.typed_set::<T>() else {
-            return Vec::new();
+            return QueryIter::new(&self.entities, &[], &[]);
         };
-        set.iter()
-            .filter_map(|(idx, val)| Some((self.entities.entity_at(idx)?, val)))
-            .collect()
+        let (dense, data) = set.dense_data();
+        QueryIter::new(&self.entities, dense, data)
     }
 
     /// Query all entities that have component T (mutable).
@@ -257,7 +257,7 @@ mod tests {
         world.spawn((Pos { x: 2.0, y: 0.0 }, Vel { x: 0.0, y: 0.0 }));
         world.spawn((Vel { x: 3.0, y: 0.0 },)); // no Pos
 
-        let positions: Vec<f32> = world.query::<Pos>().iter().map(|(_, p)| p.x).collect();
+        let positions: Vec<f32> = world.query::<Pos>().map(|(_, p)| p.x).collect();
         assert_eq!(positions.len(), 2);
         assert!(positions.contains(&1.0));
         assert!(positions.contains(&2.0));
@@ -273,7 +273,7 @@ mod tests {
             pos.x += 1.0;
         }
 
-        let xs: Vec<f32> = world.query::<Pos>().iter().map(|(_, p)| p.x).collect();
+        let xs: Vec<f32> = world.query::<Pos>().map(|(_, p)| p.x).collect();
         assert!(xs.contains(&1.0));
         assert!(xs.contains(&11.0));
     }

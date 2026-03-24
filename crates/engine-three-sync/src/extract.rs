@@ -22,8 +22,7 @@ pub fn extract_frame(world: &World) -> FramePacket {
     // This releases the borrow on `world` so we can call `get()` per entity.
     let renderables: Vec<Renderable> = world
         .query::<Transform>()
-        .iter()
-        .map(|(e, t)| (*e, t.position, t.rotation, t.scale))
+        .map(|(e, t)| (e, t.position, t.rotation, t.scale))
         .collect();
 
     let mut packet = FramePacket::with_capacity(renderables.len());

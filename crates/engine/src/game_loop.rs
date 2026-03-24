@@ -123,7 +123,6 @@ mod tests {
 
         let counts: Vec<u32> = world
             .query::<TickCounter>()
-            .into_iter()
             .map(|(_, c)| c.0)
             .collect();
         assert_eq!(counts, vec![2]);
@@ -148,7 +147,6 @@ mod tests {
 
         let counts: Vec<u32> = world
             .query::<TickCounter>()
-            .into_iter()
             .map(|(_, c)| c.0)
             .collect();
         assert_eq!(counts, vec![1]);
