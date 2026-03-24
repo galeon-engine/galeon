@@ -56,6 +56,7 @@ pub fn extract_debug_snapshot(world: &World) -> DebugSnapshot {
     // pattern as the hot path extraction).
     let renderables: Vec<RawTransform> = world
         .query::<Transform>()
+        .into_iter()
         .map(|(e, t)| RawTransform {
             entity: e,
             position: t.position,

@@ -506,7 +506,7 @@ mod tests {
         world.spawn((Pos { x: 2.0, y: 0.0 }, Vel { x: 0.0, y: 0.0 }));
         world.spawn((Vel { x: 3.0, y: 0.0 },)); // no Pos
 
-        let positions: Vec<f32> = world.query::<Pos>().map(|(_, p)| p.x).collect();
+        let positions: Vec<f32> = world.query::<Pos>().into_iter().map(|(_, p)| p.x).collect();
         assert_eq!(positions.len(), 2);
         assert!(positions.contains(&1.0));
         assert!(positions.contains(&2.0));
@@ -522,7 +522,7 @@ mod tests {
             pos.x += 1.0;
         }
 
-        let xs: Vec<f32> = world.query::<Pos>().map(|(_, p)| p.x).collect();
+        let xs: Vec<f32> = world.query::<Pos>().into_iter().map(|(_, p)| p.x).collect();
         assert!(xs.contains(&1.0));
         assert!(xs.contains(&11.0));
     }
@@ -558,7 +558,7 @@ mod tests {
         world.spawn((Pos { x: 2.0, y: 0.0 }, Vel { x: 5.0, y: 0.0 }));
         world.spawn((Vel { x: 3.0, y: 0.0 },));
 
-        let results: Vec<_> = world.query2::<Pos, Vel>().collect();
+        let results = world.query2::<Pos, Vel>();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].1.x, 2.0);
         assert_eq!(results[0].2.x, 5.0);
@@ -591,7 +591,7 @@ mod tests {
         let e2 = world.spawn((Pos { x: 7.0, y: 7.0 }, Vel { x: 9.0, y: 9.0 }));
         let e3 = world.spawn((Vel { x: 11.0, y: 11.0 },));
 
-        let results: Vec<_> = world.query2_mut::<Pos, Vel>().collect();
+        let results = world.query2_mut::<Pos, Vel>();
         assert_eq!(results.len(), 1);
 
         let (entity, pos, vel) = &results[0];

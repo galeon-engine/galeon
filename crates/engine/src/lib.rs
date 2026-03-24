@@ -14,7 +14,6 @@ pub mod entity;
 pub mod game_loop;
 pub mod manifest;
 pub mod protocol;
-pub mod query;
 pub mod render;
 mod resource;
 pub mod schedule;
@@ -39,7 +38,6 @@ pub use manifest::{
     FieldEntry, ManifestEntry, ManifestField, ProtocolManifest, ProtocolRegistration,
 };
 pub use protocol::{Command, Dto, Event, ProtocolKind, ProtocolMeta, Query};
-pub use query::{Query2Iter, Query2MutIter, Query3Iter, Query3MutIter, QueryIter, QueryIterMut};
 pub use render::{MaterialHandle, MeshHandle, Transform, Visibility};
 pub use schedule::Schedule;
 pub use virtual_time::VirtualTime;
