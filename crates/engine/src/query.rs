@@ -291,17 +291,22 @@ where
                 return None;
             }
 
-            // SAFETY: The iterator owns the only mutable borrow of the store
-            // for `'w` (via `_marker: PhantomData<&'w mut ArchetypeStore>`).
+            // SAFETY: Uses `get_by_index_mut_ptr` which reaches the
+            // `archetypes` Vec via `addr_of_mut!` — no `&mut ArchetypeStore`
+            // is created, only `&mut Vec<Archetype>` at the field level.
+            // This prevents Stacked Borrows invalidation of any concurrent
+            // `&ArchetypeStore` borrows (e.g., from a `Query<A>` that was
+            // fetched before this `QueryMut<B>`).
+            //
             // `current` is cleared before borrowing a new archetype, so no
             // mutable state references the archetype being re-borrowed.
             // Items yielded from prior archetypes carry `&'w mut T` into
             // the caller, but those point into distinct per-archetype
             // `Column<T>` heap allocations — different archetypes own
             // separate column `Vec`s, so references from archetype A never
-            // alias data in archetype B. Re-borrowing the store here is
-            // therefore safe despite the caller holding prior items.
-            let archetype = unsafe { (&mut *self.store).get_by_index_mut(self.archetype_index)? };
+            // alias data in archetype B.
+            let archetype =
+                unsafe { ArchetypeStore::get_by_index_mut_ptr(self.store, self.archetype_index)? };
             self.archetype_index += 1;
 
             if !Q::matches(archetype.layout()) || !F::matches(archetype.layout()) {

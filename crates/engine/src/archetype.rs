@@ -561,9 +561,27 @@ impl ArchetypeStore {
         &mut self.archetypes[id.0 as usize]
     }
 
-    /// Get a mutable archetype by its dense store index.
-    pub(crate) fn get_by_index_mut(&mut self, index: usize) -> Option<&mut Archetype> {
-        self.archetypes.get_mut(index)
+    /// Get a mutable archetype by index through a raw `*mut Self` pointer,
+    /// without creating an intermediate `&mut ArchetypeStore`.
+    ///
+    /// Uses `addr_of_mut!` to reach the `archetypes` Vec directly, so the
+    /// only mutable reference created is `&mut Vec<Archetype>` (at the field
+    /// level), not `&mut ArchetypeStore` (which would cover the whole struct).
+    ///
+    /// # Safety
+    ///
+    /// - `this` must be a valid, non-null pointer to an `ArchetypeStore`.
+    /// - The returned `&mut Archetype` must not alias any other live reference
+    ///   to the same archetype.
+    pub(crate) unsafe fn get_by_index_mut_ptr<'w>(
+        this: *mut Self,
+        index: usize,
+    ) -> Option<&'w mut Archetype> {
+        unsafe {
+            let vec_ptr: *mut Vec<Archetype> =
+                std::ptr::addr_of_mut!((*this).archetypes);
+            (&mut *vec_ptr).get_mut(index)
+        }
     }
 
     /// Number of archetypes.
