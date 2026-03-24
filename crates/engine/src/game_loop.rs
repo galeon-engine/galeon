@@ -47,7 +47,7 @@ impl FixedTimestep {
 ///
 /// The `FixedTimestep` must be inserted as a resource on the world before
 /// calling this function.
-pub fn tick(world: &mut World, schedule: &Schedule, elapsed: f64) -> u32 {
+pub fn tick(world: &mut World, schedule: &mut Schedule, elapsed: f64) -> u32 {
     // Compute virtual elapsed (pass-through if no VirtualTime resource).
     let virtual_elapsed = if let Some(mut vt) = world.try_take_resource::<VirtualTime>() {
         let ve = vt.effective_elapsed(elapsed);
@@ -115,10 +115,10 @@ mod tests {
         world.spawn((TickCounter(0),));
 
         let mut schedule = Schedule::new();
-        schedule.add_system("simulate", "count", count_system);
+        schedule.add_system::<()>("simulate", "count", count_system as fn(&mut World));
 
         // 0.25 seconds at 10 Hz = 2 ticks (0.05s remainder)
-        let ticks = tick(&mut world, &schedule, 0.25);
+        let ticks = tick(&mut world, &mut schedule, 0.25);
         assert_eq!(ticks, 2);
 
         let counts: Vec<u32> = world.query::<&TickCounter>().map(|(_, c)| c.0).collect();
@@ -132,14 +132,14 @@ mod tests {
         world.spawn((TickCounter(0),));
 
         let mut schedule = Schedule::new();
-        schedule.add_system("simulate", "count", count_system);
+        schedule.add_system::<()>("simulate", "count", count_system as fn(&mut World));
 
         // 0.05s — not enough for a tick
-        let ticks = tick(&mut world, &schedule, 0.05);
+        let ticks = tick(&mut world, &mut schedule, 0.05);
         assert_eq!(ticks, 0);
 
         // Another 0.06s — total 0.11s, enough for 1 tick (0.01s remainder)
-        let ticks = tick(&mut world, &schedule, 0.06);
+        let ticks = tick(&mut world, &mut schedule, 0.06);
         assert_eq!(ticks, 1);
 
         let counts: Vec<u32> = world.query::<&TickCounter>().map(|(_, c)| c.0).collect();
@@ -151,9 +151,9 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(FixedTimestep::new(10.0));
 
-        let schedule = Schedule::new();
+        let mut schedule = Schedule::new();
 
-        tick(&mut world, &schedule, 0.35); // 3 ticks
+        tick(&mut world, &mut schedule, 0.35); // 3 ticks
         let ts = world.resource::<FixedTimestep>();
         assert_eq!(ts.tick_count, 3);
     }
@@ -169,9 +169,9 @@ mod tests {
         world.insert_resource(FixedTimestep::new(10.0));
 
         let mut schedule = Schedule::new();
-        schedule.add_system("simulate", "read_step", read_step);
+        schedule.add_system::<()>("simulate", "read_step", read_step as fn(&mut World));
 
-        tick(&mut world, &schedule, 0.1);
+        tick(&mut world, &mut schedule, 0.1);
     }
 
     #[test]
@@ -182,9 +182,9 @@ mod tests {
         world.spawn((TickCounter(0),));
 
         let mut schedule = Schedule::new();
-        schedule.add_system("simulate", "count", count_system);
+        schedule.add_system::<()>("simulate", "count", count_system as fn(&mut World));
 
-        let ticks = tick(&mut world, &schedule, 0.25);
+        let ticks = tick(&mut world, &mut schedule, 0.25);
         assert_eq!(ticks, 2);
     }
 
@@ -198,9 +198,9 @@ mod tests {
         world.spawn((TickCounter(0),));
 
         let mut schedule = Schedule::new();
-        schedule.add_system("simulate", "count", count_system);
+        schedule.add_system::<()>("simulate", "count", count_system as fn(&mut World));
 
-        let ticks = tick(&mut world, &schedule, 1.0);
+        let ticks = tick(&mut world, &mut schedule, 1.0);
         assert_eq!(ticks, 0);
 
         let counts: Vec<u32> = world.query::<&TickCounter>().map(|(_, c)| c.0).collect();
@@ -217,10 +217,10 @@ mod tests {
         world.spawn((TickCounter(0),));
 
         let mut schedule = Schedule::new();
-        schedule.add_system("simulate", "count", count_system);
+        schedule.add_system::<()>("simulate", "count", count_system as fn(&mut World));
 
         // 0.1s real at 2x scale = 0.2s virtual = 2 ticks at 10 Hz
-        let ticks = tick(&mut world, &schedule, 0.1);
+        let ticks = tick(&mut world, &mut schedule, 0.1);
         assert_eq!(ticks, 2);
     }
 
@@ -232,10 +232,10 @@ mod tests {
         world.spawn((TickCounter(0),));
 
         let mut schedule = Schedule::new();
-        schedule.add_system("simulate", "count", count_system);
+        schedule.add_system::<()>("simulate", "count", count_system as fn(&mut World));
 
         // 5.0s real, clamped to 0.25s virtual = 2 ticks (not 50!)
-        let ticks = tick(&mut world, &schedule, 5.0);
+        let ticks = tick(&mut world, &mut schedule, 5.0);
         assert_eq!(ticks, 2);
     }
 
@@ -245,10 +245,10 @@ mod tests {
         world.insert_resource(FixedTimestep::new(10.0));
         world.insert_resource(VirtualTime::new());
 
-        let schedule = Schedule::new();
+        let mut schedule = Schedule::new();
 
-        tick(&mut world, &schedule, 0.1);
-        tick(&mut world, &schedule, 0.15);
+        tick(&mut world, &mut schedule, 0.1);
+        tick(&mut world, &mut schedule, 0.15);
 
         let vt = world.resource::<VirtualTime>();
         assert!((vt.elapsed - 0.25).abs() < f64::EPSILON);

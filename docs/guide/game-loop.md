@@ -14,7 +14,7 @@ let mut world = World::new();
 world.insert_resource(FixedTimestep::new(10.0)); // 10 ticks per second
 
 let mut schedule = Schedule::new();
-schedule.add_system("simulate", "movement", movement_system);
+schedule.add_system::<()>("simulate", "movement", movement_system as fn(&mut World));
 ```
 
 ## Ticking
@@ -23,7 +23,7 @@ The host (Electrobun, browser, test harness) provides the clock. Each frame,
 call `tick()` with the elapsed seconds since the last frame:
 
 ```rust
-let ticks_run = game_loop::tick(&mut world, &schedule, elapsed_seconds);
+let ticks_run = game_loop::tick(&mut world, &mut schedule, elapsed_seconds);
 ```
 
 If 0.25 seconds have elapsed at 10 Hz, the schedule runs twice (with 0.05s
