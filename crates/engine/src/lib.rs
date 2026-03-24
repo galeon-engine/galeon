@@ -18,12 +18,17 @@ pub mod schedule;
 pub mod virtual_time;
 pub mod world;
 
+// Re-export dependencies that macros reference so consumers only need
+// `galeon-engine` in their Cargo.toml.
+#[doc(hidden)]
+pub use serde;
+
 // Re-exports for ergonomic API.
 pub use component::Component;
 pub use data::{DataRegistry, UnitStats, UnitTemplate};
 pub use engine::{Engine, Plugin};
 pub use entity::Entity;
-pub use galeon_engine_macros::Component;
+pub use galeon_engine_macros::{Component, command, dto, event, query};
 pub use game_loop::FixedTimestep;
 pub use protocol::{Command, Dto, Event, ProtocolKind, ProtocolMeta, Query};
 pub use render::{MaterialHandle, MeshHandle, Transform, Visibility};
