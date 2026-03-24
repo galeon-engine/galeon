@@ -2,7 +2,7 @@
 
 use crate::component::{Component, ComponentStorage};
 use crate::entity::{Entity, EntityAllocator};
-use crate::query::{Query2Iter, Query2MutIter, QueryIter, QueryIterMut};
+use crate::query::{Query2Iter, Query2MutIter, Query3Iter, Query3MutIter, QueryIter, QueryIterMut};
 use crate::resource::Resources;
 
 /// A bundle of components that can be spawned together.
@@ -171,6 +171,35 @@ impl World {
             return Query2MutIter::empty(entities);
         };
         Query2MutIter::new(entities, sa, sb)
+    }
+
+    /// Query all entities with three components (all immutable).
+    ///
+    /// Returns a lazy iterator — iterates set A, probes sets B and C.
+    pub fn query3<A: Component, B: Component, C: Component>(&self) -> Query3Iter<'_, A, B, C> {
+        let (Some(set_a), Some(set_b), Some(set_c)) = (
+            self.components.typed_set::<A>(),
+            self.components.typed_set::<B>(),
+            self.components.typed_set::<C>(),
+        ) else {
+            return Query3Iter::empty(&self.entities);
+        };
+        let (dense_a, data_a) = set_a.dense_data();
+        Query3Iter::new(&self.entities, dense_a, data_a, set_b, set_c)
+    }
+
+    /// Query all entities with three components (all mutable).
+    ///
+    /// Returns a lazy iterator. Panics if any two of A, B, C are the same type.
+    pub fn query3_mut<A: Component, B: Component, C: Component>(
+        &mut self,
+    ) -> Query3MutIter<'_, A, B, C> {
+        let entities = &self.entities;
+        let (set_a, set_b, set_c) = self.components.typed_sets_three_mut::<A, B, C>();
+        let (Some(sa), Some(sb), Some(sc)) = (set_a, set_b, set_c) else {
+            return Query3MutIter::empty(entities);
+        };
+        Query3MutIter::new(entities, sa, sb, sc)
     }
 
     /// Returns the number of alive entities.

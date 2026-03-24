@@ -255,6 +255,152 @@ impl<'w, A: Component, B: Component> Iterator for Query2MutIter<'w, A, B> {
     }
 }
 
+/// Lazy iterator for immutable three-component queries.
+pub struct Query3Iter<'w, A: Component, B: Component, C: Component> {
+    entities: &'w EntityAllocator,
+    dense_a: &'w [u32],
+    data_a: &'w [A],
+    set_b: Option<&'w TypedSparseSet<B>>,
+    set_c: Option<&'w TypedSparseSet<C>>,
+    pos: usize,
+}
+
+impl<'w, A: Component, B: Component, C: Component> Query3Iter<'w, A, B, C> {
+    pub(crate) fn new(
+        entities: &'w EntityAllocator,
+        dense_a: &'w [u32],
+        data_a: &'w [A],
+        set_b: &'w TypedSparseSet<B>,
+        set_c: &'w TypedSparseSet<C>,
+    ) -> Self {
+        Self {
+            entities,
+            dense_a,
+            data_a,
+            set_b: Some(set_b),
+            set_c: Some(set_c),
+            pos: 0,
+        }
+    }
+
+    pub(crate) fn empty(entities: &'w EntityAllocator) -> Self {
+        Self {
+            entities,
+            dense_a: &[],
+            data_a: &[],
+            set_b: None,
+            set_c: None,
+            pos: 0,
+        }
+    }
+}
+
+impl<'w, A: Component, B: Component, C: Component> Iterator for Query3Iter<'w, A, B, C> {
+    type Item = (Entity, &'w A, &'w B, &'w C);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let set_b = self.set_b?;
+        let set_c = self.set_c?;
+        while self.pos < self.dense_a.len() {
+            let idx = self.dense_a[self.pos];
+            let a = &self.data_a[self.pos];
+            self.pos += 1;
+            if let (Some(b), Some(c)) = (set_b.get(idx), set_c.get(idx))
+                && let Some(entity) = self.entities.entity_at(idx)
+            {
+                return Some((entity, a, b, c));
+            }
+        }
+        None
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.dense_a.len() - self.pos;
+        (0, Some(remaining))
+    }
+}
+
+/// Lazy iterator for mutable three-component queries.
+///
+/// Same safety model as `Query2MutIter` — all three sets are distinct
+/// (enforced by `typed_sets_three_mut`'s TypeId assertions).
+pub struct Query3MutIter<'w, A: Component, B: Component, C: Component> {
+    entities: &'w EntityAllocator,
+    dense_a: &'w [u32],
+    data_a: *mut A,
+    len_a: usize,
+    set_b: *mut TypedSparseSet<B>,
+    set_c: *mut TypedSparseSet<C>,
+    pos: usize,
+    _marker: std::marker::PhantomData<&'w mut (A, B, C)>,
+}
+
+impl<'w, A: Component, B: Component, C: Component> Query3MutIter<'w, A, B, C> {
+    pub(crate) fn new(
+        entities: &'w EntityAllocator,
+        sa: &'w mut TypedSparseSet<A>,
+        sb: &'w mut TypedSparseSet<B>,
+        sc: &'w mut TypedSparseSet<C>,
+    ) -> Self {
+        let (dense_a, data_a_slice) = sa.dense_data_mut();
+        let len_a = data_a_slice.len();
+        let data_a = data_a_slice.as_mut_ptr();
+        Self {
+            entities,
+            dense_a,
+            data_a,
+            len_a,
+            set_b: sb as *mut TypedSparseSet<B>,
+            set_c: sc as *mut TypedSparseSet<C>,
+            pos: 0,
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    pub(crate) fn empty(entities: &'w EntityAllocator) -> Self {
+        Self {
+            entities,
+            dense_a: &[],
+            data_a: std::ptr::null_mut(),
+            len_a: 0,
+            set_b: std::ptr::null_mut(),
+            set_c: std::ptr::null_mut(),
+            pos: 0,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<'w, A: Component, B: Component, C: Component> Iterator for Query3MutIter<'w, A, B, C> {
+    type Item = (Entity, &'w mut A, &'w mut B, &'w mut C);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.pos < self.len_a {
+            let idx = self.dense_a[self.pos];
+            let pos = self.pos;
+            self.pos += 1;
+            // SAFETY: Sets A, B, C are distinct (TypeId assertion in
+            // typed_sets_three_mut). Each position yielded exactly once.
+            unsafe {
+                let (Some(b), Some(c)) = ((*self.set_b).get_mut(idx), (*self.set_c).get_mut(idx))
+                else {
+                    continue;
+                };
+                let a = &mut *self.data_a.add(pos);
+                if let Some(entity) = self.entities.entity_at(idx) {
+                    return Some((entity, a, b, c));
+                }
+            }
+        }
+        None
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.len_a - self.pos;
+        (0, Some(remaining))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -14,6 +14,9 @@ struct Vel {
     dy: f32,
 }
 
+#[derive(Component, Debug, Clone, PartialEq)]
+struct Health(i32);
+
 #[test]
 fn query_iter_yields_matching_entities() {
     let mut world = World::new();
@@ -123,4 +126,50 @@ fn query2_mut_iter_same_type_panics() {
     let mut world = World::new();
     world.spawn((Pos { x: 0.0, y: 0.0 },));
     let _ = world.query2_mut::<Pos, Pos>().collect::<Vec<_>>();
+}
+
+#[test]
+fn query3_iter_yields_entities_with_all_three() {
+    let mut world = World::new();
+    world.spawn((
+        Pos { x: 1.0, y: 0.0 },
+        Vel { dx: 2.0, dy: 0.0 },
+        Health(100),
+    ));
+    world.spawn((Pos { x: 3.0, y: 0.0 }, Vel { dx: 4.0, dy: 0.0 })); // no Health
+    world.spawn((Health(50),)); // no Pos or Vel
+
+    let results: Vec<_> = world.query3::<Pos, Vel, Health>().collect();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].1.x, 1.0);
+    assert_eq!(results[0].2.dx, 2.0);
+    assert_eq!(results[0].3.0, 100);
+}
+
+#[test]
+fn query3_mut_iter_mutates_all_three() {
+    let mut world = World::new();
+    let e = world.spawn((
+        Pos { x: 1.0, y: 0.0 },
+        Vel { dx: 2.0, dy: 0.0 },
+        Health(100),
+    ));
+
+    for (_, pos, vel, hp) in world.query3_mut::<Pos, Vel, Health>() {
+        pos.x += 10.0;
+        vel.dx += 20.0;
+        hp.0 -= 50;
+    }
+
+    assert_eq!(world.get::<Pos>(e).unwrap().x, 11.0);
+    assert_eq!(world.get::<Vel>(e).unwrap().dx, 22.0);
+    assert_eq!(world.get::<Health>(e).unwrap().0, 50);
+}
+
+#[test]
+#[should_panic(expected = "cannot borrow the same sparse set")]
+fn query3_mut_duplicate_type_panics() {
+    let mut world = World::new();
+    world.spawn((Pos { x: 0.0, y: 0.0 },));
+    let _ = world.query3_mut::<Pos, Vel, Pos>().collect::<Vec<_>>();
 }

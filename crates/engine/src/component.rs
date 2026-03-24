@@ -256,6 +256,50 @@ impl ComponentStorage {
             (set_a, set_b)
         }
     }
+
+    /// Get three mutable typed sparse sets at once.
+    ///
+    /// Panics if any two of A, B, C are the same type.
+    #[allow(clippy::type_complexity)]
+    pub fn typed_sets_three_mut<A: Component, B: Component, C: Component>(
+        &mut self,
+    ) -> (
+        Option<&mut TypedSparseSet<A>>,
+        Option<&mut TypedSparseSet<B>>,
+        Option<&mut TypedSparseSet<C>>,
+    ) {
+        assert_ne!(
+            TypeId::of::<A>(),
+            TypeId::of::<B>(),
+            "cannot borrow the same sparse set mutably twice (A == B)"
+        );
+        assert_ne!(
+            TypeId::of::<A>(),
+            TypeId::of::<C>(),
+            "cannot borrow the same sparse set mutably twice (A == C)"
+        );
+        assert_ne!(
+            TypeId::of::<B>(),
+            TypeId::of::<C>(),
+            "cannot borrow the same sparse set mutably twice (B == C)"
+        );
+
+        let ptr = &mut self.sets as *mut HashMap<TypeId, Box<dyn AnyComponentStore>>;
+        // SAFETY: We asserted A, B, C are all distinct, so we borrow three
+        // separate entries from the map.
+        unsafe {
+            let set_a = (*ptr)
+                .get_mut(&TypeId::of::<A>())
+                .and_then(|s| s.as_any_mut().downcast_mut::<TypedSparseSet<A>>());
+            let set_b = (*ptr)
+                .get_mut(&TypeId::of::<B>())
+                .and_then(|s| s.as_any_mut().downcast_mut::<TypedSparseSet<B>>());
+            let set_c = (*ptr)
+                .get_mut(&TypeId::of::<C>())
+                .and_then(|s| s.as_any_mut().downcast_mut::<TypedSparseSet<C>>());
+            (set_a, set_b, set_c)
+        }
+    }
 }
 
 // =============================================================================
