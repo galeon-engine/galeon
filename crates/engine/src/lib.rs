@@ -11,6 +11,7 @@ pub mod data;
 pub mod engine;
 pub mod entity;
 pub mod game_loop;
+pub mod manifest;
 pub mod protocol;
 pub mod render;
 mod resource;
@@ -30,6 +31,9 @@ pub use engine::{Engine, Plugin};
 pub use entity::Entity;
 pub use galeon_engine_macros::{Component, command, dto, event, query};
 pub use game_loop::FixedTimestep;
+pub use manifest::{
+    FieldEntry, ManifestEntry, ManifestField, ProtocolManifest, ProtocolRegistration,
+};
 pub use protocol::{Command, Dto, Event, ProtocolKind, ProtocolMeta, Query};
 pub use render::{MaterialHandle, MeshHandle, Transform, Visibility};
 pub use schedule::Schedule;

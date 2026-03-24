@@ -62,6 +62,7 @@ name = "galeon-engine"
 version = "0.1.0"
 dependencies = [
  "galeon-engine-macros",
+ "inventory",
  "ron",
  "serde",
  "serde_json",
@@ -161,6 +162,15 @@ dependencies = [
  "hashbrown 0.16.1",
  "serde",
  "serde_core",
+]
+
+[[package]]
+name = "inventory"
+version = "0.3.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "009ae045c87e7082cb72dab0ccd01ae075dd00141ddc108f43a0ea150a9e7227"
+dependencies = [
+ "rustversion",
 ]
 
 [[package]]

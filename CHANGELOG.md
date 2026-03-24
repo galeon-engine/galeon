@@ -21,6 +21,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([#13](https://github.com/galeon-engine/galeon/issues/13))
 - `docs/guide/time.md` — virtual time guide
   ([#13](https://github.com/galeon-engine/galeon/issues/13))
+- Protocol manifest: `ProtocolManifest::collect()` gathers all protocol items
+  into a machine-readable schema with `manifest_version`, `protocol_version`,
+  field-level detail, and doc comments. JSON + RON serialization. Uses
+  `inventory` for distributed static registration
+  ([#47](https://github.com/galeon-engine/galeon/issues/47))
 - Protocol attribute macros: `#[galeon_engine::command]`, `query`, `event`,
   `dto` — each derives serde, implements marker trait + `ProtocolMeta`. Compile-
   fail tests for invalid usage (enums, tuple structs)
