@@ -9,6 +9,14 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Schedule::run** takes `&mut self` (was `&self`) because `System::run` requires `&mut self`
+  ([#33](https://github.com/galeon-engine/galeon/issues/33))
+- **Schedule::add_system** now generic over `impl IntoSystem<P>` — accepts both legacy `fn(&mut World)` (with turbofish `::<()>` + cast) and parameterized systems like `fn(Res<T>, QueryMut<U>)` (with turbofish for param types)
+  ([#33](https://github.com/galeon-engine/galeon/issues/33))
+- **Engine::add_system** follows the same generic signature as `Schedule::add_system`
+  ([#33](https://github.com/galeon-engine/galeon/issues/33))
+- **game_loop::tick** takes `&mut Schedule` (was `&Schedule`)
+  ([#33](https://github.com/galeon-engine/galeon/issues/33))
 - **World internals**: Replaced sparse-set storage with archetype table storage for cache-friendly iteration and O(1) despawn
   ([#28](https://github.com/galeon-engine/galeon/issues/28))
 - **Bundle trait**: Now provides `type_ids()`, `register_columns()`, and `push_into_columns()` for archetype-aware spawning
@@ -40,6 +48,18 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([#29](https://github.com/galeon-engine/galeon/issues/29))
 - `World::query2`, `query2_mut`, `query3`, and `query3_mut` convenience wrappers plus exact `size_hint` support on archetype query iterators
   ([#32](https://github.com/galeon-engine/galeon/issues/32))
+- `SystemParam` trait (unsafe, with GAT `Item<'w>`) — system parameter extraction from `*mut World`
+  ([#33](https://github.com/galeon-engine/galeon/issues/33))
+- `Res<T>` / `ResMut<T>` — shared/exclusive resource access as system parameters
+  ([#33](https://github.com/galeon-engine/galeon/issues/33))
+- `Query<T>` / `QueryMut<T>` — shared/exclusive component query as system parameters
+  ([#33](https://github.com/galeon-engine/galeon/issues/33))
+- `SystemParam` tuple expansion macro (0–8 arity) for multi-parameter systems
+  ([#33](https://github.com/galeon-engine/galeon/issues/33))
+- `System` trait, `IntoSystem<P>`, `FunctionSystem` — bridge from `fn(Res<A>, Query<B>)` to `System::run`
+  ([#33](https://github.com/galeon-engine/galeon/issues/33))
+- `Access` enum with intra-system conflict detection — panics at registration if params alias
+  ([#33](https://github.com/galeon-engine/galeon/issues/33))
 
 ### Removed
 

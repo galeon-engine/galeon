@@ -11,6 +11,7 @@ pub mod component;
 pub mod data;
 pub mod engine;
 pub mod entity;
+pub mod function_system;
 pub mod game_loop;
 pub mod manifest;
 pub mod protocol;
@@ -18,6 +19,7 @@ pub mod query;
 pub mod render;
 mod resource;
 pub mod schedule;
+pub mod system_param;
 pub mod virtual_time;
 pub mod world;
 
@@ -33,6 +35,7 @@ pub use component::Component;
 pub use data::{DataRegistry, UnitStats, UnitTemplate};
 pub use engine::{Engine, Plugin};
 pub use entity::Entity;
+pub use function_system::{IntoSystem, System};
 pub use galeon_engine_macros::{Component, command, dto, event, query};
 pub use game_loop::FixedTimestep;
 pub use manifest::{
@@ -45,6 +48,8 @@ pub use query::{
 };
 pub use render::{MaterialHandle, MeshHandle, Transform, Visibility};
 pub use schedule::Schedule;
+pub use system_param::{Access, Res, ResMut, SystemParam};
+pub use system_param::{Query as QueryParam, QueryMut as QueryParamMut};
 pub use virtual_time::VirtualTime;
 pub use world::World;
 

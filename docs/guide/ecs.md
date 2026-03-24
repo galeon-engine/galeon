@@ -136,7 +136,35 @@ let dt = world.resource::<DeltaTime>().0;
 
 ## Systems
 
-A system is a plain function that takes `&mut World`:
+### Parameterized Systems (recommended)
+
+Systems declare their data access in their function signature using parameter
+types: `Res<T>`, `ResMut<T>`, `Query<T>`, `QueryMut<T>`. The engine
+extracts each parameter automatically at runtime.
+
+```rust
+use galeon_engine::{Res, ResMut, QueryParam as Query, QueryParamMut as QueryMut};
+
+fn movement_system(dt: Res<'_, DeltaTime>, mut positions: QueryMut<'_, Position>) {
+    for (_, pos) in positions.iter_mut() {
+        pos.x += dt.0 as f32;
+    }
+}
+
+fn apply_gravity(gravity: Res<'_, Gravity>, mut velocities: QueryMut<'_, Velocity>) {
+    for (_, vel) in velocities.iter_mut() {
+        vel.y -= gravity.0;
+    }
+}
+```
+
+Conflict detection: if two parameters in the same system would alias (e.g.,
+`Res<T>` + `ResMut<T>`), the engine panics at registration time.
+
+### Legacy Systems
+
+Legacy systems take `&mut World` directly. Pass them with an explicit cast
+and turbofish:
 
 ```rust
 fn movement_system(world: &mut World) {
@@ -146,6 +174,8 @@ fn movement_system(world: &mut World) {
         pos.y += vel.y * dt;
     }
 }
+
+engine.add_system::<()>("simulate", "movement", movement_system as fn(&mut World));
 ```
 
 ## Schedule
@@ -155,10 +185,12 @@ Within a stage, systems run in registration order.
 
 ```rust
 let mut schedule = Schedule::new();
-schedule.add_system("input",    "read_input",  input_system);
-schedule.add_system("simulate", "movement",    movement_system);
-schedule.add_system("simulate", "combat",      combat_system);
-schedule.add_system("sync",     "three_sync",  sync_system);
+
+// Parameterized systems — turbofish required for type inference:
+schedule.add_system::<(QueryMut<'_, Position>,)>("simulate", "movement", movement_fn);
+
+// Legacy systems — cast + turbofish:
+schedule.add_system::<()>("sync", "three_sync", sync_system as fn(&mut World));
 
 // Run one tick
 schedule.run(&mut world);
