@@ -1,0 +1,5 @@
+error: galeon protocol macros do not support tuple structs
+ --> tests/compile-fail/command_on_tuple_struct.rs:6:22
+  |
+6 | pub struct BadCommand(u64, u64);
+  |                      ^^^^^^^^^^

@@ -23,7 +23,7 @@ pub use component::Component;
 pub use data::{DataRegistry, UnitStats, UnitTemplate};
 pub use engine::{Engine, Plugin};
 pub use entity::Entity;
-pub use galeon_engine_macros::Component;
+pub use galeon_engine_macros::{Component, command, dto, event, query};
 pub use game_loop::FixedTimestep;
 pub use protocol::{Command, Dto, Event, ProtocolKind, ProtocolMeta, Query};
 pub use render::{MaterialHandle, MeshHandle, Transform, Visibility};

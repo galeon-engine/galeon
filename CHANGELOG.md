@@ -21,6 +21,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([#13](https://github.com/galeon-engine/galeon/issues/13))
 - `docs/guide/time.md` — virtual time guide
   ([#13](https://github.com/galeon-engine/galeon/issues/13))
+- Protocol attribute macros: `#[galeon_engine::command]`, `query`, `event`,
+  `dto` — each derives serde, implements marker trait + `ProtocolMeta`. Compile-
+  fail tests for invalid usage (enums, tuple structs)
+  ([#46](https://github.com/galeon-engine/galeon/issues/46))
 - Protocol marker traits: `Command`, `Query`, `Event`, `Dto` with serde +
   `Send + Sync + 'static` bounds; `ProtocolMeta` metadata trait; `ProtocolKind`
   enum. Re-exported from `galeon_engine::protocol`
