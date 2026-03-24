@@ -5,7 +5,10 @@ use std::any::TypeId;
 use crate::archetype::{ArchetypeLayout, ArchetypeStore, EntityLocation};
 use crate::component::Component;
 use crate::entity::{Entity, EntityMetaStore};
-use crate::query::{QueryFilter, QueryIter, QueryIterMut, QuerySpec, QuerySpecMut};
+use crate::query::{
+    Query2Iter, Query2MutIter, Query3Iter, Query3MutIter, QueryFilter, QueryIter, QueryIterMut,
+    QuerySpec, QuerySpecMut,
+};
 use crate::resource::Resources;
 
 // =============================================================================
@@ -411,6 +414,48 @@ impl World {
         &mut self,
     ) -> QueryIterMut<'_, Q, F> {
         QueryIterMut::new(&mut self.archetypes)
+    }
+
+    /// Convenience wrapper for two-component immutable queries.
+    pub fn query2<A: Component, B: Component>(&self) -> Query2Iter<'_, A, B> {
+        self.query::<(&A, &B)>()
+    }
+
+    /// Convenience wrapper for two-component mutable queries.
+    pub fn query2_mut<A: Component, B: Component>(&mut self) -> Query2MutIter<'_, A, B> {
+        assert_ne!(
+            TypeId::of::<A>(),
+            TypeId::of::<B>(),
+            "cannot borrow the same column mutably twice"
+        );
+        self.query_mut::<(&mut A, &mut B)>()
+    }
+
+    /// Convenience wrapper for three-component immutable queries.
+    pub fn query3<A: Component, B: Component, C: Component>(&self) -> Query3Iter<'_, A, B, C> {
+        self.query::<(&A, &B, &C)>()
+    }
+
+    /// Convenience wrapper for three-component mutable queries.
+    pub fn query3_mut<A: Component, B: Component, C: Component>(
+        &mut self,
+    ) -> Query3MutIter<'_, A, B, C> {
+        assert_ne!(
+            TypeId::of::<A>(),
+            TypeId::of::<B>(),
+            "cannot borrow the same column mutably twice"
+        );
+        assert_ne!(
+            TypeId::of::<A>(),
+            TypeId::of::<C>(),
+            "cannot borrow the same column mutably twice"
+        );
+        assert_ne!(
+            TypeId::of::<B>(),
+            TypeId::of::<C>(),
+            "cannot borrow the same column mutably twice"
+        );
+        self.query_mut::<(&mut A, &mut B, &mut C)>()
     }
 
     /// Returns the number of alive entities.

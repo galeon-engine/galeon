@@ -38,6 +38,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([#29](https://github.com/galeon-engine/galeon/issues/29))
 - `With<T>` / `Without<T>` archetype filters
   ([#29](https://github.com/galeon-engine/galeon/issues/29))
+- `World::query2`, `query2_mut`, `query3`, and `query3_mut` convenience wrappers plus exact `size_hint` support on archetype query iterators
+  ([#32](https://github.com/galeon-engine/galeon/issues/32))
 
 ### Removed
 

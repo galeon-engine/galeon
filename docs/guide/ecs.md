@@ -77,6 +77,9 @@ for (entity, (pos, vel)) in world.query::<(&Position, &Velocity)>() {
 }
 ```
 
+If you prefer the old fixed-arity helpers, `query2`, `query2_mut`, `query3`, and
+`query3_mut` are available as thin wrappers over the typed query-spec API.
+
 > Queries return lazy iterators — call `.collect::<Vec<_>>()` if you need `len()` or indexing.
 
 Query with filters:

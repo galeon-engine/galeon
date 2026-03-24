@@ -126,6 +126,21 @@ where
             _filter: PhantomData,
         }
     }
+
+    fn remaining(&self) -> usize {
+        let current = self
+            .current
+            .as_ref()
+            .map_or(0, |state| Q::len(state) - self.row);
+        let future: usize = self
+            .store
+            .iter()
+            .skip(self.archetype_index)
+            .filter(|archetype| Q::matches(archetype.layout()) && F::matches(archetype.layout()))
+            .map(|archetype| archetype.len())
+            .sum();
+        current + future
+    }
 }
 
 impl<'w, Q, F> Iterator for QueryIter<'w, Q, F>
@@ -156,6 +171,21 @@ where
             self.current = Q::init_state(archetype);
             self.row = 0;
         }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.remaining();
+        (remaining, Some(remaining))
+    }
+}
+
+impl<'w, Q, F> ExactSizeIterator for QueryIter<'w, Q, F>
+where
+    Q: QuerySpec + 'w,
+    F: QueryFilter,
+{
+    fn len(&self) -> usize {
+        self.remaining()
     }
 }
 
@@ -189,6 +219,22 @@ where
             _filter: PhantomData,
             _marker: PhantomData,
         }
+    }
+
+    fn remaining(&self) -> usize {
+        let current = self
+            .current
+            .as_ref()
+            .map_or(0, |state| Q::len(state) - self.row);
+        // SAFETY: The iterator owns the mutable store borrow for its entire
+        // lifetime, and this helper only reads future archetype metadata.
+        let future: usize = unsafe { &*self.store }
+            .iter()
+            .skip(self.archetype_index)
+            .filter(|archetype| Q::matches(archetype.layout()) && F::matches(archetype.layout()))
+            .map(|archetype| archetype.len())
+            .sum();
+        current + future
     }
 }
 
@@ -241,7 +287,28 @@ where
             self.row = 0;
         }
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.remaining();
+        (remaining, Some(remaining))
+    }
 }
+
+impl<'w, Q, F> ExactSizeIterator for QueryIterMut<'w, Q, F>
+where
+    Q: QuerySpecMut + 'w,
+    F: QueryFilter,
+{
+    fn len(&self) -> usize {
+        self.remaining()
+    }
+}
+
+pub type Query2Iter<'w, A, B, F = NoFilter> = QueryIter<'w, (&'w A, &'w B), F>;
+pub type Query2MutIter<'w, A, B, F = NoFilter> = QueryIterMut<'w, (&'w mut A, &'w mut B), F>;
+pub type Query3Iter<'w, A, B, C, F = NoFilter> = QueryIter<'w, (&'w A, &'w B, &'w C), F>;
+pub type Query3MutIter<'w, A, B, C, F = NoFilter> =
+    QueryIterMut<'w, (&'w mut A, &'w mut B, &'w mut C), F>;
 
 #[doc(hidden)]
 pub struct SingleMutState<'w, T> {

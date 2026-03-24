@@ -103,6 +103,21 @@ fn query2_empty_when_no_overlap() {
 }
 
 #[test]
+fn query2_wrapper_matches_generic_query() {
+    let mut world = World::new();
+    world.spawn((Pos { x: 1.0, y: 0.0 }, Vel { dx: 5.0, dy: 0.0 }));
+    world.spawn((Pos { x: 2.0, y: 0.0 },));
+
+    let generic: Vec<_> = world.query::<(&Pos, &Vel)>().collect();
+    let wrapper: Vec<_> = world.query2::<Pos, Vel>().collect();
+
+    assert_eq!(generic.len(), wrapper.len());
+    assert_eq!(generic[0].0, wrapper[0].0);
+    assert_eq!(generic[0].1.0.x, wrapper[0].1.0.x);
+    assert_eq!(generic[0].1.1.dx, wrapper[0].1.1.dx);
+}
+
+#[test]
 fn query2_mut_mutates_both() {
     let mut world = World::new();
     let e = world.spawn((Pos { x: 1.0, y: 1.0 }, Vel { dx: 10.0, dy: 10.0 }));
@@ -137,6 +152,52 @@ fn query2_mut_same_type_panics() {
 }
 
 #[test]
+fn query3_wrapper_yields_entities_with_all_three() {
+    let mut world = World::new();
+    world.spawn((
+        Pos { x: 1.0, y: 0.0 },
+        Vel { dx: 2.0, dy: 0.0 },
+        Health(100),
+    ));
+    world.spawn((Pos { x: 3.0, y: 0.0 }, Vel { dx: 4.0, dy: 0.0 }));
+    world.spawn((Health(50),));
+
+    let results: Vec<_> = world.query3::<Pos, Vel, Health>().collect();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].1.0.x, 1.0);
+    assert_eq!(results[0].1.1.dx, 2.0);
+    assert_eq!(results[0].1.2.0, 100);
+}
+
+#[test]
+fn query3_mut_wrapper_mutates_all_three() {
+    let mut world = World::new();
+    let e = world.spawn((
+        Pos { x: 1.0, y: 0.0 },
+        Vel { dx: 2.0, dy: 0.0 },
+        Health(100),
+    ));
+
+    for (_, (pos, vel, hp)) in world.query3_mut::<Pos, Vel, Health>() {
+        pos.x += 10.0;
+        vel.dx += 20.0;
+        hp.0 -= 50;
+    }
+
+    assert_eq!(world.get::<Pos>(e).unwrap().x, 11.0);
+    assert_eq!(world.get::<Vel>(e).unwrap().dx, 22.0);
+    assert_eq!(world.get::<Health>(e).unwrap().0, 50);
+}
+
+#[test]
+#[should_panic(expected = "cannot borrow the same column mutably twice")]
+fn query3_mut_duplicate_type_panics() {
+    let mut world = World::new();
+    world.spawn((Pos { x: 0.0, y: 0.0 },));
+    let _ = world.query3_mut::<Pos, Vel, Pos>();
+}
+
+#[test]
 fn query_filtered_with_and_without() {
     let mut world = World::new();
     let e = world.spawn((Pos { x: 1.0, y: 0.0 }, Vel { dx: 2.0, dy: 0.0 }));
@@ -149,6 +210,33 @@ fn query_filtered_with_and_without() {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].0, e);
+}
+
+#[test]
+fn query_iter_size_hint_tracks_remaining_rows() {
+    let mut world = World::new();
+    world.spawn((Pos { x: 1.0, y: 0.0 },));
+    world.spawn((Pos { x: 2.0, y: 0.0 },));
+    world.spawn((Pos { x: 3.0, y: 0.0 },));
+
+    let mut iter = world.query::<&Pos>();
+    assert_eq!(iter.size_hint(), (3, Some(3)));
+    let _ = iter.next();
+    assert_eq!(iter.size_hint(), (2, Some(2)));
+    let _ = iter.next();
+    assert_eq!(iter.size_hint(), (1, Some(1)));
+}
+
+#[test]
+fn query_mut_size_hint_tracks_remaining_rows() {
+    let mut world = World::new();
+    world.spawn((Pos { x: 1.0, y: 0.0 }, Vel { dx: 1.0, dy: 0.0 }));
+    world.spawn((Pos { x: 2.0, y: 0.0 }, Vel { dx: 2.0, dy: 0.0 }));
+
+    let mut iter = world.query2_mut::<Pos, Vel>();
+    assert_eq!(iter.size_hint(), (2, Some(2)));
+    let _ = iter.next();
+    assert_eq!(iter.size_hint(), (1, Some(1)));
 }
 
 #[test]
