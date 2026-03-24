@@ -90,3 +90,37 @@ fn query2_iter_empty_when_no_overlap() {
     let results: Vec<_> = world.query2::<Pos, Vel>().collect();
     assert!(results.is_empty());
 }
+
+#[test]
+fn query2_mut_iter_mutates_both() {
+    let mut world = World::new();
+    let e = world.spawn((Pos { x: 1.0, y: 1.0 }, Vel { dx: 10.0, dy: 10.0 }));
+
+    for (_, pos, vel) in world.query2_mut::<Pos, Vel>() {
+        pos.x += 100.0;
+        vel.dy += 200.0;
+    }
+
+    assert_eq!(world.get::<Pos>(e).unwrap().x, 101.0);
+    assert_eq!(world.get::<Vel>(e).unwrap().dy, 210.0);
+}
+
+#[test]
+fn query2_mut_iter_skips_missing() {
+    let mut world = World::new();
+    world.spawn((Pos { x: 5.0, y: 0.0 },));
+    let e = world.spawn((Pos { x: 7.0, y: 0.0 }, Vel { dx: 9.0, dy: 0.0 }));
+    world.spawn((Vel { dx: 11.0, dy: 0.0 },));
+
+    let results: Vec<_> = world.query2_mut::<Pos, Vel>().collect();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].0, e);
+}
+
+#[test]
+#[should_panic(expected = "cannot borrow the same sparse set mutably twice")]
+fn query2_mut_iter_same_type_panics() {
+    let mut world = World::new();
+    world.spawn((Pos { x: 0.0, y: 0.0 },));
+    let _ = world.query2_mut::<Pos, Pos>().collect::<Vec<_>>();
+}

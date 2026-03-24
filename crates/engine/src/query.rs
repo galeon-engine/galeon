@@ -66,11 +66,7 @@ pub struct QueryIterMut<'w, T: Component> {
 }
 
 impl<'w, T: Component> QueryIterMut<'w, T> {
-    pub(crate) fn new(
-        entities: &'w EntityAllocator,
-        dense: &'w [u32],
-        data: &'w mut [T],
-    ) -> Self {
+    pub(crate) fn new(entities: &'w EntityAllocator, dense: &'w [u32], data: &'w mut [T]) -> Self {
         let len = data.len();
         let data = data.as_mut_ptr();
         Self {
@@ -157,7 +153,94 @@ impl<'w, A: Component, B: Component> Iterator for Query2Iter<'w, A, B> {
             let idx = self.dense_a[self.pos];
             let a = &self.data_a[self.pos];
             self.pos += 1;
-            if let Some(b) = set_b.get(idx) {
+            if let Some(b) = set_b.get(idx)
+                && let Some(entity) = self.entities.entity_at(idx)
+            {
+                return Some((entity, a, b));
+            }
+        }
+        None
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.dense_a.len() - self.pos;
+        (0, Some(remaining))
+    }
+}
+
+/// Lazy iterator for mutable two-component queries.
+///
+/// Iterates set A mutably and probes set B mutably for each entity.
+/// Uses raw pointers for set B access — same safety model as the
+/// previous Vec-returning `query2_mut`.
+///
+/// # Safety invariants
+///
+/// - Sets A and B are distinct types (enforced by `typed_sets_two_mut`'s
+///   TypeId assertion at construction time).
+/// - Each entity index maps to a unique dense slot in each set, so
+///   `get_mut` calls on set B never alias with set A's data.
+pub struct Query2MutIter<'w, A: Component, B: Component> {
+    entities: &'w EntityAllocator,
+    dense_a: &'w [u32],
+    data_a: *mut A,
+    len_a: usize,
+    set_b: *mut TypedSparseSet<B>,
+    pos: usize,
+    _marker: std::marker::PhantomData<&'w mut (A, B)>,
+}
+
+impl<'w, A: Component, B: Component> Query2MutIter<'w, A, B> {
+    pub(crate) fn new(
+        entities: &'w EntityAllocator,
+        sa: &'w mut TypedSparseSet<A>,
+        sb: &'w mut TypedSparseSet<B>,
+    ) -> Self {
+        let (dense_a, data_a_slice) = sa.dense_data_mut();
+        let len_a = data_a_slice.len();
+        let data_a = data_a_slice.as_mut_ptr();
+        let set_b = sb as *mut TypedSparseSet<B>;
+        Self {
+            entities,
+            dense_a,
+            data_a,
+            len_a,
+            set_b,
+            pos: 0,
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    pub(crate) fn empty(entities: &'w EntityAllocator) -> Self {
+        Self {
+            entities,
+            dense_a: &[],
+            data_a: std::ptr::null_mut(),
+            len_a: 0,
+            set_b: std::ptr::null_mut(),
+            pos: 0,
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<'w, A: Component, B: Component> Iterator for Query2MutIter<'w, A, B> {
+    type Item = (Entity, &'w mut A, &'w mut B);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.pos < self.len_a {
+            let idx = self.dense_a[self.pos];
+            let pos = self.pos;
+            self.pos += 1;
+            // SAFETY: sa and sb are distinct typed sparse sets (enforced by
+            // typed_sets_two_mut's TypeId assertion). Each position is yielded
+            // exactly once (pos is monotonically increasing). data_a[pos] and
+            // sb.get_mut(idx) access separate heap allocations.
+            unsafe {
+                let Some(b) = (*self.set_b).get_mut(idx) else {
+                    continue;
+                };
+                let a = &mut *self.data_a.add(pos);
                 if let Some(entity) = self.entities.entity_at(idx) {
                     return Some((entity, a, b));
                 }
@@ -167,7 +250,7 @@ impl<'w, A: Component, B: Component> Iterator for Query2Iter<'w, A, B> {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.dense_a.len() - self.pos;
+        let remaining = self.len_a - self.pos;
         (0, Some(remaining))
     }
 }

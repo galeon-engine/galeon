@@ -119,6 +119,7 @@ impl<T> TypedSparseSet<T> {
     }
 
     /// Returns an iterator over (entity_index, &T) pairs.
+    #[allow(dead_code)]
     pub fn iter(&self) -> impl Iterator<Item = (u32, &T)> {
         self.dense
             .iter()
@@ -127,6 +128,7 @@ impl<T> TypedSparseSet<T> {
     }
 
     /// Returns an iterator over (entity_index, &mut T) pairs.
+    #[allow(dead_code)]
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (u32, &mut T)> {
         self.dense
             .iter()
