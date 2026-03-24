@@ -126,8 +126,10 @@ impl UnsafeWorldCell {
 
     /// Get a shared reference to a resource without creating `&World`.
     ///
-    /// Uses `addr_of!` to reach the `resources` field directly from the
-    /// raw world pointer, avoiding an intermediate `&World`.
+    /// Both `get_resource` and `get_resource_mut` create only `&Resources`
+    /// (shared) via `addr_of!`, using `UnsafeCell`-based interior mutability
+    /// for the write path. This eliminates `&Resources` / `&mut Resources`
+    /// overlap when `Res<A>` and `ResMut<B>` are fetched concurrently.
     ///
     /// # Safety
     ///
@@ -135,19 +137,23 @@ impl UnsafeWorldCell {
     /// - No mutable reference to the same resource may exist concurrently.
     #[inline]
     pub unsafe fn get_resource<'w, T: 'static>(self) -> &'w T {
-        // SAFETY: Caller guarantees the world pointer is valid and no
-        // mutable reference to this resource exists concurrently.
+        // SAFETY: addr_of! avoids creating &World. The resulting &Resources
+        // is shared — combined with get_unchecked (which also uses &self),
+        // no &mut Resources is ever created on this path.
         unsafe {
             let resources_ptr: *const Resources =
                 std::ptr::addr_of!((*self.0).resources);
-            (*resources_ptr).get::<T>()
+            (*resources_ptr).get_unchecked::<T>()
         }
     }
 
-    /// Get a mutable reference to a resource without creating `&mut World`.
+    /// Get a mutable reference to a resource without creating `&mut World`
+    /// or `&mut Resources`.
     ///
-    /// Uses `addr_of_mut!` to reach the `resources` field directly from the
-    /// raw world pointer, avoiding an intermediate `&mut World`.
+    /// Uses `addr_of!` (not `addr_of_mut!`) to create `&Resources` (shared),
+    /// then reaches into the `UnsafeCell`-wrapped value for interior
+    /// mutability. This ensures `Res<A>` + `ResMut<B>` never produce
+    /// overlapping `&Resources` / `&mut Resources`.
     ///
     /// # Safety
     ///
@@ -156,12 +162,13 @@ impl UnsafeWorldCell {
     ///   exist concurrently.
     #[inline]
     pub unsafe fn get_resource_mut<'w, T: 'static>(self) -> &'w mut T {
-        // SAFETY: Caller guarantees the world pointer is valid and no
-        // other reference to this resource exists concurrently.
+        // SAFETY: addr_of! avoids creating &World or &mut World. We create
+        // only &Resources (shared). get_mut_unchecked uses UnsafeCell for
+        // interior mutability — caller guarantees exclusive resource access.
         unsafe {
-            let resources_ptr: *mut Resources =
-                std::ptr::addr_of_mut!((*self.0).resources);
-            (*resources_ptr).get_mut::<T>()
+            let resources_ptr: *const Resources =
+                std::ptr::addr_of!((*self.0).resources);
+            (*resources_ptr).get_mut_unchecked::<T>()
         }
     }
 
@@ -181,20 +188,24 @@ impl UnsafeWorldCell {
         }
     }
 
-    /// Get mutable access to the archetype store without creating `&mut World`.
+    /// Get a raw mutable pointer to the archetype store without creating
+    /// `&mut World` or `&mut ArchetypeStore`.
+    ///
+    /// Returns `*mut ArchetypeStore` (not a reference) so that
+    /// `QueryIterMut` can be constructed without creating `&mut ArchetypeStore`,
+    /// eliminating the `&ArchetypeStore` / `&mut ArchetypeStore` overlap
+    /// when `Query<A>` and `QueryMut<B>` are fetched concurrently.
     ///
     /// # Safety
     ///
-    /// No other reference (shared or mutable) to the archetype store may
-    /// exist concurrently.
+    /// - The caller must ensure no other reference to the archetype store
+    ///   exists when writing through this pointer.
+    /// - The conflict detection system guarantees disjoint component access.
     #[inline]
-    pub unsafe fn archetypes_mut<'w>(self) -> &'w mut ArchetypeStore {
-        // SAFETY: Caller guarantees exclusive archetype access.
-        unsafe {
-            let ptr: *mut ArchetypeStore =
-                std::ptr::addr_of_mut!((*self.0).archetypes);
-            &mut *ptr
-        }
+    pub unsafe fn archetypes_mut_ptr(self) -> *mut ArchetypeStore {
+        // SAFETY: addr_of_mut! computes the field offset without creating
+        // any intermediate reference.
+        unsafe { std::ptr::addr_of_mut!((*self.0).archetypes) }
     }
 }
 

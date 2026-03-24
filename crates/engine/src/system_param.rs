@@ -230,8 +230,10 @@ impl<'w, T: Component> QueryMut<'w, T> {
 
 // SAFETY: access() correctly reports CompWrite. fetch() collects a mutable
 // query — the archetype iterator yields `&'w mut T` references into distinct
-// column heap allocations per archetype. Accesses archetypes via
-// UnsafeWorldCell::archetypes_mut() (no intermediate &mut World).
+// column heap allocations per archetype. Uses archetypes_mut_ptr() to get a
+// raw pointer, and QueryIterMut::new_from_ptr() to avoid creating
+// `&mut ArchetypeStore` — preventing overlap with concurrent `&ArchetypeStore`
+// from Query params.
 unsafe impl<T: Component> SystemParam for QueryMut<'_, T> {
     type Item<'w> = QueryMut<'w, T>;
 
@@ -242,7 +244,8 @@ unsafe impl<T: Component> SystemParam for QueryMut<'_, T> {
     unsafe fn fetch<'w>(world: UnsafeWorldCell) -> QueryMut<'w, T> {
         QueryMut {
             results: unsafe {
-                QueryIterMut::<'w, &mut T>::new(world.archetypes_mut()).collect()
+                QueryIterMut::<'w, &mut T>::new_from_ptr(world.archetypes_mut_ptr())
+                    .collect()
             },
         }
     }

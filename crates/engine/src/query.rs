@@ -221,6 +221,31 @@ where
         }
     }
 
+    /// Construct from a raw pointer without creating `&mut ArchetypeStore`.
+    ///
+    /// This is the `UnsafeWorldCell` path: avoids the intermediate
+    /// `&mut ArchetypeStore` that `new()` requires, eliminating the
+    /// `&ArchetypeStore` / `&mut ArchetypeStore` overlap when `Query<A>`
+    /// and `QueryMut<B>` are fetched concurrently.
+    ///
+    /// # Safety
+    ///
+    /// - `store` must be a valid, non-null pointer to an `ArchetypeStore`
+    ///   that lives for `'w`.
+    /// - The caller must guarantee exclusive mutable access to the columns
+    ///   that `Q` touches (enforced by conflict detection).
+    pub(crate) unsafe fn new_from_ptr(store: *mut ArchetypeStore) -> Self {
+        Self {
+            archetype_len: unsafe { (*store).len() },
+            store,
+            archetype_index: 0,
+            row: 0,
+            current: None,
+            _filter: PhantomData,
+            _marker: PhantomData,
+        }
+    }
+
     fn remaining(&self) -> usize {
         let current = self
             .current
