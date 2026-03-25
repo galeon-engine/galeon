@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use crate::archetype::{ArchetypeLayout, ArchetypeStore, EntityLocation};
 use crate::commands::CommandBuffer;
 use crate::component::Component;
+use crate::deadline::{DeadlineId, Deadlines, Timestamp};
 use crate::entity::{Entity, EntityMetaStore};
 use crate::event::Events;
 use crate::query::{
@@ -432,6 +433,62 @@ impl World {
         }
         // Restore the updaters vec (reuse the allocation).
         std::mem::swap(&mut self.event_updaters, &mut updaters);
+    }
+
+    // -------------------------------------------------------------------------
+    // Deadlines
+    // -------------------------------------------------------------------------
+
+    /// Register a deadline event type and insert its `Deadlines<T>` and
+    /// `Events<T>` resources.
+    ///
+    /// Must be called before scheduling deadlines of type `T`. Idempotent.
+    pub fn add_deadline_type<T: 'static>(&mut self) {
+        if self.try_resource::<Deadlines<T>>().is_none() {
+            self.insert_resource(Deadlines::<T>::new());
+        }
+        // Ensure the Events<T> resource exists for fired deadline delivery.
+        self.add_event::<T>();
+    }
+
+    /// Schedule an event to fire when `now >= deadline`.
+    ///
+    /// Returns a [`DeadlineId`] for cancellation. The event type must have
+    /// been registered with [`add_deadline_type::<T>()`](World::add_deadline_type).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `Deadlines<T>` has not been registered.
+    pub fn schedule_deadline<T: 'static>(&mut self, deadline: Timestamp, event: T) -> DeadlineId {
+        self.resource_mut::<Deadlines<T>>()
+            .schedule(deadline, event)
+    }
+
+    /// Cancel a previously scheduled deadline.
+    ///
+    /// Returns `true` if the deadline was found and removed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `Deadlines<T>` has not been registered.
+    pub fn cancel_deadline<T: 'static>(&mut self, id: DeadlineId) -> bool {
+        self.resource_mut::<Deadlines<T>>().cancel(id)
+    }
+
+    /// Drain all overdue deadlines of type `T` and write them as events.
+    ///
+    /// Called by the deadline plugin during schedule execution. Fires all
+    /// entries where `now >= deadline`, supporting batch reconciliation.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `Deadlines<T>` or `Events<T>` has not been registered.
+    pub fn drain_deadlines<T: 'static>(&mut self, now: Timestamp) {
+        let fired = self.resource_mut::<Deadlines<T>>().drain_overdue(now);
+        let events = self.resource_mut::<Events<T>>();
+        for event in fired {
+            events.send(event);
+        }
     }
 
     // -------------------------------------------------------------------------

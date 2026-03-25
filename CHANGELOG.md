@@ -13,6 +13,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   to scaffold a complete Galeon game project with protocol, domain, server, and db crates.
   Three presets: `server-authoritative`, `local-first`, `hybrid`.
   ([#71](https://github.com/galeon-engine/galeon/issues/71))
+- **Deadline scheduler** — UTC-based timed event firing. `Timestamp` (microseconds since epoch),
+  `Clock` trait with `SystemClock` and `TestClock`, `Deadlines<T>` sorted resource, `DeadlineId`
+  for cancellation. Integrates with Events API — fired deadlines become `Events<T>` readable via
+  `EventReader<T>`. Batch reconciliation fires all overdue in one tick. Commands integration via
+  `Commands::schedule_deadline()` and `Commands::cancel_deadline()`.
+  ([#79](https://github.com/galeon-engine/galeon/issues/79))
 - **ECS Events API** — `Events<T>` double-buffered typed event queue with `EventWriter<T>` and
   `EventReader<T>` system parameters. Events sent in tick N are readable in tick N+1.
   Register with `World::add_event::<T>()`. Auto-cleared by `Schedule::run()`.
