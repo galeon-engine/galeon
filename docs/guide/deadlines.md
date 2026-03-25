@@ -59,45 +59,74 @@ fn abort_dispatch(mut cmds: Commands<'_>) {
 }
 ```
 
-## Draining (firing) deadlines
+## Automatic draining
 
-Call `world.drain_deadlines::<T>(now)` to fire all entries where
-`now >= deadline`. Fired events are written to `Events<T>` and become
-readable by `EventReader<T>` on the next tick (after `update_events()`).
+`Schedule::run()` automatically drains all registered deadline types
+every tick. The execution order is:
+
+1. `drain_all_deadlines()` — reads the `Clock` resource, fires all
+   overdue entries into `Events<T>` current buffer.
+2. `update_events()` — swaps current → previous (fired deadlines now
+   readable by `EventReader<T>`).
+3. Systems run — `EventReader<T>` sees fired deadlines **this tick**.
+
+Install a `Clock` resource for automatic draining to activate:
 
 ```rust
-// In a system or tick loop:
-fn drain_arrivals(world: &mut World) {
-    let now = Timestamp::now(); // or from a Clock resource
-    world.drain_deadlines::<ShipArrival>(now);
-}
+use galeon_engine::{SystemClock, Clock};
+
+// Production: wall-clock time.
+engine.world_mut().insert_resource(Box::new(SystemClock) as Box<dyn Clock>);
+
+// Tests: controllable time.
+use galeon_engine::TestClock;
+engine.world_mut().insert_resource(
+    Box::new(TestClock::new(Timestamp::from_secs(1000))) as Box<dyn Clock>,
+);
+```
+
+If no `Clock` resource is present, deadline draining is silently skipped.
+
+### Manual draining
+
+For advanced use cases, you can drain a single type manually:
+
+```rust
+world.drain_deadlines::<ShipArrival>(Timestamp::now());
 ```
 
 ## Batch reconciliation
 
 If the engine pauses or the server restarts, all overdue deadlines fire
-in a single tick when `drain_deadlines` is called with the current time.
-This catch-up behavior is automatic — no special API needed.
+in a single tick automatically. When `Schedule::run()` calls
+`drain_all_deadlines()`, every entry where `now >= deadline` fires at
+once — no special API needed.
 
 ## Testing with TestClock
 
 ```rust
-use galeon_engine::{TestClock, Timestamp};
+use galeon_engine::{TestClock, Timestamp, Clock};
 
 let mut clock = TestClock::new(Timestamp::from_secs(0));
+world.insert_resource(Box::new(clock) as Box<dyn Clock>);
 
-// Nothing fires at t=0.
-world.drain_deadlines::<MyEvent>(clock.now());
+// Run schedule — nothing fires at t=0.
+schedule.run(&mut world);
 
-// Advance time and drain again.
-clock.advance_secs(60);
-world.drain_deadlines::<MyEvent>(clock.now());
+// Advance clock and run again — overdue deadlines fire.
+world.resource_mut::<Box<dyn Clock>>()
+    .downcast_mut::<TestClock>()
+    .unwrap()
+    .advance_secs(60);
+schedule.run(&mut world);
 ```
 
 ## Integration with Events
 
 Deadlines build on the existing Events API:
-- `add_deadline_type::<T>()` calls `add_event::<T>()` internally.
-- `drain_deadlines::<T>(now)` calls `Events::<T>::send()` for each fired entry.
+- `add_deadline_type::<T>()` calls `add_event::<T>()` internally and
+  registers a drainer closure for automatic firing.
+- `Schedule::run()` drains all deadline types before advancing event
+  buffers, so fired events are readable in the same tick.
 - Game systems read fired deadlines via `EventReader<T>` — same API as
   any other event.
