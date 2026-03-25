@@ -16,3 +16,5 @@ proc-macro2 = "1"
 quote = "1"
 inventory = "0.3"
 syn = { version = "2", features = ["full"] }
+clap = { version = "4", features = ["derive"] }
+tempfile = "3"
