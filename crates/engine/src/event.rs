@@ -351,12 +351,11 @@ mod tests {
     }
 
     #[test]
-    fn add_event_is_idempotent() {
+    fn add_event_is_idempotent_no_duplicate_updater() {
         let mut world = World::new();
         world.add_event::<DamageEvent>();
-        world.add_event::<DamageEvent>(); // second call re-inserts resource but skips updater
+        world.add_event::<DamageEvent>(); // no-op
 
-        // Send an event and verify it survives exactly one update cycle.
         world
             .resource_mut::<Events<DamageEvent>>()
             .send(DamageEvent { amount: 5 });
@@ -367,22 +366,20 @@ mod tests {
     }
 
     #[test]
-    fn add_event_after_resource_removal_no_duplicate_updater() {
+    fn add_event_duplicate_does_not_drop_queued_events() {
         let mut world = World::new();
         world.add_event::<DamageEvent>();
 
-        // Remove the resource (simulates external take_resource usage).
-        world.insert_resource(Events::<DamageEvent>::new());
-
-        // Re-register — the updater must not be duplicated.
-        world.add_event::<DamageEvent>();
-
+        // Queue an event, then call add_event again — must not reset the buffer.
         world
             .resource_mut::<Events<DamageEvent>>()
-            .send(DamageEvent { amount: 42 });
+            .send(DamageEvent { amount: 99 });
+        world.add_event::<DamageEvent>(); // no-op, must not clear current
+
         world.update_events();
 
-        // One updater → previous has the event. Two updaters would clear it.
+        // Event queued before the redundant add_event must still be readable.
         assert_eq!(world.resource::<Events<DamageEvent>>().len(), 1);
+        assert_eq!(world.resource::<Events<DamageEvent>>().read().next().unwrap().amount, 99);
     }
 }

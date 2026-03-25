@@ -388,14 +388,13 @@ impl World {
     ///
     /// Must be called before any system uses `EventWriter<T>` or
     /// `EventReader<T>`. Idempotent — calling this more than once for the
-    /// same `T` re-inserts an empty resource but never duplicates the
-    /// updater closure.
+    /// same `T` is a no-op (does not reset queued events or duplicate the
+    /// updater closure).
     pub fn add_event<T: 'static>(&mut self) {
-        self.resources.insert(Events::<T>::new());
         if !self.registered_events.insert(TypeId::of::<Events<T>>()) {
-            // Updater already registered — skip to avoid double-advance.
             return;
         }
+        self.resources.insert(Events::<T>::new());
         self.event_updaters.push(Box::new(|world: &mut World| {
             world.resources.get_mut::<Events<T>>().update();
         }));
