@@ -138,8 +138,11 @@ mod tests {
 
         assert_file(&root, "Cargo.toml");
         assert_file(&root, "galeon.toml");
+        assert_file(&root, "client/.gitkeep");
         assert_file(&root, "crates/protocol/Cargo.toml");
+        assert_file(&root, "crates/protocol/src/lib.rs");
         assert_file(&root, "crates/domain/Cargo.toml");
+        assert_file(&root, "crates/domain/src/lib.rs");
 
         assert_no_file(&root, "crates/server/Cargo.toml");
         assert_no_file(&root, "crates/db/Cargo.toml");
@@ -150,6 +153,13 @@ mod tests {
     fn test_scaffold_hybrid() {
         let (_tmp, root) = run_scaffold("hybridgame", Preset::Hybrid);
 
+        assert_file(&root, "Cargo.toml");
+        assert_file(&root, "galeon.toml");
+        assert_file(&root, "client/.gitkeep");
+        assert_file(&root, "crates/protocol/Cargo.toml");
+        assert_file(&root, "crates/protocol/src/lib.rs");
+        assert_file(&root, "crates/domain/Cargo.toml");
+        assert_file(&root, "crates/domain/src/lib.rs");
         assert_file(&root, "crates/server/Cargo.toml");
         assert_file(&root, "crates/server/src/main.rs");
 

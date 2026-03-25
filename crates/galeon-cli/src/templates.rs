@@ -3,7 +3,7 @@
 /// Root `Cargo.toml` for the generated workspace.
 pub fn workspace_cargo_toml() -> String {
     r#"[workspace]
-resolver = "2"
+resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
@@ -18,7 +18,6 @@ pub fn galeon_toml(name: &str, preset: &str) -> String {
         r#"[project]
 name = "{name}"
 engine = "0.1"
-
 preset = "{preset}"
 "#
     )

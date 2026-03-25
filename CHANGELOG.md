@@ -9,6 +9,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Galeon CLI (`galeon new`)** — binary crate `galeon-cli` provides `galeon new <project> --preset <preset>`
+  to scaffold a complete Galeon game project with protocol, domain, server, and db crates.
+  Three presets: `server-authoritative`, `local-first`, `hybrid`.
+  ([#71](https://github.com/galeon-engine/galeon/issues/71))
 - **ECS Events API** — `Events<T>` double-buffered typed event queue with `EventWriter<T>` and
   `EventReader<T>` system parameters. Events sent in tick N are readable in tick N+1.
   Register with `World::add_event::<T>()`. Auto-cleared by `Schedule::run()`.
