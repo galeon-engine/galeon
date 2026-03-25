@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
 use std::any::TypeId;
+use std::collections::HashSet;
 
 use crate::archetype::{ArchetypeLayout, ArchetypeStore, EntityLocation};
 use crate::commands::CommandBuffer;
 use crate::component::Component;
 use crate::entity::{Entity, EntityMetaStore};
+use crate::event::Events;
 use crate::query::{
     Query2Iter, Query2MutIter, Query3Iter, Query3MutIter, QueryFilter, QueryIter, QueryIterMut,
     QuerySpec, QuerySpecMut,
@@ -229,12 +231,25 @@ impl UnsafeWorldCell {
 // World
 // =============================================================================
 
+/// Type-erased closure that advances a single `Events<T>` double buffer.
+type EventUpdater = Box<dyn Fn(&mut World)>;
+
 /// The ECS world: owns entities, archetype storage, resources, and commands.
 pub struct World {
     meta: EntityMetaStore,
     archetypes: ArchetypeStore,
     resources: Resources,
     commands: CommandBuffer,
+    /// Type-erased closures that advance each registered `Events<T>` buffer.
+    ///
+    /// Populated by [`World::add_event::<T>()`]. Each closure calls
+    /// `Events::<T>::update()` on the corresponding resource. Called by
+    /// [`World::update_events()`] at the start of every `Schedule::run()`.
+    event_updaters: Vec<EventUpdater>,
+    /// TypeIds of event types that have been registered via `add_event`.
+    /// Guards against duplicate updater registration even if the `Events<T>`
+    /// resource is removed and re-added.
+    registered_events: HashSet<TypeId>,
 }
 
 impl World {
@@ -248,6 +263,8 @@ impl World {
             archetypes,
             resources: Resources::new(),
             commands: CommandBuffer::new(),
+            event_updaters: Vec::new(),
+            registered_events: HashSet::new(),
         }
     }
 
@@ -361,6 +378,60 @@ impl World {
     /// should use the [`Commands`](crate::commands::Commands) system parameter.
     pub fn command_buffer_mut(&mut self) -> &mut CommandBuffer {
         &mut self.commands
+    }
+
+    // -------------------------------------------------------------------------
+    // Events
+    // -------------------------------------------------------------------------
+
+    /// Register an event type and insert its `Events<T>` resource.
+    ///
+    /// Must be called before any system uses `EventWriter<T>` or
+    /// `EventReader<T>`. Idempotent:
+    ///
+    /// - **First call**: inserts `Events<T>` resource and registers the
+    ///   updater closure.
+    /// - **Duplicate call (resource still exists)**: no-op — does not reset
+    ///   queued events or duplicate the updater.
+    /// - **Re-call after resource removal**: restores a fresh `Events<T>`
+    ///   resource without duplicating the updater.
+    pub fn add_event<T: 'static>(&mut self) {
+        if self.registered_events.insert(TypeId::of::<Events<T>>()) {
+            // First registration: insert resource + updater.
+            self.resources.insert(Events::<T>::new());
+            self.event_updaters.push(Box::new(|world: &mut World| {
+                world.resources.get_mut::<Events<T>>().update();
+            }));
+        } else if !self.resources.contains::<Events<T>>() {
+            // Resource was removed externally — restore it. Updater already
+            // exists so we only need the resource back.
+            self.resources.insert(Events::<T>::new());
+        }
+    }
+
+    /// Advance all registered event buffers.
+    ///
+    /// Swaps each `Events<T>`'s `current` buffer into `previous` and clears
+    /// `current`. Called automatically at the start of every
+    /// [`Schedule::run()`](crate::schedule::Schedule::run) so that events
+    /// written in tick N are readable in tick N+1.
+    pub fn update_events(&mut self) {
+        // SAFETY: We must call the updaters without holding a borrow on
+        // `event_updaters` while also needing `&mut self` inside each closure.
+        // We swap the vec out, call each closure, then swap it back.
+        //
+        // INVARIANT: EventUpdater closures MUST only access `self.resources`.
+        // They must never touch `self.event_updaters` (which is empty during
+        // this loop due to mem::take), `self.archetypes`, `self.commands`, or
+        // any other World field. This invariant is maintained by construction —
+        // all closures registered by `add_event` only call
+        // `world.resources.get_mut::<Events<T>>().update()`.
+        let mut updaters = std::mem::take(&mut self.event_updaters);
+        for updater in &updaters {
+            updater(self);
+        }
+        // Restore the updaters vec (reuse the allocation).
+        std::mem::swap(&mut self.event_updaters, &mut updaters);
     }
 
     // -------------------------------------------------------------------------
