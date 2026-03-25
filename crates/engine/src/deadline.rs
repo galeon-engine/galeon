@@ -527,4 +527,110 @@ mod tests {
         // All drained.
         assert!(world.resource::<Deadlines<TestEvent>>().is_empty());
     }
+
+    // -- drain_all_deadlines integration --
+
+    #[test]
+    fn drain_all_deadlines_with_clock_resource() {
+        let mut world = crate::world::World::new();
+        world.add_deadline_type::<TestEvent>();
+        world
+            .insert_resource(Box::new(TestClock::new(Timestamp::from_secs(150))) as Box<dyn Clock>);
+
+        world.schedule_deadline(Timestamp::from_secs(100), TestEvent(1));
+        world.schedule_deadline(Timestamp::from_secs(200), TestEvent(2));
+
+        // drain_all_deadlines reads the Clock, fires overdue.
+        world.drain_all_deadlines();
+
+        // Events in current. Advance to make readable.
+        world.update_events();
+
+        let events = world.resource::<crate::event::Events<TestEvent>>();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events.read().next().unwrap().0, 1);
+    }
+
+    #[test]
+    fn drain_all_deadlines_no_clock_is_noop() {
+        let mut world = crate::world::World::new();
+        world.add_deadline_type::<TestEvent>();
+        world.schedule_deadline(Timestamp::from_secs(100), TestEvent(1));
+
+        // No Clock resource — should not panic, should not drain.
+        world.drain_all_deadlines();
+        assert_eq!(world.resource::<Deadlines<TestEvent>>().len(), 1);
+    }
+
+    // -- Schedule integration: same-tick delivery --
+
+    #[test]
+    fn schedule_run_fires_deadlines_readable_same_tick() {
+        use crate::schedule::Schedule;
+
+        let mut world = crate::world::World::new();
+        world.add_deadline_type::<TestEvent>();
+        world
+            .insert_resource(Box::new(TestClock::new(Timestamp::from_secs(200))) as Box<dyn Clock>);
+
+        // Schedule a deadline in the past (should fire on first run).
+        world.schedule_deadline(Timestamp::from_secs(100), TestEvent(42));
+
+        // A system that reads fired deadline events.
+        world.insert_resource(0_u32); // counter
+        fn count_fired(
+            reader: crate::event::EventReader<'_, TestEvent>,
+            mut counter: crate::system_param::ResMut<'_, u32>,
+        ) {
+            for _ in reader.read() {
+                *counter += 1;
+            }
+        }
+
+        let mut schedule = Schedule::new();
+        schedule.add_system::<(
+            crate::event::EventReader<'_, TestEvent>,
+            crate::system_param::ResMut<'_, u32>,
+        )>("update", "count_fired", count_fired);
+
+        // Run the schedule once.
+        schedule.run(&mut world);
+
+        // The system should have seen the fired deadline event THIS tick.
+        assert_eq!(*world.resource::<u32>(), 1);
+        // Deadline queue should be empty.
+        assert!(world.resource::<Deadlines<TestEvent>>().is_empty());
+    }
+
+    #[test]
+    fn schedule_run_multiple_deadline_types() {
+        use crate::schedule::Schedule;
+
+        #[derive(Debug, PartialEq)]
+        struct OtherEvent(u32);
+
+        let mut world = crate::world::World::new();
+        world.add_deadline_type::<TestEvent>();
+        world.add_deadline_type::<OtherEvent>();
+        world
+            .insert_resource(Box::new(TestClock::new(Timestamp::from_secs(500))) as Box<dyn Clock>);
+
+        world.schedule_deadline(Timestamp::from_secs(100), TestEvent(1));
+        world.schedule_deadline(Timestamp::from_secs(200), OtherEvent(2));
+
+        // Both should drain automatically.
+        let mut schedule = Schedule::new();
+        schedule.run(&mut world);
+
+        // Both deadline queues empty.
+        assert!(world.resource::<Deadlines<TestEvent>>().is_empty());
+        assert!(world.resource::<Deadlines<OtherEvent>>().is_empty());
+
+        // Both event types were fired (in current, now moved to previous).
+        assert_eq!(world.resource::<crate::event::Events<TestEvent>>().len(), 1);
+        assert_eq!(
+            world.resource::<crate::event::Events<OtherEvent>>().len(),
+            1
+        );
+    }
 }
