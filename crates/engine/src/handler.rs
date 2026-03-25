@@ -169,7 +169,9 @@ impl HandlerRegistry {
     /// Indexes by both `TypeId` (for local dispatch) and
     /// `ProtocolMeta::name()` (for remote dispatch via stable protocol name).
     ///
-    /// Panics if a handler for this command type is already registered.
+    /// Panics if a handler for this command type or protocol name is already
+    /// registered. The name check catches collisions between different Rust
+    /// types that share the same `ProtocolMeta::name()`.
     pub fn register_command<C, R, H>(&mut self, handler: H)
     where
         C: Command + ProtocolMeta,
@@ -180,7 +182,12 @@ impl HandlerRegistry {
         let protocol_name = C::name().to_string();
         assert!(
             !self.commands_by_type.contains_key(&type_id),
-            "duplicate command handler for {}",
+            "duplicate command handler for type {}",
+            protocol_name
+        );
+        assert!(
+            !self.commands_by_name.contains_key(&protocol_name),
+            "duplicate command handler for protocol name {:?} (different type, same name)",
             protocol_name
         );
         let shared: std::sync::Arc<dyn ErasedCommandHandler> =
@@ -199,7 +206,9 @@ impl HandlerRegistry {
     /// Indexes by both `TypeId` (for local dispatch) and
     /// `ProtocolMeta::name()` (for remote dispatch via stable protocol name).
     ///
-    /// Panics if a handler for this query type is already registered.
+    /// Panics if a handler for this query type or protocol name is already
+    /// registered. The name check catches collisions between different Rust
+    /// types that share the same `ProtocolMeta::name()`.
     pub fn register_query<Q, R, H>(&mut self, handler: H)
     where
         Q: ProtocolQuery + ProtocolMeta,
@@ -210,7 +219,12 @@ impl HandlerRegistry {
         let protocol_name = Q::name().to_string();
         assert!(
             !self.queries_by_type.contains_key(&type_id),
-            "duplicate query handler for {}",
+            "duplicate query handler for type {}",
+            protocol_name
+        );
+        assert!(
+            !self.queries_by_name.contains_key(&protocol_name),
+            "duplicate query handler for protocol name {:?} (different type, same name)",
             protocol_name
         );
         let shared: std::sync::Arc<dyn ErasedQueryHandler> =
@@ -559,5 +573,38 @@ mod tests {
 
         assert_eq!(registry.command_count(), 1);
         assert_eq!(registry.query_count(), 1);
+    }
+
+    /// Two different Rust types with the same ProtocolMeta::name() must
+    /// panic on registration — prevents silent handler replacement.
+    #[test]
+    #[should_panic(expected = "duplicate command handler for protocol name")]
+    fn name_collision_panics() {
+        // A second command type that shares the same protocol name.
+        #[derive(Debug, Serialize, Deserialize)]
+        struct DispatchShipV2 {
+            ship_id: u64,
+        }
+        impl Command for DispatchShipV2 {}
+        impl ProtocolMeta for DispatchShipV2 {
+            fn name() -> &'static str {
+                "DispatchShip" // same name as the other type
+            }
+            fn kind() -> ProtocolKind {
+                ProtocolKind::Command
+            }
+        }
+
+        struct V2Handler;
+        impl CommandHandler<DispatchShipV2, DispatchResult> for V2Handler {
+            fn handle(&self, _cmd: DispatchShipV2) -> Result<DispatchResult, String> {
+                Ok(DispatchResult { ok: false })
+            }
+        }
+
+        let mut registry = HandlerRegistry::new();
+        registry.register_command::<DispatchShip, DispatchResult, _>(ShipDispatcher);
+        // This must panic — same protocol name, different type.
+        registry.register_command::<DispatchShipV2, DispatchResult, _>(V2Handler);
     }
 }
