@@ -6,6 +6,7 @@ use crate::archetype::{ArchetypeLayout, ArchetypeStore, EntityLocation};
 use crate::commands::CommandBuffer;
 use crate::component::Component;
 use crate::entity::{Entity, EntityMetaStore};
+use crate::event::Events;
 use crate::query::{
     Query2Iter, Query2MutIter, Query3Iter, Query3MutIter, QueryFilter, QueryIter, QueryIterMut,
     QuerySpec, QuerySpecMut,
@@ -229,12 +230,21 @@ impl UnsafeWorldCell {
 // World
 // =============================================================================
 
+/// Type-erased closure that advances a single `Events<T>` double buffer.
+type EventUpdater = Box<dyn Fn(&mut World)>;
+
 /// The ECS world: owns entities, archetype storage, resources, and commands.
 pub struct World {
     meta: EntityMetaStore,
     archetypes: ArchetypeStore,
     resources: Resources,
     commands: CommandBuffer,
+    /// Type-erased closures that advance each registered `Events<T>` buffer.
+    ///
+    /// Populated by [`World::add_event::<T>()`]. Each closure calls
+    /// `Events::<T>::update()` on the corresponding resource. Called by
+    /// [`World::update_events()`] at the start of every `Schedule::run()`.
+    event_updaters: Vec<EventUpdater>,
 }
 
 impl World {
@@ -248,6 +258,7 @@ impl World {
             archetypes,
             resources: Resources::new(),
             commands: CommandBuffer::new(),
+            event_updaters: Vec::new(),
         }
     }
 
@@ -361,6 +372,43 @@ impl World {
     /// should use the [`Commands`](crate::commands::Commands) system parameter.
     pub fn command_buffer_mut(&mut self) -> &mut CommandBuffer {
         &mut self.commands
+    }
+
+    // -------------------------------------------------------------------------
+    // Events
+    // -------------------------------------------------------------------------
+
+    /// Register an event type and insert its `Events<T>` resource.
+    ///
+    /// Must be called before any system uses `EventWriter<T>` or
+    /// `EventReader<T>`. Calling this more than once for the same `T` is safe
+    /// but redundant — the second call simply overwrites the resource with a
+    /// fresh empty buffer and registers a duplicate updater.
+    pub fn add_event<T: 'static>(&mut self) {
+        self.resources.insert(Events::<T>::new());
+        self.event_updaters.push(Box::new(|world: &mut World| {
+            world.resources.get_mut::<Events<T>>().update();
+        }));
+    }
+
+    /// Advance all registered event buffers.
+    ///
+    /// Swaps each `Events<T>`'s `current` buffer into `previous` and clears
+    /// `current`. Called automatically at the start of every
+    /// [`Schedule::run()`](crate::schedule::Schedule::run) so that events
+    /// written in tick N are readable in tick N+1.
+    pub fn update_events(&mut self) {
+        // SAFETY: We must call the updaters without holding a borrow on
+        // `event_updaters` while also needing `&mut self` inside each closure.
+        // We swap the vec out, call each closure, then swap it back. This is
+        // safe because the closures only touch `self.resources`, which is a
+        // separate field from `event_updaters`.
+        let mut updaters = std::mem::take(&mut self.event_updaters);
+        for updater in &updaters {
+            updater(self);
+        }
+        // Restore the updaters vec (reuse the allocation).
+        std::mem::swap(&mut self.event_updaters, &mut updaters);
     }
 
     // -------------------------------------------------------------------------

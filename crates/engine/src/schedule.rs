@@ -50,9 +50,16 @@ impl Schedule {
 
     /// Run all systems in stage order.
     ///
-    /// Queued commands are automatically applied between stages so that
-    /// deferred structural mutations from one stage are visible to the next.
+    /// Event buffers are advanced first — events written in the previous tick
+    /// become readable, and the previous tick's readable events are cleared.
+    /// Queued commands are then applied between stages so that deferred
+    /// structural mutations from one stage are visible to the next.
     pub fn run(&mut self, world: &mut World) {
+        // Advance all event buffers: current → previous, clear current.
+        // This runs BEFORE any system so that EventReader sees events from the
+        // last tick while EventWriter fills a fresh current buffer.
+        world.update_events();
+
         for stage_idx in 0..self.stage_order.len() {
             let stage = self.stage_order[stage_idx];
             for entry in &mut self.systems {
@@ -283,5 +290,86 @@ mod tests {
 
         // All entities despawned between stages — nothing to increment.
         assert_eq!(world.entity_count(), 0);
+    }
+
+    // -------------------------------------------------------------------------
+    // Events integration test
+    // -------------------------------------------------------------------------
+
+    use crate::event::{EventReader, EventWriter};
+
+    #[derive(Debug, PartialEq)]
+    struct ScoreEvent {
+        points: u32,
+    }
+
+    fn produce_event(mut writer: EventWriter<'_, ScoreEvent>) {
+        writer.send(ScoreEvent { points: 10 });
+    }
+
+    fn consume_event(reader: EventReader<'_, ScoreEvent>, mut counters: QueryMut<'_, Counter>) {
+        let total: u32 = reader.read().map(|e| e.points).sum();
+        for (_, counter) in counters.iter_mut() {
+            counter.0 += total;
+        }
+    }
+
+    #[test]
+    fn schedule_event_writer_reader_cross_tick() {
+        let mut world = World::new();
+        world.add_event::<ScoreEvent>();
+        world.spawn((Counter(0),));
+
+        let mut schedule = Schedule::new();
+        // System A writes events in stage "produce".
+        schedule.add_system::<(EventWriter<'_, ScoreEvent>,)>("produce", "produce", produce_event);
+        // System B reads events in stage "consume".
+        schedule.add_system::<(EventReader<'_, ScoreEvent>, QueryMut<'_, Counter>)>(
+            "consume",
+            "consume",
+            consume_event,
+        );
+
+        // Run 1: system A sends the event (goes to current buffer).
+        // update_events runs at the start, but current is empty — nothing moves.
+        schedule.run(&mut world);
+
+        // Counter unchanged: no events were in previous during run 1.
+        let val: Vec<u32> = world.query::<&Counter>().map(|(_, c)| c.0).collect();
+        assert_eq!(val, vec![0]);
+
+        // Run 2: update_events moves run-1's current → previous.
+        // System B can now read the ScoreEvent(10) and adds 10 to the counter.
+        schedule.run(&mut world);
+
+        let val: Vec<u32> = world.query::<&Counter>().map(|(_, c)| c.0).collect();
+        assert_eq!(val, vec![10]);
+    }
+
+    #[test]
+    fn schedule_events_cleared_after_two_ticks() {
+        let mut world = World::new();
+        world.add_event::<ScoreEvent>();
+        world.spawn((Counter(0),));
+
+        let mut schedule = Schedule::new();
+        schedule.add_system::<(EventWriter<'_, ScoreEvent>,)>("produce", "produce", produce_event);
+        schedule.add_system::<(EventReader<'_, ScoreEvent>, QueryMut<'_, Counter>)>(
+            "consume",
+            "consume",
+            consume_event,
+        );
+
+        // Tick 1: event sent to current.
+        schedule.run(&mut world);
+        // Tick 2: event moves to previous, reader adds 10.
+        schedule.run(&mut world);
+        // Tick 3: previous cleared (run 3's update_events), new event sent.
+        //         Reader adds 10 again (from run 2's send).
+        schedule.run(&mut world);
+
+        // After tick 3 the counter has 10 (tick 2 read) + 10 (tick 3 read) = 20.
+        let val: Vec<u32> = world.query::<&Counter>().map(|(_, c)| c.0).collect();
+        assert_eq!(val, vec![20]);
     }
 }
