@@ -49,6 +49,9 @@ impl Schedule {
     }
 
     /// Run all systems in stage order.
+    ///
+    /// Queued commands are automatically applied between stages so that
+    /// deferred structural mutations from one stage are visible to the next.
     pub fn run(&mut self, world: &mut World) {
         for stage_idx in 0..self.stage_order.len() {
             let stage = self.stage_order[stage_idx];
@@ -57,6 +60,7 @@ impl Schedule {
                     entry.system.run(world);
                 }
             }
+            world.apply_commands();
         }
     }
 
@@ -225,5 +229,59 @@ mod tests {
         schedule.run(&mut world);
 
         assert!((world.resource::<Speed>().0 - 2.0).abs() < f32::EPSILON);
+    }
+
+    // -- Commands integration tests --
+
+    use crate::commands::Commands;
+
+    fn spawn_via_commands(mut cmds: Commands<'_>) {
+        cmds.spawn((Counter(100),));
+    }
+
+    #[test]
+    fn schedule_applies_commands_between_stages() {
+        let mut world = World::new();
+
+        // Stage "spawn" queues a deferred spawn.
+        // Stage "read" should see the spawned entity.
+        let mut schedule = Schedule::new();
+        schedule.add_system::<(Commands<'_>,)>("spawn", "spawner", spawn_via_commands);
+        schedule.add_system::<(QueryMut<'_, Counter>,)>("read", "increment", increment_system);
+
+        schedule.run(&mut world);
+
+        // Entity spawned by commands, then incremented: 100 + 1 = 101
+        let vals: Vec<u32> = world.query::<&Counter>().map(|(_, c)| c.0).collect();
+        assert_eq!(vals, vec![101]);
+    }
+
+    fn despawn_all_via_commands(
+        counters: crate::system_param::Query<'_, Counter>,
+        mut cmds: Commands<'_>,
+    ) {
+        for (entity, _) in counters.iter() {
+            cmds.despawn(entity);
+        }
+    }
+
+    #[test]
+    fn schedule_commands_despawn_visible_to_next_stage() {
+        let mut world = World::new();
+        world.spawn((Counter(1),));
+        world.spawn((Counter(2),));
+
+        let mut schedule = Schedule::new();
+        schedule.add_system::<(crate::system_param::Query<'_, Counter>, Commands<'_>)>(
+            "cleanup",
+            "despawn_all",
+            despawn_all_via_commands,
+        );
+        schedule.add_system::<(QueryMut<'_, Counter>,)>("post", "increment", increment_system);
+
+        schedule.run(&mut world);
+
+        // All entities despawned between stages — nothing to increment.
+        assert_eq!(world.entity_count(), 0);
     }
 }

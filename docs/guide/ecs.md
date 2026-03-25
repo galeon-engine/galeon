@@ -161,6 +161,43 @@ fn apply_gravity(gravity: Res<'_, Gravity>, mut velocities: QueryMut<'_, Velocit
 Conflict detection: if two parameters in the same system would alias (e.g.,
 `Res<T>` + `ResMut<T>`), the engine panics at registration time.
 
+### Deferred Mutations with Commands
+
+Ordinary systems should prefer deferred structural changes (spawn, despawn,
+insert, remove) via the `Commands` system parameter. These are buffered and
+applied between schedule stages, avoiding mid-iteration archetype changes.
+
+```rust
+use galeon_engine::Commands;
+
+fn spawn_reinforcements(mut cmds: Commands<'_>) {
+    cmds.spawn((Position { x: 0.0, y: 0.0 }, Health { current: 100, max: 100 },));
+}
+
+fn cleanup_dead(
+    units: Query<'_, Health>,
+    mut cmds: Commands<'_>,
+) {
+    for (entity, hp) in units.iter() {
+        if hp.current <= 0 {
+            cmds.despawn(entity);
+        }
+    }
+}
+```
+
+Available operations:
+
+| Method | Effect |
+|--------|--------|
+| `cmds.spawn(bundle)` | Deferred entity spawn |
+| `cmds.despawn(entity)` | Deferred entity despawn |
+| `cmds.insert(entity, component)` | Deferred component insert (archetype migration) |
+| `cmds.remove::<C>(entity)` | Deferred component removal (archetype migration) |
+
+Commands are applied automatically between schedule stages. You can also call
+`world.apply_commands()` manually in setup code.
+
 ## Schedule
 
 Systems are grouped into stages. Stages run in the order they're registered.
@@ -179,6 +216,9 @@ schedule.run(&mut world);
 
 The three-stage model (`input` → `simulate` → `sync`) ensures input is
 processed before simulation, and simulation completes before rendering sync.
+
+Queued commands are applied automatically between stages, so deferred
+structural mutations from one stage are visible to the next.
 
 ## Component Trait
 

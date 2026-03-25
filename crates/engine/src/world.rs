@@ -3,6 +3,7 @@
 use std::any::TypeId;
 
 use crate::archetype::{ArchetypeLayout, ArchetypeStore, EntityLocation};
+use crate::commands::CommandBuffer;
 use crate::component::Component;
 use crate::entity::{Entity, EntityMetaStore};
 use crate::query::{
@@ -204,17 +205,36 @@ impl UnsafeWorldCell {
         // any intermediate reference.
         unsafe { std::ptr::addr_of_mut!((*self.0).archetypes) }
     }
+
+    /// Get a mutable reference to the command buffer without creating
+    /// `&mut World`.
+    ///
+    /// # Safety
+    ///
+    /// - No other reference to the command buffer may exist concurrently.
+    /// - The command buffer is a separate field from resources and archetypes,
+    ///   so this does not alias other `UnsafeWorldCell` accessors.
+    #[inline]
+    pub unsafe fn commands_mut<'w>(self) -> &'w mut CommandBuffer {
+        // SAFETY: addr_of_mut! avoids creating &mut World. Caller guarantees
+        // exclusive access to the command buffer field.
+        unsafe {
+            let ptr: *mut CommandBuffer = std::ptr::addr_of_mut!((*self.0).commands);
+            &mut *ptr
+        }
+    }
 }
 
 // =============================================================================
 // World
 // =============================================================================
 
-/// The ECS world: owns entities, archetype storage, and resources.
+/// The ECS world: owns entities, archetype storage, resources, and commands.
 pub struct World {
     meta: EntityMetaStore,
     archetypes: ArchetypeStore,
     resources: Resources,
+    commands: CommandBuffer,
 }
 
 impl World {
@@ -227,6 +247,7 @@ impl World {
             meta: EntityMetaStore::new(),
             archetypes,
             resources: Resources::new(),
+            commands: CommandBuffer::new(),
         }
     }
 
@@ -315,6 +336,31 @@ impl World {
     /// Try to remove and return a resource. Returns `None` if not present.
     pub fn try_take_resource<T: 'static>(&mut self) -> Option<T> {
         self.resources.try_take::<T>()
+    }
+
+    // -------------------------------------------------------------------------
+    // Commands
+    // -------------------------------------------------------------------------
+
+    /// Drain and apply all queued commands.
+    ///
+    /// Called automatically between schedule stages. Can also be called
+    /// manually for setup code that uses deferred mutations.
+    pub fn apply_commands(&mut self) {
+        // Take the queue out to avoid borrowing self.commands while
+        // executing commands that need &mut World.
+        let commands = self.commands.take();
+        for cmd in commands {
+            cmd(self);
+        }
+    }
+
+    /// Get a mutable reference to the command buffer.
+    ///
+    /// This is the low-level escape hatch for tests and setup code. Systems
+    /// should use the [`Commands`](crate::commands::Commands) system parameter.
+    pub fn command_buffer_mut(&mut self) -> &mut CommandBuffer {
+        &mut self.commands
     }
 
     // -------------------------------------------------------------------------

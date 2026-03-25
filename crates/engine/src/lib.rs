@@ -7,6 +7,7 @@
 extern crate self as galeon_engine;
 
 pub mod archetype;
+pub mod commands;
 pub mod component;
 pub mod data;
 pub mod engine;
@@ -31,6 +32,7 @@ pub use inventory;
 pub use serde;
 
 // Re-exports for ergonomic API.
+pub use commands::Commands;
 pub use component::Component;
 pub use data::{DataRegistry, UnitStats, UnitTemplate};
 pub use engine::{Engine, Plugin};
