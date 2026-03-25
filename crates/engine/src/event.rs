@@ -349,4 +349,20 @@ mod tests {
             assert_eq!(ev.amount, 7);
         }
     }
+
+    #[test]
+    fn add_event_is_idempotent() {
+        let mut world = World::new();
+        world.add_event::<DamageEvent>();
+        world.add_event::<DamageEvent>(); // second call is a no-op
+
+        // Send an event and verify it survives exactly one update cycle.
+        world
+            .resource_mut::<Events<DamageEvent>>()
+            .send(DamageEvent { amount: 5 });
+        world.update_events();
+
+        // If the updater were duplicated, the second call would clear previous.
+        assert_eq!(world.resource::<Events<DamageEvent>>().len(), 1);
+    }
 }

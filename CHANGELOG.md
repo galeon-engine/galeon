@@ -9,6 +9,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **ECS Events API** — `Events<T>` double-buffered typed event queue with `EventWriter<T>` and
+  `EventReader<T>` system parameters. Events sent in tick N are readable in tick N+1.
+  Register with `World::add_event::<T>()`. Auto-cleared by `Schedule::run()`.
+  ([#72](https://github.com/galeon-engine/galeon/issues/72))
 - **Protocol codegen and handler seam** — `codegen` module generates TypeScript interfaces and
   protocol descriptors from `ProtocolManifest`. `handler` module provides `HandlerRegistry` with
   typed command/query dispatch for both local (in-process) and remote (JSON boundary) adapters.
