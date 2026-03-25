@@ -9,6 +9,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Protocol codegen and handler seam** — `codegen` module generates TypeScript interfaces and
+  protocol descriptors from `ProtocolManifest`. `handler` module provides `HandlerRegistry` with
+  typed command/query dispatch for both local (in-process) and remote (JSON boundary) adapters.
+  ([#69](https://github.com/galeon-engine/galeon/issues/69))
 - **Commands API for deferred structural mutations** — `Commands` system parameter buffers
   spawn/despawn/insert/remove operations. Applied automatically between schedule stages via
   `World::apply_commands()`. Avoids mid-iteration archetype changes and enables batching.

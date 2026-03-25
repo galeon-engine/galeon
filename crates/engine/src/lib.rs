@@ -7,6 +7,7 @@
 extern crate self as galeon_engine;
 
 pub mod archetype;
+pub mod codegen;
 pub mod commands;
 pub mod component;
 pub mod data;
@@ -14,6 +15,7 @@ pub mod engine;
 pub mod entity;
 pub mod function_system;
 pub mod game_loop;
+pub mod handler;
 pub mod manifest;
 pub mod protocol;
 pub mod query;
@@ -32,6 +34,7 @@ pub use inventory;
 pub use serde;
 
 // Re-exports for ergonomic API.
+pub use codegen::{generate_descriptors, generate_typescript};
 pub use commands::Commands;
 pub use component::Component;
 pub use data::{DataRegistry, UnitStats, UnitTemplate};
@@ -40,6 +43,7 @@ pub use entity::Entity;
 pub use function_system::{IntoSystem, System};
 pub use galeon_engine_macros::{Component, command, dto, event, query};
 pub use game_loop::FixedTimestep;
+pub use handler::HandlerRegistry;
 pub use manifest::{
     FieldEntry, ManifestEntry, ManifestField, ProtocolManifest, ProtocolRegistration,
 };
