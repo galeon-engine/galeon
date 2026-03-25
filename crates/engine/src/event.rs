@@ -351,7 +351,7 @@ mod tests {
     }
 
     #[test]
-    fn add_event_is_idempotent_no_duplicate_updater() {
+    fn add_event_duplicate_no_updater_duplication() {
         let mut world = World::new();
         world.add_event::<DamageEvent>();
         world.add_event::<DamageEvent>(); // no-op
@@ -361,7 +361,7 @@ mod tests {
             .send(DamageEvent { amount: 5 });
         world.update_events();
 
-        // If the updater were duplicated, the second call would clear previous.
+        // If the updater were duplicated, the second would clear previous.
         assert_eq!(world.resource::<Events<DamageEvent>>().len(), 1);
     }
 
@@ -374,12 +374,47 @@ mod tests {
         world
             .resource_mut::<Events<DamageEvent>>()
             .send(DamageEvent { amount: 99 });
-        world.add_event::<DamageEvent>(); // no-op, must not clear current
+        world.add_event::<DamageEvent>(); // no-op
 
         world.update_events();
-
-        // Event queued before the redundant add_event must still be readable.
         assert_eq!(world.resource::<Events<DamageEvent>>().len(), 1);
-        assert_eq!(world.resource::<Events<DamageEvent>>().read().next().unwrap().amount, 99);
+        assert_eq!(
+            world
+                .resource::<Events<DamageEvent>>()
+                .read()
+                .next()
+                .unwrap()
+                .amount,
+            99
+        );
+    }
+
+    #[test]
+    fn add_event_after_take_resource_restores_without_duplicate_updater() {
+        let mut world = World::new();
+        world.add_event::<DamageEvent>();
+
+        // Remove the resource via the public API.
+        let _old: Events<DamageEvent> = world.take_resource();
+
+        // Re-register — must restore the resource and not duplicate the updater.
+        world.add_event::<DamageEvent>();
+
+        world
+            .resource_mut::<Events<DamageEvent>>()
+            .send(DamageEvent { amount: 77 });
+        world.update_events();
+
+        // One updater → event survives in previous. Two would clear it.
+        assert_eq!(world.resource::<Events<DamageEvent>>().len(), 1);
+        assert_eq!(
+            world
+                .resource::<Events<DamageEvent>>()
+                .read()
+                .next()
+                .unwrap()
+                .amount,
+            77
+        );
     }
 }

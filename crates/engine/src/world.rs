@@ -387,17 +387,26 @@ impl World {
     /// Register an event type and insert its `Events<T>` resource.
     ///
     /// Must be called before any system uses `EventWriter<T>` or
-    /// `EventReader<T>`. Idempotent — calling this more than once for the
-    /// same `T` is a no-op (does not reset queued events or duplicate the
-    /// updater closure).
+    /// `EventReader<T>`. Idempotent:
+    ///
+    /// - **First call**: inserts `Events<T>` resource and registers the
+    ///   updater closure.
+    /// - **Duplicate call (resource still exists)**: no-op — does not reset
+    ///   queued events or duplicate the updater.
+    /// - **Re-call after resource removal**: restores a fresh `Events<T>`
+    ///   resource without duplicating the updater.
     pub fn add_event<T: 'static>(&mut self) {
-        if !self.registered_events.insert(TypeId::of::<Events<T>>()) {
-            return;
+        if self.registered_events.insert(TypeId::of::<Events<T>>()) {
+            // First registration: insert resource + updater.
+            self.resources.insert(Events::<T>::new());
+            self.event_updaters.push(Box::new(|world: &mut World| {
+                world.resources.get_mut::<Events<T>>().update();
+            }));
+        } else if !self.resources.contains::<Events<T>>() {
+            // Resource was removed externally — restore it. Updater already
+            // exists so we only need the resource back.
+            self.resources.insert(Events::<T>::new());
         }
-        self.resources.insert(Events::<T>::new());
-        self.event_updaters.push(Box::new(|world: &mut World| {
-            world.resources.get_mut::<Events<T>>().update();
-        }));
     }
 
     /// Advance all registered event buffers.
