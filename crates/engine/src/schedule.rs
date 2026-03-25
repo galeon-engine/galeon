@@ -50,14 +50,21 @@ impl Schedule {
 
     /// Run all systems in stage order.
     ///
-    /// Event buffers are advanced first — events written in the previous tick
-    /// become readable, and the previous tick's readable events are cleared.
-    /// Queued commands are then applied between stages so that deferred
-    /// structural mutations from one stage are visible to the next.
+    /// Execution order each tick:
+    /// 1. **Drain deadlines** — fires all overdue deadlines into Events `current`.
+    /// 2. **Advance event buffers** — `current` → `previous` (fired deadlines
+    ///    become readable), old `previous` cleared.
+    /// 3. **Run systems by stage** — `EventReader` sees fired deadlines + any
+    ///    events from the previous tick. Commands applied between stages.
     pub fn run(&mut self, world: &mut World) {
-        // Advance all event buffers: current → previous, clear current.
-        // This runs BEFORE any system so that EventReader sees events from the
-        // last tick while EventWriter fills a fresh current buffer.
+        // 1. Drain all overdue deadlines → writes to Events<T> current buffer.
+        //    Runs BEFORE update_events so that fired events land in `current`,
+        //    then the swap makes them immediately readable this tick.
+        world.drain_all_deadlines();
+
+        // 2. Advance all event buffers: current → previous, clear current.
+        //    Events from deadline draining (step 1) + events written last tick
+        //    both move into `previous`, readable by EventReader this tick.
         world.update_events();
 
         for stage_idx in 0..self.stage_order.len() {

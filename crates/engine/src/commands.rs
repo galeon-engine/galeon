@@ -3,6 +3,7 @@
 use std::any::TypeId;
 
 use crate::component::Component;
+use crate::deadline::{DeadlineId, Timestamp};
 use crate::entity::Entity;
 use crate::system_param::Access;
 use crate::world::{Bundle, UnsafeWorldCell, World};
@@ -107,6 +108,23 @@ impl<'w> Commands<'w> {
     pub fn remove<C: Component>(&mut self, entity: Entity) {
         self.buffer.push(move |world: &mut World| {
             world.remove::<C>(entity);
+        });
+    }
+
+    /// Schedule a deadline event (deferred).
+    ///
+    /// The event type must have been registered with
+    /// [`World::add_deadline_type::<T>()`].
+    pub fn schedule_deadline<T: Send + 'static>(&mut self, deadline: Timestamp, event: T) {
+        self.buffer.push(move |world: &mut World| {
+            world.schedule_deadline(deadline, event);
+        });
+    }
+
+    /// Cancel a previously scheduled deadline (deferred).
+    pub fn cancel_deadline<T: Send + 'static>(&mut self, id: DeadlineId) {
+        self.buffer.push(move |world: &mut World| {
+            world.cancel_deadline::<T>(id);
         });
     }
 

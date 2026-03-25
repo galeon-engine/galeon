@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use crate::archetype::{ArchetypeLayout, ArchetypeStore, EntityLocation};
 use crate::commands::CommandBuffer;
 use crate::component::Component;
+use crate::deadline::{Clock, DeadlineId, Deadlines, Timestamp};
 use crate::entity::{Entity, EntityMetaStore};
 use crate::event::Events;
 use crate::query::{
@@ -234,6 +235,9 @@ impl UnsafeWorldCell {
 /// Type-erased closure that advances a single `Events<T>` double buffer.
 type EventUpdater = Box<dyn Fn(&mut World)>;
 
+/// Type-erased closure that drains overdue deadlines for a single `Deadlines<T>`.
+type DeadlineDrainer = Box<dyn Fn(&mut World, Timestamp)>;
+
 /// The ECS world: owns entities, archetype storage, resources, and commands.
 pub struct World {
     meta: EntityMetaStore,
@@ -250,6 +254,12 @@ pub struct World {
     /// Guards against duplicate updater registration even if the `Events<T>`
     /// resource is removed and re-added.
     registered_events: HashSet<TypeId>,
+    /// Type-erased closures that drain overdue deadlines for each registered
+    /// `Deadlines<T>`. Called by [`World::drain_all_deadlines()`] at the
+    /// start of every `Schedule::run()`, *before* `update_events()`.
+    deadline_drainers: Vec<DeadlineDrainer>,
+    /// TypeIds of deadline types registered via `add_deadline_type`.
+    registered_deadlines: HashSet<TypeId>,
 }
 
 impl World {
@@ -265,6 +275,8 @@ impl World {
             commands: CommandBuffer::new(),
             event_updaters: Vec::new(),
             registered_events: HashSet::new(),
+            deadline_drainers: Vec::new(),
+            registered_deadlines: HashSet::new(),
         }
     }
 
@@ -432,6 +444,104 @@ impl World {
         }
         // Restore the updaters vec (reuse the allocation).
         std::mem::swap(&mut self.event_updaters, &mut updaters);
+    }
+
+    // -------------------------------------------------------------------------
+    // Deadlines
+    // -------------------------------------------------------------------------
+
+    /// Register a deadline event type and insert its `Deadlines<T>` and
+    /// `Events<T>` resources.
+    ///
+    /// Must be called before scheduling deadlines of type `T`. Idempotent.
+    /// Registers a drainer closure so that [`drain_all_deadlines()`](World::drain_all_deadlines)
+    /// automatically fires overdue deadlines of this type.
+    pub fn add_deadline_type<T: 'static>(&mut self) {
+        if self.try_resource::<Deadlines<T>>().is_none() {
+            self.insert_resource(Deadlines::<T>::new());
+        }
+        // Ensure the Events<T> resource exists for fired deadline delivery.
+        self.add_event::<T>();
+        // Register the drainer (once per type).
+        if self
+            .registered_deadlines
+            .insert(TypeId::of::<Deadlines<T>>())
+        {
+            self.deadline_drainers
+                .push(Box::new(|world: &mut World, now: Timestamp| {
+                    world.drain_deadlines::<T>(now);
+                }));
+        }
+    }
+
+    /// Schedule an event to fire when `now >= deadline`.
+    ///
+    /// Returns a [`DeadlineId`] for cancellation. The event type must have
+    /// been registered with [`add_deadline_type::<T>()`](World::add_deadline_type).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `Deadlines<T>` has not been registered.
+    pub fn schedule_deadline<T: 'static>(&mut self, deadline: Timestamp, event: T) -> DeadlineId {
+        self.resource_mut::<Deadlines<T>>()
+            .schedule(deadline, event)
+    }
+
+    /// Cancel a previously scheduled deadline.
+    ///
+    /// Returns `true` if the deadline was found and removed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `Deadlines<T>` has not been registered.
+    pub fn cancel_deadline<T: 'static>(&mut self, id: DeadlineId) -> bool {
+        self.resource_mut::<Deadlines<T>>().cancel(id)
+    }
+
+    /// Drain all overdue deadlines of type `T` and write them as events.
+    ///
+    /// Fires all entries where `now >= deadline`, supporting batch
+    /// reconciliation. Can be called manually for a single type, but
+    /// prefer [`drain_all_deadlines()`](World::drain_all_deadlines) which
+    /// drains all registered types automatically.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `Deadlines<T>` or `Events<T>` has not been registered.
+    pub fn drain_deadlines<T: 'static>(&mut self, now: Timestamp) {
+        let fired = self.resource_mut::<Deadlines<T>>().drain_overdue(now);
+        let events = self.resource_mut::<Events<T>>();
+        for event in fired {
+            events.send(event);
+        }
+    }
+
+    /// Drain all overdue deadlines for every registered deadline type.
+    ///
+    /// Reads the [`Clock`] resource to determine "now", then calls
+    /// [`drain_deadlines::<T>(now)`](World::drain_deadlines) for each type
+    /// registered via [`add_deadline_type::<T>()`](World::add_deadline_type).
+    ///
+    /// Called automatically by [`Schedule::run()`](crate::schedule::Schedule::run)
+    /// *before* [`update_events()`](World::update_events), so that fired
+    /// deadline events are readable by `EventReader<T>` in the same tick.
+    ///
+    /// If no `Clock` resource is present, this is a no-op (deadlines are
+    /// only active when a clock is installed).
+    pub fn drain_all_deadlines(&mut self) {
+        // Read the clock. If no clock resource, skip silently.
+        let now = match self.resources.try_get::<Box<dyn Clock>>() {
+            Some(clock) => clock.now(),
+            None => return,
+        };
+
+        // Same swap-out pattern as update_events: take the drainers vec,
+        // call each one, then restore it.
+        let mut drainers = std::mem::take(&mut self.deadline_drainers);
+        for drainer in &drainers {
+            drainer(self, now);
+        }
+        std::mem::swap(&mut self.deadline_drainers, &mut drainers);
     }
 
     // -------------------------------------------------------------------------
