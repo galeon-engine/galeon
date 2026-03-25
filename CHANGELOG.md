@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Commands API for deferred structural mutations** — `Commands` system parameter buffers
+  spawn/despawn/insert/remove operations. Applied automatically between schedule stages via
+  `World::apply_commands()`. Avoids mid-iteration archetype changes and enables batching.
+  ([#30](https://github.com/galeon-engine/galeon/issues/30))
+
 ### Removed
 
 - **BREAKING: Legacy `fn(&mut World)` system path removed** — `LegacySystem`, `LegacySystemFn`,
