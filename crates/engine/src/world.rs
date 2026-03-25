@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
 use std::any::TypeId;
+use std::collections::HashSet;
 
 use crate::archetype::{ArchetypeLayout, ArchetypeStore, EntityLocation};
 use crate::commands::CommandBuffer;
@@ -245,6 +246,10 @@ pub struct World {
     /// `Events::<T>::update()` on the corresponding resource. Called by
     /// [`World::update_events()`] at the start of every `Schedule::run()`.
     event_updaters: Vec<EventUpdater>,
+    /// TypeIds of event types that have been registered via `add_event`.
+    /// Guards against duplicate updater registration even if the `Events<T>`
+    /// resource is removed and re-added.
+    registered_events: HashSet<TypeId>,
 }
 
 impl World {
@@ -259,6 +264,7 @@ impl World {
             resources: Resources::new(),
             commands: CommandBuffer::new(),
             event_updaters: Vec::new(),
+            registered_events: HashSet::new(),
         }
     }
 
@@ -382,12 +388,14 @@ impl World {
     ///
     /// Must be called before any system uses `EventWriter<T>` or
     /// `EventReader<T>`. Idempotent — calling this more than once for the
-    /// same `T` is a no-op.
+    /// same `T` re-inserts an empty resource but never duplicates the
+    /// updater closure.
     pub fn add_event<T: 'static>(&mut self) {
-        if self.resources.contains::<Events<T>>() {
+        self.resources.insert(Events::<T>::new());
+        if !self.registered_events.insert(TypeId::of::<Events<T>>()) {
+            // Updater already registered — skip to avoid double-advance.
             return;
         }
-        self.resources.insert(Events::<T>::new());
         self.event_updaters.push(Box::new(|world: &mut World| {
             world.resources.get_mut::<Events<T>>().update();
         }));

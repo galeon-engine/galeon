@@ -354,7 +354,7 @@ mod tests {
     fn add_event_is_idempotent() {
         let mut world = World::new();
         world.add_event::<DamageEvent>();
-        world.add_event::<DamageEvent>(); // second call is a no-op
+        world.add_event::<DamageEvent>(); // second call re-inserts resource but skips updater
 
         // Send an event and verify it survives exactly one update cycle.
         world
@@ -363,6 +363,26 @@ mod tests {
         world.update_events();
 
         // If the updater were duplicated, the second call would clear previous.
+        assert_eq!(world.resource::<Events<DamageEvent>>().len(), 1);
+    }
+
+    #[test]
+    fn add_event_after_resource_removal_no_duplicate_updater() {
+        let mut world = World::new();
+        world.add_event::<DamageEvent>();
+
+        // Remove the resource (simulates external take_resource usage).
+        world.insert_resource(Events::<DamageEvent>::new());
+
+        // Re-register — the updater must not be duplicated.
+        world.add_event::<DamageEvent>();
+
+        world
+            .resource_mut::<Events<DamageEvent>>()
+            .send(DamageEvent { amount: 42 });
+        world.update_events();
+
+        // One updater → previous has the event. Two updaters would clear it.
         assert_eq!(world.resource::<Events<DamageEvent>>().len(), 1);
     }
 }
