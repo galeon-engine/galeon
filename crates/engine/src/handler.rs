@@ -34,7 +34,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::protocol::{Command, ProtocolQuery};
+use crate::protocol::{Command, ProtocolMeta, ProtocolQuery};
 
 // =============================================================================
 // Handler traits — game implements these
@@ -133,78 +133,95 @@ where
 // HandlerRegistry — the registration seam
 // =============================================================================
 
+/// A stored handler entry shared between TypeId and name indices.
+struct CommandEntry(std::sync::Arc<dyn ErasedCommandHandler>);
+struct QueryEntry(std::sync::Arc<dyn ErasedQueryHandler>);
+
 /// Registry of command and query handlers.
 ///
 /// Game projects register handlers here. Both local and remote adapters
-/// dispatch through this registry.
+/// dispatch through this registry. Local dispatch uses `TypeId` (zero-cost).
+/// Remote dispatch uses the stable protocol name from `ProtocolMeta::name()`.
 pub struct HandlerRegistry {
-    commands: HashMap<TypeId, (String, Box<dyn ErasedCommandHandler>)>,
-    queries: HashMap<TypeId, (String, Box<dyn ErasedQueryHandler>)>,
+    /// TypeId → handler index (local adapter path).
+    commands_by_type: HashMap<TypeId, CommandEntry>,
+    /// Protocol name → handler index (remote adapter path).
+    commands_by_name: HashMap<String, CommandEntry>,
+    /// TypeId → handler index (local adapter path).
+    queries_by_type: HashMap<TypeId, QueryEntry>,
+    /// Protocol name → handler index (remote adapter path).
+    queries_by_name: HashMap<String, QueryEntry>,
 }
 
 impl HandlerRegistry {
     /// Create an empty registry.
     pub fn new() -> Self {
         Self {
-            commands: HashMap::new(),
-            queries: HashMap::new(),
+            commands_by_type: HashMap::new(),
+            commands_by_name: HashMap::new(),
+            queries_by_type: HashMap::new(),
+            queries_by_name: HashMap::new(),
         }
     }
 
     /// Register a command handler.
     ///
+    /// Indexes by both `TypeId` (for local dispatch) and
+    /// `ProtocolMeta::name()` (for remote dispatch via stable protocol name).
+    ///
     /// Panics if a handler for this command type is already registered.
     pub fn register_command<C, R, H>(&mut self, handler: H)
     where
-        C: Command,
+        C: Command + ProtocolMeta,
         R: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
         H: CommandHandler<C, R> + 'static,
     {
         let type_id = TypeId::of::<C>();
-        let name = type_name::<C>().to_string();
+        let protocol_name = C::name().to_string();
         assert!(
-            !self.commands.contains_key(&type_id),
+            !self.commands_by_type.contains_key(&type_id),
             "duplicate command handler for {}",
-            name
+            protocol_name
         );
-        self.commands.insert(
-            type_id,
-            (
-                name,
-                Box::new(CommandHandlerWrapper {
-                    handler,
-                    _phantom: std::marker::PhantomData::<(C, R)>,
-                }),
-            ),
-        );
+        let shared: std::sync::Arc<dyn ErasedCommandHandler> =
+            std::sync::Arc::new(CommandHandlerWrapper {
+                handler,
+                _phantom: std::marker::PhantomData::<(C, R)>,
+            });
+        self.commands_by_type
+            .insert(type_id, CommandEntry(shared.clone()));
+        self.commands_by_name
+            .insert(protocol_name, CommandEntry(shared));
     }
 
     /// Register a query handler.
     ///
+    /// Indexes by both `TypeId` (for local dispatch) and
+    /// `ProtocolMeta::name()` (for remote dispatch via stable protocol name).
+    ///
     /// Panics if a handler for this query type is already registered.
     pub fn register_query<Q, R, H>(&mut self, handler: H)
     where
-        Q: ProtocolQuery,
+        Q: ProtocolQuery + ProtocolMeta,
         R: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
         H: QueryHandler<Q, R> + 'static,
     {
         let type_id = TypeId::of::<Q>();
-        let name = type_name::<Q>().to_string();
+        let protocol_name = Q::name().to_string();
         assert!(
-            !self.queries.contains_key(&type_id),
+            !self.queries_by_type.contains_key(&type_id),
             "duplicate query handler for {}",
-            name
+            protocol_name
         );
-        self.queries.insert(
-            type_id,
-            (
-                name,
-                Box::new(QueryHandlerWrapper {
-                    handler,
-                    _phantom: std::marker::PhantomData::<(Q, R)>,
-                }),
-            ),
-        );
+        let shared: std::sync::Arc<dyn ErasedQueryHandler> =
+            std::sync::Arc::new(QueryHandlerWrapper {
+                handler,
+                _phantom: std::marker::PhantomData::<(Q, R)>,
+            });
+        self.queries_by_type
+            .insert(type_id, QueryEntry(shared.clone()));
+        self.queries_by_name
+            .insert(protocol_name, QueryEntry(shared));
     }
 
     // -------------------------------------------------------------------------
@@ -214,11 +231,11 @@ impl HandlerRegistry {
     /// Dispatch a command in-process (local adapter path).
     pub fn dispatch_command<C: Command + 'static, R: 'static>(&self, cmd: C) -> Result<R, String> {
         let entry = self
-            .commands
+            .commands_by_type
             .get(&TypeId::of::<C>())
             .ok_or_else(|| format!("no handler for command {}", type_name::<C>()))?;
 
-        let result = entry.1.handle_any(Box::new(cmd))?;
+        let result = entry.0.handle_any(Box::new(cmd))?;
         let boxed = result
             .downcast::<R>()
             .map_err(|_| "response type mismatch".to_string())?;
@@ -231,11 +248,11 @@ impl HandlerRegistry {
         query: Q,
     ) -> Result<R, String> {
         let entry = self
-            .queries
+            .queries_by_type
             .get(&TypeId::of::<Q>())
             .ok_or_else(|| format!("no handler for query {}", type_name::<Q>()))?;
 
-        let result = entry.1.handle_any(Box::new(query))?;
+        let result = entry.0.handle_any(Box::new(query))?;
         let boxed = result
             .downcast::<R>()
             .map_err(|_| "response type mismatch".to_string())?;
@@ -243,42 +260,47 @@ impl HandlerRegistry {
     }
 
     // -------------------------------------------------------------------------
-    // Remote adapter interface (JSON boundary)
+    // Remote adapter interface (JSON boundary, keyed by stable protocol name)
     // -------------------------------------------------------------------------
 
-    /// Dispatch a command via JSON (remote adapter path).
+    /// Dispatch a command via JSON using the stable protocol name.
     ///
-    /// `command_name` is matched against registered handler type names.
+    /// `protocol_name` is the value from `ProtocolMeta::name()` (e.g.,
+    /// `"DispatchShip"`) — the same name that appears in the manifest and
+    /// generated descriptors. This is the boundary-safe dispatch path.
     pub fn dispatch_command_json(
         &self,
-        command_type_id: TypeId,
+        protocol_name: &str,
         request_json: &str,
     ) -> Result<String, String> {
         let entry = self
-            .commands
-            .get(&command_type_id)
-            .ok_or("unknown command")?;
-        entry.1.handle_json(request_json)
+            .commands_by_name
+            .get(protocol_name)
+            .ok_or_else(|| format!("unknown command: {}", protocol_name))?;
+        entry.0.handle_json(request_json)
     }
 
-    /// Dispatch a query via JSON (remote adapter path).
+    /// Dispatch a query via JSON using the stable protocol name.
     pub fn dispatch_query_json(
         &self,
-        query_type_id: TypeId,
+        protocol_name: &str,
         request_json: &str,
     ) -> Result<String, String> {
-        let entry = self.queries.get(&query_type_id).ok_or("unknown query")?;
-        entry.1.handle_json(request_json)
+        let entry = self
+            .queries_by_name
+            .get(protocol_name)
+            .ok_or_else(|| format!("unknown query: {}", protocol_name))?;
+        entry.0.handle_json(request_json)
     }
 
     /// Returns the number of registered command handlers.
     pub fn command_count(&self) -> usize {
-        self.commands.len()
+        self.commands_by_type.len()
     }
 
     /// Returns the number of registered query handlers.
     pub fn query_count(&self) -> usize {
-        self.queries.len()
+        self.queries_by_type.len()
     }
 }
 
@@ -298,16 +320,34 @@ mod tests {
 
     // -- Sample protocol items --
 
+    use crate::protocol::ProtocolKind;
+
     #[derive(Debug, Serialize, Deserialize)]
     struct DispatchShip {
         ship_id: u64,
         contract_id: u64,
     }
     impl Command for DispatchShip {}
+    impl ProtocolMeta for DispatchShip {
+        fn name() -> &'static str {
+            "DispatchShip"
+        }
+        fn kind() -> ProtocolKind {
+            ProtocolKind::Command
+        }
+    }
 
     #[derive(Debug, Serialize, Deserialize)]
     struct GetFleetSnapshot;
     impl ProtocolQuery for GetFleetSnapshot {}
+    impl ProtocolMeta for GetFleetSnapshot {
+        fn name() -> &'static str {
+            "GetFleetSnapshot"
+        }
+        fn kind() -> ProtocolKind {
+            ProtocolKind::Query
+        }
+    }
 
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
     struct FleetSnapshot {
@@ -370,27 +410,25 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_command_json() {
+    fn dispatch_command_json_by_protocol_name() {
         let mut registry = HandlerRegistry::new();
         registry.register_command::<DispatchShip, DispatchResult, _>(ShipDispatcher);
 
+        // Use stable protocol name — the same name in manifest/descriptors.
         let response = registry
-            .dispatch_command_json(
-                TypeId::of::<DispatchShip>(),
-                r#"{"ship_id":1,"contract_id":42}"#,
-            )
+            .dispatch_command_json("DispatchShip", r#"{"ship_id":1,"contract_id":42}"#)
             .unwrap();
 
         assert!(response.contains("true"));
     }
 
     #[test]
-    fn dispatch_query_json() {
+    fn dispatch_query_json_by_protocol_name() {
         let mut registry = HandlerRegistry::new();
         registry.register_query::<GetFleetSnapshot, FleetSnapshot, _>(FleetQuerier);
 
         let response = registry
-            .dispatch_query_json(TypeId::of::<GetFleetSnapshot>(), "null")
+            .dispatch_query_json("GetFleetSnapshot", "null")
             .unwrap();
 
         let snapshot: FleetSnapshot = serde_json::from_str(&response).unwrap();
@@ -403,7 +441,7 @@ mod tests {
         registry.register_command::<DispatchShip, DispatchResult, _>(ShipDispatcher);
         registry.register_query::<GetFleetSnapshot, FleetSnapshot, _>(FleetQuerier);
 
-        // Local adapter
+        // Local adapter (typed, in-process)
         let local_result: DispatchResult = registry
             .dispatch_command(DispatchShip {
                 ship_id: 1,
@@ -415,20 +453,80 @@ mod tests {
         let local_snapshot: FleetSnapshot = registry.dispatch_query(GetFleetSnapshot).unwrap();
         assert_eq!(local_snapshot.ships_docked, 5);
 
-        // Remote adapter (JSON)
+        // Remote adapter (JSON, keyed by stable protocol name)
         let json_result = registry
-            .dispatch_command_json(
-                TypeId::of::<DispatchShip>(),
-                r#"{"ship_id":2,"contract_id":99}"#,
-            )
+            .dispatch_command_json("DispatchShip", r#"{"ship_id":2,"contract_id":99}"#)
             .unwrap();
         assert!(json_result.contains("true"));
 
         let json_snapshot = registry
-            .dispatch_query_json(TypeId::of::<GetFleetSnapshot>(), "null")
+            .dispatch_query_json("GetFleetSnapshot", "null")
             .unwrap();
         let remote_snapshot: FleetSnapshot = serde_json::from_str(&json_snapshot).unwrap();
         assert_eq!(remote_snapshot.ships_docked, 5);
+    }
+
+    /// Drives remote dispatch from descriptor output — proves the
+    /// execution-portability claim: descriptor names resolve to handlers.
+    #[test]
+    fn descriptor_driven_remote_dispatch() {
+        use crate::codegen::generate_descriptors;
+        use crate::manifest::{ManifestEntry, ManifestField, ProtocolManifest};
+
+        // Build a manifest matching our test protocol items.
+        let manifest = ProtocolManifest {
+            manifest_version: "1".into(),
+            protocol_version: "test@0.1".into(),
+            commands: vec![ManifestEntry {
+                name: "DispatchShip".into(),
+                kind: ProtocolKind::Command,
+                fields: vec![
+                    ManifestField {
+                        name: "ship_id".into(),
+                        ty: "u64".into(),
+                    },
+                    ManifestField {
+                        name: "contract_id".into(),
+                        ty: "u64".into(),
+                    },
+                ],
+                doc: "".into(),
+            }],
+            queries: vec![ManifestEntry {
+                name: "GetFleetSnapshot".into(),
+                kind: ProtocolKind::Query,
+                fields: vec![],
+                doc: "".into(),
+            }],
+            events: vec![],
+            dtos: vec![],
+        };
+
+        // Generate descriptors (simulating what codegen produces).
+        let desc_set = generate_descriptors(&manifest);
+
+        // Register handlers.
+        let mut registry = HandlerRegistry::new();
+        registry.register_command::<DispatchShip, DispatchResult, _>(ShipDispatcher);
+        registry.register_query::<GetFleetSnapshot, FleetSnapshot, _>(FleetQuerier);
+
+        // Dispatch using descriptor names — no TypeId, no Rust-only knowledge.
+        for desc in &desc_set.descriptors {
+            match desc.kind {
+                ProtocolKind::Command => {
+                    let response = registry
+                        .dispatch_command_json(&desc.name, r#"{"ship_id":1,"contract_id":42}"#)
+                        .unwrap();
+                    assert!(response.contains("true"));
+                }
+                ProtocolKind::Query => {
+                    let response = registry.dispatch_query_json(&desc.name, "null").unwrap();
+                    let snapshot: FleetSnapshot = serde_json::from_str(&response).unwrap();
+                    assert_eq!(snapshot.ships_docked, 5);
+                }
+                _ => {}
+            }
+        }
     }
 
     #[test]

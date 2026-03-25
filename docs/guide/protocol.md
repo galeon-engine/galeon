@@ -96,8 +96,8 @@ registry.register_command::<DispatchShip, DispatchResult, _>(MyDispatcher);
 // Local adapter (in-process, typed)
 let result: DispatchResult = registry.dispatch_command(cmd).unwrap();
 
-// Remote adapter (JSON boundary)
-let json = registry.dispatch_command_json(type_id, request_json).unwrap();
+// Remote adapter (JSON boundary, keyed by stable protocol name)
+let json = registry.dispatch_command_json("DispatchShip", request_json).unwrap();
 ```
 
 Both adapters target the same registry — same handlers, two execution modes.
