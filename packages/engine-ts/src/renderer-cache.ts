@@ -112,6 +112,19 @@ export class RendererCache {
 
       // Update visibility.
       obj.visible = visibility[i]! === 1;
+
+      // Apply custom channel data to userData.
+      for (let c = 0; c < packet.custom_channel_count; c++) {
+        const channelName = packet.custom_channel_name_at(c);
+        const stride = packet.custom_channel_stride(channelName);
+        const data = packet.custom_channel_data(channelName);
+        const off = i * stride;
+        if (stride === 1) {
+          obj.userData[channelName] = data[off]!;
+        } else {
+          obj.userData[channelName] = data.slice(off, off + stride);
+        }
+      }
     }
 
     // Remove objects for entities that disappeared this frame.

@@ -14,6 +14,10 @@ export interface FramePacketView {
   readonly visibility: Uint8Array;
   readonly mesh_handles: Uint32Array;
   readonly material_handles: Uint32Array;
+  readonly custom_channel_count: number;
+  custom_channel_name_at(index: number): string;
+  custom_channel_stride(name: string): number;
+  custom_channel_data(name: string): Float32Array;
 }
 
 /** Number of f32 values per entity in the transforms array. */
