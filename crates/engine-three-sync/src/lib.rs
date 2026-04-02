@@ -143,4 +143,41 @@ impl WasmFramePacket {
     pub fn material_handles(&self) -> Vec<u32> {
         self.inner.material_handles.clone()
     }
+
+    /// Number of custom data channels in this frame.
+    #[wasm_bindgen(getter)]
+    pub fn custom_channel_count(&self) -> u32 {
+        self.inner.channel_count() as u32
+    }
+
+    /// Get the name of a custom channel by index (sorted alphabetically).
+    ///
+    /// Returns empty string if index is out of bounds.
+    pub fn custom_channel_name_at(&self, index: u32) -> String {
+        let names = self.inner.channel_names();
+        names
+            .get(index as usize)
+            .map(|s| s.to_string())
+            .unwrap_or_default()
+    }
+
+    /// Get the stride (floats per entity) for a named custom channel.
+    ///
+    /// Returns 0 if the channel does not exist.
+    pub fn custom_channel_stride(&self, name: &str) -> u32 {
+        self.inner
+            .channel(name)
+            .map(|ch| ch.stride as u32)
+            .unwrap_or(0)
+    }
+
+    /// Get the flat float data for a named custom channel.
+    ///
+    /// Returns an empty array if the channel does not exist.
+    pub fn custom_channel_data(&self, name: &str) -> Vec<f32> {
+        self.inner
+            .channel(name)
+            .map(|ch| ch.data.clone())
+            .unwrap_or_default()
+    }
 }
