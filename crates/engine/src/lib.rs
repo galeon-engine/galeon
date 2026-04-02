@@ -22,6 +22,7 @@ pub mod manifest;
 pub mod protocol;
 pub mod query;
 pub mod render;
+pub mod render_channel;
 mod resource;
 pub mod schedule;
 pub mod system_param;
@@ -57,6 +58,7 @@ pub use query::{
     QueryIterMut, QuerySpec, QuerySpecMut, With, Without,
 };
 pub use render::{MaterialHandle, MeshHandle, Transform, Visibility};
+pub use render_channel::{ChannelRegistration, ExtractToFloats, RenderChannelRegistry};
 pub use schedule::Schedule;
 pub use system_param::{Access, Query, QueryMut, Res, ResMut, SystemParam};
 pub use virtual_time::VirtualTime;

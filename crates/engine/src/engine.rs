@@ -103,6 +103,35 @@ impl Engine {
         self
     }
 
+    /// Register a named render data channel.
+    ///
+    /// The component type must implement [`ExtractToFloats`]. During frame
+    /// extraction, this channel will produce a flat `Vec<f32>` with
+    /// `T::STRIDE` floats per entity.
+    ///
+    /// Lazily inserts a [`RenderChannelRegistry`] resource if not already
+    /// present. Returns `&mut Self` for chaining.
+    ///
+    /// [`ExtractToFloats`]: crate::render_channel::ExtractToFloats
+    /// [`RenderChannelRegistry`]: crate::render_channel::RenderChannelRegistry
+    pub fn register_render_channel<T: crate::render_channel::ExtractToFloats>(
+        &mut self,
+        name: &str,
+    ) -> &mut Self {
+        if self
+            .world
+            .try_resource::<crate::render_channel::RenderChannelRegistry>()
+            .is_none()
+        {
+            self.world
+                .insert_resource(crate::render_channel::RenderChannelRegistry::new());
+        }
+        self.world
+            .resource_mut::<crate::render_channel::RenderChannelRegistry>()
+            .register::<T>(name);
+        self
+    }
+
     // -------------------------------------------------------------------------
     // Execution
     // -------------------------------------------------------------------------
@@ -439,5 +468,41 @@ mod tests {
 
         engine.pause();
         assert!(engine.world().try_resource::<VirtualTime>().is_some());
+    }
+
+    // -------------------------------------------------------------------------
+    // Render channels
+    // -------------------------------------------------------------------------
+
+    #[derive(Debug)]
+    struct ShaderParams {
+        intensity: f32,
+    }
+    impl Component for ShaderParams {}
+    impl crate::render_channel::ExtractToFloats for ShaderParams {
+        const STRIDE: usize = 1;
+        fn extract(&self, buf: &mut [f32]) {
+            buf[0] = self.intensity;
+        }
+    }
+
+    #[test]
+    fn register_render_channel_creates_registry() {
+        let mut engine = Engine::new();
+        engine.register_render_channel::<ShaderParams>("shader");
+        let reg = engine
+            .world()
+            .try_resource::<crate::render_channel::RenderChannelRegistry>()
+            .expect("registry should exist");
+        assert_eq!(reg.len(), 1);
+    }
+
+    #[test]
+    fn register_render_channel_is_chainable() {
+        let mut engine = Engine::new();
+        engine
+            .register_render_channel::<ShaderParams>("shader")
+            .insert_resource(Counter(0));
+        assert_eq!(engine.world().resource::<Counter>().0, 0);
     }
 }

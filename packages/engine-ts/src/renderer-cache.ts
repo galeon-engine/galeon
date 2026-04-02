@@ -60,6 +60,14 @@ export class RendererCache {
    */
   applyFrame(packet: FramePacketView): void {
     const activeIds = new Set<number>();
+    const customChannels = Array.from({ length: packet.custom_channel_count }, (_, index) => {
+      const name = packet.custom_channel_name_at(index);
+      return {
+        name,
+        stride: packet.custom_channel_stride(name),
+        data: packet.custom_channel_data(name),
+      };
+    });
     const {
       entity_ids,
       entity_generations,
@@ -112,6 +120,17 @@ export class RendererCache {
 
       // Update visibility.
       obj.visible = visibility[i]! === 1;
+
+      // Apply custom channel data to userData.
+      for (const channel of customChannels) {
+        const { name, stride, data } = channel;
+        const off = i * stride;
+        if (stride === 1) {
+          obj.userData[name] = data[off]!;
+        } else {
+          obj.userData[name] = data.slice(off, off + stride);
+        }
+      }
     }
 
     // Remove objects for entities that disappeared this frame.
