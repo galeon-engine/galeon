@@ -214,11 +214,11 @@ pub enum HttpMethod {
 /// to dispatch protocol items. They are generated artifacts — not handwritten.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProtocolDescriptor {
-    /// Stable protocol name (e.g., `"DispatchShip"`).
+    /// Stable protocol name (e.g., `"SpawnUnit"`).
     pub name: String,
     /// Protocol kind.
     pub kind: ProtocolKind,
-    /// Route path for remote adapter (e.g., `"/commands/dispatch-ship"`).
+    /// Route path for remote adapter (e.g., `"/commands/spawn-unit"`).
     pub route: String,
     /// HTTP method for remote adapter.
     pub method: HttpMethod,
@@ -389,8 +389,8 @@ mod tests {
 
     #[test]
     fn unknown_type_passes_through() {
-        assert_eq!(rust_type_to_ts("ShipView"), "ShipView");
-        assert_eq!(rust_type_to_ts("Vec<ShipView>"), "ShipView[]");
+        assert_eq!(rust_type_to_ts("UnitView"), "UnitView");
+        assert_eq!(rust_type_to_ts("Vec<UnitView>"), "UnitView[]");
     }
 
     // -- TS generation --
@@ -402,34 +402,34 @@ mod tests {
             default_surface: "default".into(),
             surfaces: vec!["default".into()],
             commands: vec![ManifestEntry {
-                name: "DispatchShip".into(),
+                name: "SpawnUnit".into(),
                 kind: ProtocolKind::Command,
                 fields: vec![
                     ManifestField {
-                        name: "ship_id".into(),
+                        name: "unit_id".into(),
                         ty: "u64".into(),
                     },
                     ManifestField {
-                        name: "contract_id".into(),
+                        name: "location_id".into(),
                         ty: "u64".into(),
                     },
                 ],
-                doc: "Dispatch a ship to a contract.".into(),
+                doc: "Spawn a unit at a location.".into(),
                 surfaces: vec![],
             }],
             queries: vec![ManifestEntry {
-                name: "GetFleetSnapshot".into(),
+                name: "GetWorldSnapshot".into(),
                 kind: ProtocolKind::Query,
                 fields: vec![],
-                doc: "Get fleet status.".into(),
+                doc: "Get world status.".into(),
                 surfaces: vec![],
             }],
             events: vec![ManifestEntry {
-                name: "ShipArrived".into(),
+                name: "UnitDestroyed".into(),
                 kind: ProtocolKind::Event,
                 fields: vec![
                     ManifestField {
-                        name: "ship_id".into(),
+                        name: "unit_id".into(),
                         ty: "u64".into(),
                     },
                     ManifestField {
@@ -441,19 +441,19 @@ mod tests {
                 surfaces: vec![],
             }],
             dtos: vec![ManifestEntry {
-                name: "FleetSnapshot".into(),
+                name: "WorldSnapshot".into(),
                 kind: ProtocolKind::Dto,
                 fields: vec![
                     ManifestField {
-                        name: "ships_in_transit".into(),
+                        name: "units_active".into(),
                         ty: "u32".into(),
                     },
                     ManifestField {
-                        name: "ships_docked".into(),
+                        name: "units_idle".into(),
                         ty: "u32".into(),
                     },
                 ],
-                doc: "Fleet overview.".into(),
+                doc: "World overview.".into(),
                 surfaces: vec![],
             }],
         }
@@ -467,20 +467,20 @@ mod tests {
             surfaces: vec!["authority".into(), "gameplay".into()],
             commands: vec![
                 ManifestEntry {
-                    name: "DispatchShip".into(),
+                    name: "SpawnUnit".into(),
                     kind: ProtocolKind::Command,
                     fields: vec![ManifestField {
-                        name: "ship_id".into(),
+                        name: "unit_id".into(),
                         ty: "u64".into(),
                     }],
                     doc: "".into(),
                     surfaces: vec![],
                 },
                 ManifestEntry {
-                    name: "ApprovePort".into(),
+                    name: "AdminReset".into(),
                     kind: ProtocolKind::Command,
                     fields: vec![ManifestField {
-                        name: "port_id".into(),
+                        name: "zone_id".into(),
                         ty: "u64".into(),
                     }],
                     doc: "".into(),
@@ -489,10 +489,10 @@ mod tests {
             ],
             queries: vec![],
             events: vec![ManifestEntry {
-                name: "ShipArrived".into(),
+                name: "UnitDestroyed".into(),
                 kind: ProtocolKind::Event,
                 fields: vec![ManifestField {
-                    name: "ship_id".into(),
+                    name: "unit_id".into(),
                     ty: "u64".into(),
                 }],
                 doc: "".into(),
@@ -511,23 +511,23 @@ mod tests {
         assert!(ts.contains("test@0.1"));
 
         // Command interface
-        assert!(ts.contains("export interface DispatchShip {"));
-        assert!(ts.contains("ship_id: number;"));
-        assert!(ts.contains("contract_id: number;"));
+        assert!(ts.contains("export interface SpawnUnit {"));
+        assert!(ts.contains("unit_id: number;"));
+        assert!(ts.contains("location_id: number;"));
 
         // Query unit struct
-        assert!(ts.contains("export type GetFleetSnapshot = Record<string, never>;"));
+        assert!(ts.contains("export type GetWorldSnapshot = Record<string, never>;"));
 
         // Event interface
-        assert!(ts.contains("export interface ShipArrived {"));
+        assert!(ts.contains("export interface UnitDestroyed {"));
         assert!(ts.contains("destination: string;"));
 
         // DTO interface
-        assert!(ts.contains("export interface FleetSnapshot {"));
-        assert!(ts.contains("ships_in_transit: number;"));
+        assert!(ts.contains("export interface WorldSnapshot {"));
+        assert!(ts.contains("units_active: number;"));
 
         // Doc comment
-        assert!(ts.contains("/** Dispatch a ship to a contract. */"));
+        assert!(ts.contains("/** Spawn a unit at a location. */"));
     }
 
     #[test]
@@ -552,8 +552,8 @@ mod tests {
 
     #[test]
     fn to_kebab_case_converts_pascal() {
-        assert_eq!(to_kebab_case("DispatchShip"), "dispatch-ship");
-        assert_eq!(to_kebab_case("GetFleetSnapshot"), "get-fleet-snapshot");
+        assert_eq!(to_kebab_case("SpawnUnit"), "spawn-unit");
+        assert_eq!(to_kebab_case("GetWorldSnapshot"), "get-world-snapshot");
         assert_eq!(to_kebab_case("A"), "a");
     }
 
@@ -570,26 +570,26 @@ mod tests {
         let cmd = descs.surfaces[0]
             .descriptors
             .iter()
-            .find(|d| d.name == "DispatchShip")
+            .find(|d| d.name == "SpawnUnit")
             .unwrap();
-        assert_eq!(cmd.route, "/commands/dispatch-ship");
+        assert_eq!(cmd.route, "/commands/spawn-unit");
         assert_eq!(cmd.method, HttpMethod::Post);
         assert_eq!(cmd.kind, ProtocolKind::Command);
 
         let query = descs.surfaces[0]
             .descriptors
             .iter()
-            .find(|d| d.name == "GetFleetSnapshot")
+            .find(|d| d.name == "GetWorldSnapshot")
             .unwrap();
-        assert_eq!(query.route, "/queries/get-fleet-snapshot");
+        assert_eq!(query.route, "/queries/get-world-snapshot");
         assert_eq!(query.method, HttpMethod::Get);
 
         let event = descs.surfaces[0]
             .descriptors
             .iter()
-            .find(|d| d.name == "ShipArrived")
+            .find(|d| d.name == "UnitDestroyed")
             .unwrap();
-        assert_eq!(event.route, "/events/ship-arrived");
+        assert_eq!(event.route, "/events/unit-destroyed");
         assert_eq!(event.method, HttpMethod::Get);
     }
 
@@ -614,13 +614,13 @@ mod tests {
             authority
                 .descriptors
                 .iter()
-                .any(|desc| desc.name == "ApprovePort")
+                .any(|desc| desc.name == "AdminReset")
         );
         assert!(
             authority
                 .descriptors
                 .iter()
-                .any(|desc| desc.name == "ShipArrived")
+                .any(|desc| desc.name == "UnitDestroyed")
         );
 
         assert_eq!(gameplay.descriptors.len(), 2);
@@ -628,13 +628,13 @@ mod tests {
             gameplay
                 .descriptors
                 .iter()
-                .any(|desc| desc.name == "DispatchShip")
+                .any(|desc| desc.name == "SpawnUnit")
         );
         assert!(
             gameplay
                 .descriptors
                 .iter()
-                .any(|desc| desc.name == "ShipArrived")
+                .any(|desc| desc.name == "UnitDestroyed")
         );
     }
 
@@ -668,7 +668,7 @@ mod tests {
     fn descriptors_serialize_to_json() {
         let descs = generate_descriptors(&sample_manifest());
         let json = serde_json::to_string_pretty(&descs).unwrap();
-        assert!(json.contains("/commands/dispatch-ship"));
+        assert!(json.contains("/commands/spawn-unit"));
         assert!(json.contains("\"Post\""));
         assert!(json.contains("\"surfaces\""));
 
@@ -686,7 +686,7 @@ mod tests {
                 "protocol_version": "legacy@0.1",
                 "commands": [
                     {
-                        "name": "DispatchShip",
+                        "name": "SpawnUnit",
                         "kind": "Command",
                         "fields": [],
                         "doc": ""
@@ -703,7 +703,7 @@ mod tests {
         assert_eq!(descs.surfaces.len(), 1);
         assert_eq!(descs.surfaces[0].name, "default");
         assert_eq!(descs.surfaces[0].descriptors.len(), 1);
-        assert_eq!(descs.surfaces[0].descriptors[0].name, "DispatchShip");
+        assert_eq!(descs.surfaces[0].descriptors[0].name, "SpawnUnit");
     }
 
     #[test]
@@ -732,17 +732,17 @@ mod tests {
         let gameplay_ts = generate_typescript_for_surface(&manifest, "gameplay");
         let authority_ts = generate_typescript_for_surface(&manifest, "authority");
 
-        // DispatchShip has no explicit surfaces → belongs to default ("gameplay")
-        assert!(gameplay_ts.contains("export interface DispatchShip"));
-        assert!(!authority_ts.contains("DispatchShip"));
+        // SpawnUnit has no explicit surfaces → belongs to default ("gameplay")
+        assert!(gameplay_ts.contains("export interface SpawnUnit"));
+        assert!(!authority_ts.contains("SpawnUnit"));
 
-        // ApprovePort is authority-only
-        assert!(authority_ts.contains("export interface ApprovePort"));
-        assert!(!gameplay_ts.contains("ApprovePort"));
+        // AdminReset is authority-only
+        assert!(authority_ts.contains("export interface AdminReset"));
+        assert!(!gameplay_ts.contains("AdminReset"));
 
-        // ShipArrived belongs to both surfaces
-        assert!(gameplay_ts.contains("export interface ShipArrived"));
-        assert!(authority_ts.contains("export interface ShipArrived"));
+        // UnitDestroyed belongs to both surfaces
+        assert!(gameplay_ts.contains("export interface UnitDestroyed"));
+        assert!(authority_ts.contains("export interface UnitDestroyed"));
 
         // Headers include surface name
         assert!(gameplay_ts.contains("Surface: gameplay"));
@@ -769,8 +769,8 @@ mod tests {
         assert_eq!(all[1].0, "gameplay");
 
         // Each module is self-contained
-        assert!(all[0].1.contains("ApprovePort"));
-        assert!(all[1].1.contains("DispatchShip"));
+        assert!(all[0].1.contains("AdminReset"));
+        assert!(all[1].1.contains("SpawnUnit"));
     }
 
     #[test]
@@ -823,16 +823,16 @@ mod tests {
             .find(|s| s.name == "gameplay")
             .unwrap();
 
-        // Authority surface: ApprovePort + ShipArrived
-        assert!(authority_ts.contains("ApprovePort"));
-        assert!(authority_ts.contains("ShipArrived"));
-        assert!(!authority_ts.contains("DispatchShip"));
+        // Authority surface: AdminReset + UnitDestroyed
+        assert!(authority_ts.contains("AdminReset"));
+        assert!(authority_ts.contains("UnitDestroyed"));
+        assert!(!authority_ts.contains("SpawnUnit"));
         assert_eq!(authority_descs.descriptors.len(), 2);
 
-        // Gameplay surface: DispatchShip + ShipArrived
-        assert!(gameplay_ts.contains("DispatchShip"));
-        assert!(gameplay_ts.contains("ShipArrived"));
-        assert!(!gameplay_ts.contains("ApprovePort"));
+        // Gameplay surface: SpawnUnit + UnitDestroyed
+        assert!(gameplay_ts.contains("SpawnUnit"));
+        assert!(gameplay_ts.contains("UnitDestroyed"));
+        assert!(!gameplay_ts.contains("AdminReset"));
         assert_eq!(gameplay_descs.descriptors.len(), 2);
 
         // Descriptor names match TS interface names

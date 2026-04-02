@@ -82,7 +82,7 @@ fn extract_doc(attrs: &[syn::Attribute]) -> String {
 /// Convert a type to its string representation for manifest field metadata.
 ///
 /// Collapses runs of whitespace to single spaces but preserves them so
-/// composite types like `Vec < ShipView >` render as `Vec<ShipView>`.
+/// composite types like `Vec < UnitView >` render as `Vec<UnitView>`.
 fn type_to_string(ty: &syn::Type) -> String {
     let raw = quote!(#ty).to_string();
     raw.replace(" < ", "<")
@@ -297,9 +297,9 @@ fn protocol_attr(
 ///
 /// ```ignore
 /// #[galeon_engine::command]
-/// pub struct DispatchShip {
-///     pub ship_id: u64,
-///     pub contract_id: u64,
+/// pub struct SpawnUnit {
+///     pub unit_id: u64,
+///     pub location_id: u64,
 /// }
 /// ```
 #[proc_macro_attribute]
@@ -315,7 +315,7 @@ pub fn command(attr: TokenStream, input: TokenStream) -> TokenStream {
 ///
 /// ```ignore
 /// #[galeon_engine::query]
-/// pub struct GetFleetSnapshot;
+/// pub struct GetWorldSnapshot;
 /// ```
 #[proc_macro_attribute]
 pub fn query(attr: TokenStream, input: TokenStream) -> TokenStream {
@@ -330,9 +330,9 @@ pub fn query(attr: TokenStream, input: TokenStream) -> TokenStream {
 ///
 /// ```ignore
 /// #[galeon_engine::event]
-/// pub struct ShipArrived {
-///     pub ship_id: u64,
-///     pub arrived_at: u64,
+/// pub struct UnitDestroyed {
+///     pub unit_id: u64,
+///     pub destroyed_at: u64,
 /// }
 /// ```
 #[proc_macro_attribute]
@@ -348,8 +348,8 @@ pub fn event(attr: TokenStream, input: TokenStream) -> TokenStream {
 ///
 /// ```ignore
 /// #[galeon_engine::dto]
-/// pub struct FleetSnapshot {
-///     pub ships: Vec<ShipView>,
+/// pub struct WorldSnapshot {
+///     pub ships: Vec<UnitView>,
 /// }
 /// ```
 #[proc_macro_attribute]

@@ -19,11 +19,11 @@
 //! let mut engine = Engine::new();
 //! let clock = TestClock::new(Timestamp::from_secs(1000));
 //! engine.world_mut().insert_resource(Box::new(clock) as Box<dyn Clock>);
-//! engine.world_mut().add_deadline_type::<ShipArrival>();
+//! engine.world_mut().add_deadline_type::<TimedEvent>();
 //!
 //! let id = engine.world_mut().schedule_deadline(
 //!     Timestamp::from_secs(1500),
-//!     ShipArrival { ship_id: 42 },
+//!     TimedEvent { entity_id: 42 },
 //! );
 //! ```
 //!

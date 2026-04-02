@@ -111,14 +111,14 @@ mod tests {
     // --- Sample structs for each trait ---
 
     #[derive(Debug, Serialize, Deserialize, PartialEq)]
-    struct DispatchShip {
-        ship_id: u64,
-        contract_id: u64,
+    struct SpawnUnit {
+        unit_id: u64,
+        location_id: u64,
     }
-    impl Command for DispatchShip {}
-    impl ProtocolMeta for DispatchShip {
+    impl Command for SpawnUnit {}
+    impl ProtocolMeta for SpawnUnit {
         fn name() -> &'static str {
-            "DispatchShip"
+            "SpawnUnit"
         }
         fn kind() -> ProtocolKind {
             ProtocolKind::Command
@@ -126,11 +126,11 @@ mod tests {
     }
 
     #[derive(Debug, Serialize, Deserialize, PartialEq)]
-    struct GetFleetSnapshot;
-    impl ProtocolQuery for GetFleetSnapshot {}
-    impl ProtocolMeta for GetFleetSnapshot {
+    struct GetWorldSnapshot;
+    impl ProtocolQuery for GetWorldSnapshot {}
+    impl ProtocolMeta for GetWorldSnapshot {
         fn name() -> &'static str {
-            "GetFleetSnapshot"
+            "GetWorldSnapshot"
         }
         fn kind() -> ProtocolKind {
             ProtocolKind::Query
@@ -138,14 +138,14 @@ mod tests {
     }
 
     #[derive(Debug, Serialize, Deserialize, PartialEq)]
-    struct ShipArrived {
-        ship_id: u64,
+    struct UnitDestroyed {
+        unit_id: u64,
         arrived_at: u64,
     }
-    impl Event for ShipArrived {}
-    impl ProtocolMeta for ShipArrived {
+    impl Event for UnitDestroyed {}
+    impl ProtocolMeta for UnitDestroyed {
         fn name() -> &'static str {
-            "ShipArrived"
+            "UnitDestroyed"
         }
         fn kind() -> ProtocolKind {
             ProtocolKind::Event
@@ -153,13 +153,13 @@ mod tests {
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-    struct FleetSnapshot {
-        ship_count: u32,
+    struct WorldSnapshot {
+        unit_count: u32,
     }
-    impl Dto for FleetSnapshot {}
-    impl ProtocolMeta for FleetSnapshot {
+    impl Dto for WorldSnapshot {}
+    impl ProtocolMeta for WorldSnapshot {
         fn name() -> &'static str {
-            "FleetSnapshot"
+            "WorldSnapshot"
         }
         fn kind() -> ProtocolKind {
             ProtocolKind::Dto
@@ -192,65 +192,65 @@ mod tests {
 
     #[test]
     fn protocol_meta_command() {
-        assert_eq!(DispatchShip::name(), "DispatchShip");
-        assert_eq!(DispatchShip::kind(), ProtocolKind::Command);
+        assert_eq!(SpawnUnit::name(), "SpawnUnit");
+        assert_eq!(SpawnUnit::kind(), ProtocolKind::Command);
     }
 
     #[test]
     fn protocol_meta_query() {
-        assert_eq!(GetFleetSnapshot::name(), "GetFleetSnapshot");
-        assert_eq!(GetFleetSnapshot::kind(), ProtocolKind::Query);
+        assert_eq!(GetWorldSnapshot::name(), "GetWorldSnapshot");
+        assert_eq!(GetWorldSnapshot::kind(), ProtocolKind::Query);
     }
 
     #[test]
     fn protocol_meta_event() {
-        assert_eq!(ShipArrived::name(), "ShipArrived");
-        assert_eq!(ShipArrived::kind(), ProtocolKind::Event);
+        assert_eq!(UnitDestroyed::name(), "UnitDestroyed");
+        assert_eq!(UnitDestroyed::kind(), ProtocolKind::Event);
     }
 
     #[test]
     fn protocol_meta_dto() {
-        assert_eq!(FleetSnapshot::name(), "FleetSnapshot");
-        assert_eq!(FleetSnapshot::kind(), ProtocolKind::Dto);
+        assert_eq!(WorldSnapshot::name(), "WorldSnapshot");
+        assert_eq!(WorldSnapshot::kind(), ProtocolKind::Dto);
     }
 
     // --- T1-T4: Serde round-trip ---
 
     #[test]
     fn command_serde_roundtrip() {
-        let cmd = DispatchShip {
-            ship_id: 1,
-            contract_id: 42,
+        let cmd = SpawnUnit {
+            unit_id: 1,
+            location_id: 42,
         };
         let json = serde_json::to_string(&cmd).unwrap();
-        let back: DispatchShip = serde_json::from_str(&json).unwrap();
+        let back: SpawnUnit = serde_json::from_str(&json).unwrap();
         assert_eq!(cmd, back);
     }
 
     #[test]
     fn query_serde_roundtrip() {
-        let q = GetFleetSnapshot;
+        let q = GetWorldSnapshot;
         let json = serde_json::to_string(&q).unwrap();
-        let back: GetFleetSnapshot = serde_json::from_str(&json).unwrap();
+        let back: GetWorldSnapshot = serde_json::from_str(&json).unwrap();
         assert_eq!(q, back);
     }
 
     #[test]
     fn event_serde_roundtrip() {
-        let evt = ShipArrived {
-            ship_id: 1,
+        let evt = UnitDestroyed {
+            unit_id: 1,
             arrived_at: 1000,
         };
         let json = serde_json::to_string(&evt).unwrap();
-        let back: ShipArrived = serde_json::from_str(&json).unwrap();
+        let back: UnitDestroyed = serde_json::from_str(&json).unwrap();
         assert_eq!(evt, back);
     }
 
     #[test]
     fn dto_serde_roundtrip() {
-        let dto = FleetSnapshot { ship_count: 5 };
+        let dto = WorldSnapshot { unit_count: 5 };
         let json = serde_json::to_string(&dto).unwrap();
-        let back: FleetSnapshot = serde_json::from_str(&json).unwrap();
+        let back: WorldSnapshot = serde_json::from_str(&json).unwrap();
         assert_eq!(dto, back);
     }
 

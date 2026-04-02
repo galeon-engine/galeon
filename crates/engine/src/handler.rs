@@ -42,7 +42,7 @@ use crate::protocol::{Command, ProtocolMeta, ProtocolQuery};
 
 /// Handler for a command type. Game project implements this.
 ///
-/// `C` is the command type (e.g., `DispatchShip`).
+/// `C` is the command type (e.g., `SpawnUnit`).
 /// `R` is the response type (e.g., `()` or a result DTO).
 pub trait CommandHandler<C: Command, R: Serialize>: Send + Sync {
     /// Execute the command and return a response.
@@ -51,8 +51,8 @@ pub trait CommandHandler<C: Command, R: Serialize>: Send + Sync {
 
 /// Handler for a query type. Game project implements this.
 ///
-/// `Q` is the query type (e.g., `GetFleetSnapshot`).
-/// `R` is the response type (e.g., `FleetSnapshot` DTO).
+/// `Q` is the query type (e.g., `GetWorldSnapshot`).
+/// `R` is the response type (e.g., `WorldSnapshot` DTO).
 pub trait QueryHandler<Q: ProtocolQuery, R: Serialize>: Send + Sync {
     /// Execute the query and return a response.
     fn handle(&self, query: Q) -> Result<R, String>;
@@ -289,7 +289,7 @@ impl HandlerRegistry {
     /// Dispatch a command via JSON using the stable protocol name.
     ///
     /// `protocol_name` is the value from `ProtocolMeta::name()` (e.g.,
-    /// `"DispatchShip"`) — the same name that appears in the manifest and
+    /// `"SpawnUnit"`) — the same name that appears in the manifest and
     /// generated descriptors. This is the boundary-safe dispatch path.
     pub fn dispatch_command_json(
         &self,
@@ -346,14 +346,14 @@ mod tests {
     use crate::protocol::ProtocolKind;
 
     #[derive(Debug, Serialize, Deserialize)]
-    struct DispatchShip {
-        ship_id: u64,
-        contract_id: u64,
+    struct SpawnUnit {
+        unit_id: u64,
+        location_id: u64,
     }
-    impl Command for DispatchShip {}
-    impl ProtocolMeta for DispatchShip {
+    impl Command for SpawnUnit {}
+    impl ProtocolMeta for SpawnUnit {
         fn name() -> &'static str {
-            "DispatchShip"
+            "SpawnUnit"
         }
         fn kind() -> ProtocolKind {
             ProtocolKind::Command
@@ -361,11 +361,11 @@ mod tests {
     }
 
     #[derive(Debug, Serialize, Deserialize)]
-    struct GetFleetSnapshot;
-    impl ProtocolQuery for GetFleetSnapshot {}
-    impl ProtocolMeta for GetFleetSnapshot {
+    struct GetWorldSnapshot;
+    impl ProtocolQuery for GetWorldSnapshot {}
+    impl ProtocolMeta for GetWorldSnapshot {
         fn name() -> &'static str {
-            "GetFleetSnapshot"
+            "GetWorldSnapshot"
         }
         fn kind() -> ProtocolKind {
             ProtocolKind::Query
@@ -373,9 +373,9 @@ mod tests {
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-    struct FleetSnapshot {
-        ships_in_transit: u32,
-        ships_docked: u32,
+    struct WorldSnapshot {
+        units_active: u32,
+        units_idle: u32,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -385,21 +385,21 @@ mod tests {
 
     // -- Sample handlers --
 
-    struct ShipDispatcher;
+    struct UnitSpawner;
 
-    impl CommandHandler<DispatchShip, DispatchResult> for ShipDispatcher {
-        fn handle(&self, _cmd: DispatchShip) -> Result<DispatchResult, String> {
+    impl CommandHandler<SpawnUnit, DispatchResult> for UnitSpawner {
+        fn handle(&self, _cmd: SpawnUnit) -> Result<DispatchResult, String> {
             Ok(DispatchResult { ok: true })
         }
     }
 
-    struct FleetQuerier;
+    struct WorldQuerier;
 
-    impl QueryHandler<GetFleetSnapshot, FleetSnapshot> for FleetQuerier {
-        fn handle(&self, _query: GetFleetSnapshot) -> Result<FleetSnapshot, String> {
-            Ok(FleetSnapshot {
-                ships_in_transit: 2,
-                ships_docked: 5,
+    impl QueryHandler<GetWorldSnapshot, WorldSnapshot> for WorldQuerier {
+        fn handle(&self, _query: GetWorldSnapshot) -> Result<WorldSnapshot, String> {
+            Ok(WorldSnapshot {
+                units_active: 2,
+                units_idle: 5,
             })
         }
     }
@@ -409,12 +409,12 @@ mod tests {
     #[test]
     fn register_and_dispatch_command_local() {
         let mut registry = HandlerRegistry::new();
-        registry.register_command::<DispatchShip, DispatchResult, _>(ShipDispatcher);
+        registry.register_command::<SpawnUnit, DispatchResult, _>(UnitSpawner);
 
         let result: DispatchResult = registry
-            .dispatch_command(DispatchShip {
-                ship_id: 1,
-                contract_id: 42,
+            .dispatch_command(SpawnUnit {
+                unit_id: 1,
+                location_id: 42,
             })
             .unwrap();
 
@@ -424,22 +424,22 @@ mod tests {
     #[test]
     fn register_and_dispatch_query_local() {
         let mut registry = HandlerRegistry::new();
-        registry.register_query::<GetFleetSnapshot, FleetSnapshot, _>(FleetQuerier);
+        registry.register_query::<GetWorldSnapshot, WorldSnapshot, _>(WorldQuerier);
 
-        let snapshot: FleetSnapshot = registry.dispatch_query(GetFleetSnapshot).unwrap();
+        let snapshot: WorldSnapshot = registry.dispatch_query(GetWorldSnapshot).unwrap();
 
-        assert_eq!(snapshot.ships_in_transit, 2);
-        assert_eq!(snapshot.ships_docked, 5);
+        assert_eq!(snapshot.units_active, 2);
+        assert_eq!(snapshot.units_idle, 5);
     }
 
     #[test]
     fn dispatch_command_json_by_protocol_name() {
         let mut registry = HandlerRegistry::new();
-        registry.register_command::<DispatchShip, DispatchResult, _>(ShipDispatcher);
+        registry.register_command::<SpawnUnit, DispatchResult, _>(UnitSpawner);
 
         // Use stable protocol name — the same name in manifest/descriptors.
         let response = registry
-            .dispatch_command_json("DispatchShip", r#"{"ship_id":1,"contract_id":42}"#)
+            .dispatch_command_json("SpawnUnit", r#"{"unit_id":1,"location_id":42}"#)
             .unwrap();
 
         assert!(response.contains("true"));
@@ -448,45 +448,45 @@ mod tests {
     #[test]
     fn dispatch_query_json_by_protocol_name() {
         let mut registry = HandlerRegistry::new();
-        registry.register_query::<GetFleetSnapshot, FleetSnapshot, _>(FleetQuerier);
+        registry.register_query::<GetWorldSnapshot, WorldSnapshot, _>(WorldQuerier);
 
         let response = registry
-            .dispatch_query_json("GetFleetSnapshot", "null")
+            .dispatch_query_json("GetWorldSnapshot", "null")
             .unwrap();
 
-        let snapshot: FleetSnapshot = serde_json::from_str(&response).unwrap();
-        assert_eq!(snapshot.ships_docked, 5);
+        let snapshot: WorldSnapshot = serde_json::from_str(&response).unwrap();
+        assert_eq!(snapshot.units_idle, 5);
     }
 
     #[test]
     fn same_registry_serves_both_adapters() {
         let mut registry = HandlerRegistry::new();
-        registry.register_command::<DispatchShip, DispatchResult, _>(ShipDispatcher);
-        registry.register_query::<GetFleetSnapshot, FleetSnapshot, _>(FleetQuerier);
+        registry.register_command::<SpawnUnit, DispatchResult, _>(UnitSpawner);
+        registry.register_query::<GetWorldSnapshot, WorldSnapshot, _>(WorldQuerier);
 
         // Local adapter (typed, in-process)
         let local_result: DispatchResult = registry
-            .dispatch_command(DispatchShip {
-                ship_id: 1,
-                contract_id: 42,
+            .dispatch_command(SpawnUnit {
+                unit_id: 1,
+                location_id: 42,
             })
             .unwrap();
         assert!(local_result.ok);
 
-        let local_snapshot: FleetSnapshot = registry.dispatch_query(GetFleetSnapshot).unwrap();
-        assert_eq!(local_snapshot.ships_docked, 5);
+        let local_snapshot: WorldSnapshot = registry.dispatch_query(GetWorldSnapshot).unwrap();
+        assert_eq!(local_snapshot.units_idle, 5);
 
         // Remote adapter (JSON, keyed by stable protocol name)
         let json_result = registry
-            .dispatch_command_json("DispatchShip", r#"{"ship_id":2,"contract_id":99}"#)
+            .dispatch_command_json("SpawnUnit", r#"{"unit_id":2,"location_id":99}"#)
             .unwrap();
         assert!(json_result.contains("true"));
 
         let json_snapshot = registry
-            .dispatch_query_json("GetFleetSnapshot", "null")
+            .dispatch_query_json("GetWorldSnapshot", "null")
             .unwrap();
-        let remote_snapshot: FleetSnapshot = serde_json::from_str(&json_snapshot).unwrap();
-        assert_eq!(remote_snapshot.ships_docked, 5);
+        let remote_snapshot: WorldSnapshot = serde_json::from_str(&json_snapshot).unwrap();
+        assert_eq!(remote_snapshot.units_idle, 5);
     }
 
     /// Drives remote dispatch from descriptor output — proves the
@@ -503,15 +503,15 @@ mod tests {
             default_surface: "default".into(),
             surfaces: vec!["default".into()],
             commands: vec![ManifestEntry {
-                name: "DispatchShip".into(),
+                name: "SpawnUnit".into(),
                 kind: ProtocolKind::Command,
                 fields: vec![
                     ManifestField {
-                        name: "ship_id".into(),
+                        name: "unit_id".into(),
                         ty: "u64".into(),
                     },
                     ManifestField {
-                        name: "contract_id".into(),
+                        name: "location_id".into(),
                         ty: "u64".into(),
                     },
                 ],
@@ -519,7 +519,7 @@ mod tests {
                 surfaces: vec![],
             }],
             queries: vec![ManifestEntry {
-                name: "GetFleetSnapshot".into(),
+                name: "GetWorldSnapshot".into(),
                 kind: ProtocolKind::Query,
                 fields: vec![],
                 doc: "".into(),
@@ -534,8 +534,8 @@ mod tests {
 
         // Register handlers.
         let mut registry = HandlerRegistry::new();
-        registry.register_command::<DispatchShip, DispatchResult, _>(ShipDispatcher);
-        registry.register_query::<GetFleetSnapshot, FleetSnapshot, _>(FleetQuerier);
+        registry.register_command::<SpawnUnit, DispatchResult, _>(UnitSpawner);
+        registry.register_query::<GetWorldSnapshot, WorldSnapshot, _>(WorldQuerier);
 
         // Dispatch using descriptor names — no TypeId, no Rust-only knowledge.
         for surface in &desc_set.surfaces {
@@ -543,14 +543,14 @@ mod tests {
                 match desc.kind {
                     ProtocolKind::Command => {
                         let response = registry
-                            .dispatch_command_json(&desc.name, r#"{"ship_id":1,"contract_id":42}"#)
+                            .dispatch_command_json(&desc.name, r#"{"unit_id":1,"location_id":42}"#)
                             .unwrap();
                         assert!(response.contains("true"));
                     }
                     ProtocolKind::Query => {
                         let response = registry.dispatch_query_json(&desc.name, "null").unwrap();
-                        let snapshot: FleetSnapshot = serde_json::from_str(&response).unwrap();
-                        assert_eq!(snapshot.ships_docked, 5);
+                        let snapshot: WorldSnapshot = serde_json::from_str(&response).unwrap();
+                        assert_eq!(snapshot.units_idle, 5);
                     }
                     _ => {}
                 }
@@ -561,9 +561,9 @@ mod tests {
     #[test]
     fn missing_handler_returns_error() {
         let registry = HandlerRegistry::new();
-        let result = registry.dispatch_command::<DispatchShip, DispatchResult>(DispatchShip {
-            ship_id: 1,
-            contract_id: 1,
+        let result = registry.dispatch_command::<SpawnUnit, DispatchResult>(SpawnUnit {
+            unit_id: 1,
+            location_id: 1,
         });
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("no handler"));
@@ -573,8 +573,8 @@ mod tests {
     #[should_panic(expected = "duplicate command handler")]
     fn duplicate_handler_panics() {
         let mut registry = HandlerRegistry::new();
-        registry.register_command::<DispatchShip, DispatchResult, _>(ShipDispatcher);
-        registry.register_command::<DispatchShip, DispatchResult, _>(ShipDispatcher);
+        registry.register_command::<SpawnUnit, DispatchResult, _>(UnitSpawner);
+        registry.register_command::<SpawnUnit, DispatchResult, _>(UnitSpawner);
     }
 
     #[test]
@@ -583,8 +583,8 @@ mod tests {
         assert_eq!(registry.command_count(), 0);
         assert_eq!(registry.query_count(), 0);
 
-        registry.register_command::<DispatchShip, DispatchResult, _>(ShipDispatcher);
-        registry.register_query::<GetFleetSnapshot, FleetSnapshot, _>(FleetQuerier);
+        registry.register_command::<SpawnUnit, DispatchResult, _>(UnitSpawner);
+        registry.register_query::<GetWorldSnapshot, WorldSnapshot, _>(WorldQuerier);
 
         assert_eq!(registry.command_count(), 1);
         assert_eq!(registry.query_count(), 1);
@@ -597,30 +597,30 @@ mod tests {
     fn name_collision_panics() {
         // A second command type that shares the same protocol name.
         #[derive(Debug, Serialize, Deserialize)]
-        struct DispatchShipV2 {
-            ship_id: u64,
+        struct SpawnUnitV2 {
+            unit_id: u64,
         }
-        impl Command for DispatchShipV2 {}
-        impl ProtocolMeta for DispatchShipV2 {
+        impl Command for SpawnUnitV2 {}
+        impl ProtocolMeta for SpawnUnitV2 {
             fn name() -> &'static str {
-                "DispatchShip" // same name as the other type
+                "SpawnUnit" // same name as the other type
             }
             fn kind() -> ProtocolKind {
                 ProtocolKind::Command
             }
         }
 
-        struct V2Handler;
-        impl CommandHandler<DispatchShipV2, DispatchResult> for V2Handler {
-            fn handle(&self, _cmd: DispatchShipV2) -> Result<DispatchResult, String> {
+        struct V2Spawner;
+        impl CommandHandler<SpawnUnitV2, DispatchResult> for V2Spawner {
+            fn handle(&self, _cmd: SpawnUnitV2) -> Result<DispatchResult, String> {
                 Ok(DispatchResult { ok: false })
             }
         }
 
         let mut registry = HandlerRegistry::new();
-        registry.register_command::<DispatchShip, DispatchResult, _>(ShipDispatcher);
+        registry.register_command::<SpawnUnit, DispatchResult, _>(UnitSpawner);
         // This must panic — same protocol name, different type.
-        registry.register_command::<DispatchShipV2, DispatchResult, _>(V2Handler);
+        registry.register_command::<SpawnUnitV2, DispatchResult, _>(V2Spawner);
     }
 
     /// One flat registry serves multiple surfaces — surface filtering happens
@@ -630,26 +630,26 @@ mod tests {
         use crate::codegen::generate_descriptors;
         use crate::manifest::{ManifestEntry, ManifestField, ProtocolManifest};
 
-        // Two-surface manifest: DispatchShip on gameplay, ApprovePort on authority.
+        // Two-surface manifest: SpawnUnit on gameplay, AdminReset on authority.
         // A real game registers handlers once; adapters mount per-surface routes.
 
         #[derive(Debug, Serialize, Deserialize)]
-        struct ApprovePort {
-            port_id: u64,
+        struct AdminReset {
+            zone_id: u64,
         }
-        impl Command for ApprovePort {}
-        impl ProtocolMeta for ApprovePort {
+        impl Command for AdminReset {}
+        impl ProtocolMeta for AdminReset {
             fn name() -> &'static str {
-                "ApprovePort"
+                "AdminReset"
             }
             fn kind() -> ProtocolKind {
                 ProtocolKind::Command
             }
         }
 
-        struct PortApprover;
-        impl CommandHandler<ApprovePort, DispatchResult> for PortApprover {
-            fn handle(&self, _cmd: ApprovePort) -> Result<DispatchResult, String> {
+        struct ZoneResetter;
+        impl CommandHandler<AdminReset, DispatchResult> for ZoneResetter {
+            fn handle(&self, _cmd: AdminReset) -> Result<DispatchResult, String> {
                 Ok(DispatchResult { ok: true })
             }
         }
@@ -661,20 +661,20 @@ mod tests {
             surfaces: vec!["authority".into(), "gameplay".into()],
             commands: vec![
                 ManifestEntry {
-                    name: "DispatchShip".into(),
+                    name: "SpawnUnit".into(),
                     kind: ProtocolKind::Command,
                     fields: vec![ManifestField {
-                        name: "ship_id".into(),
+                        name: "unit_id".into(),
                         ty: "u64".into(),
                     }],
                     doc: "".into(),
                     surfaces: vec![],
                 },
                 ManifestEntry {
-                    name: "ApprovePort".into(),
+                    name: "AdminReset".into(),
                     kind: ProtocolKind::Command,
                     fields: vec![ManifestField {
-                        name: "port_id".into(),
+                        name: "zone_id".into(),
                         ty: "u64".into(),
                     }],
                     doc: "".into(),
@@ -688,8 +688,8 @@ mod tests {
 
         // One registry, all handlers.
         let mut registry = HandlerRegistry::new();
-        registry.register_command::<DispatchShip, DispatchResult, _>(ShipDispatcher);
-        registry.register_command::<ApprovePort, DispatchResult, _>(PortApprover);
+        registry.register_command::<SpawnUnit, DispatchResult, _>(UnitSpawner);
+        registry.register_command::<AdminReset, DispatchResult, _>(ZoneResetter);
 
         // Generate per-surface descriptors.
         let descs = generate_descriptors(&manifest);
@@ -700,8 +700,8 @@ mod tests {
             for desc in &surface.descriptors {
                 if desc.kind == ProtocolKind::Command {
                     let payload = match desc.name.as_str() {
-                        "DispatchShip" => r#"{"ship_id":1,"contract_id":42}"#,
-                        "ApprovePort" => r#"{"port_id":7}"#,
+                        "SpawnUnit" => r#"{"unit_id":1,"location_id":42}"#,
+                        "AdminReset" => r#"{"zone_id":7}"#,
                         other => panic!("unexpected descriptor: {other}"),
                     };
                     let response = registry.dispatch_command_json(&desc.name, payload).unwrap();
@@ -710,22 +710,22 @@ mod tests {
             }
         }
 
-        // Gameplay surface should only see DispatchShip
+        // Gameplay surface should only see SpawnUnit
         let gameplay = descs
             .surfaces
             .iter()
             .find(|s| s.name == "gameplay")
             .unwrap();
         assert_eq!(gameplay.descriptors.len(), 1);
-        assert_eq!(gameplay.descriptors[0].name, "DispatchShip");
+        assert_eq!(gameplay.descriptors[0].name, "SpawnUnit");
 
-        // Authority surface should only see ApprovePort
+        // Authority surface should only see AdminReset
         let authority = descs
             .surfaces
             .iter()
             .find(|s| s.name == "authority")
             .unwrap();
         assert_eq!(authority.descriptors.len(), 1);
-        assert_eq!(authority.descriptors[0].name, "ApprovePort");
+        assert_eq!(authority.descriptors[0].name, "AdminReset");
     }
 }

@@ -158,16 +158,16 @@ system panics immediately, not at runtime.
 use galeon_engine::*;
 
 #[command]
-struct CreateFleet { name: String, ship_count: u32 }
+struct CreateUnit { name: String, count: u32 }
 
 #[query]
-struct GetFleet { id: u64 }
+struct GetUnits { id: u64 }
 
 #[event(surface = "game")]
-struct FleetCreated { id: u64, name: String }
+struct UnitSpawned { id: u64, name: String }
 
 #[dto]
-struct FleetSummary { id: u64, name: String, ships: u32 }
+struct UnitSummary { id: u64, name: String, total: u32 }
 ```
 
 These generate `Serialize`/`Deserialize` derives, `ProtocolMeta` impls, and

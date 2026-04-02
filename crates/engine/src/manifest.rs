@@ -30,7 +30,7 @@ use std::collections::BTreeSet;
 pub struct FieldEntry {
     /// Field name.
     pub name: &'static str,
-    /// Type path as a string (e.g., `"u64"`, `"Vec<ShipView>"`).
+    /// Type path as a string (e.g., `"u64"`, `"Vec<UnitView>"`).
     pub ty: &'static str,
 }
 
@@ -86,7 +86,7 @@ pub struct ManifestEntry {
 pub struct ProtocolManifest {
     /// Schema version of the manifest format itself.
     pub manifest_version: String,
-    /// The project's protocol version (e.g., `"moonbarons-protocol@0.1"`).
+    /// The project's protocol version (e.g., `"my-game@0.1"`).
     pub protocol_version: String,
     /// The implicit surface for unannotated protocol items.
     #[serde(
@@ -124,7 +124,7 @@ impl ProtocolManifest {
     /// Collect all protocol items registered via attribute macros.
     ///
     /// `protocol_version` is the project's protocol version string
-    /// (e.g., `"moonbarons-protocol@0.1"`). If empty, defaults to the
+    /// (e.g., `"my-game@0.1"`). If empty, defaults to the
     /// calling crate's version.
     pub fn collect(protocol_version: &str) -> Self {
         Self::collect_with_default_surface(protocol_version, Self::DEFAULT_SURFACE)

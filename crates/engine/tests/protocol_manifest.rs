@@ -7,35 +7,35 @@ use galeon_engine::protocol::ProtocolKind;
 
 // --- Define sample protocol items ---
 
-/// Dispatch a ship to a contract destination.
+/// Spawn a unit at a given location.
 #[galeon_engine::command]
-pub struct DispatchShip {
-    pub ship_id: u64,
-    pub contract_id: u64,
+pub struct SpawnUnit {
+    pub unit_id: u64,
+    pub location_id: u64,
 }
 
-/// Get the current fleet snapshot.
+/// Get the current world snapshot.
 #[galeon_engine::query]
-pub struct GetFleetSnapshot;
+pub struct GetWorldSnapshot;
 
-/// A ship has arrived at its destination.
+/// A unit has been destroyed.
 #[galeon_engine::event]
-pub struct ShipArrived {
-    pub ship_id: u64,
-    pub arrived_at: u64,
+pub struct UnitDestroyed {
+    pub unit_id: u64,
+    pub destroyed_at: u64,
 }
 
-/// Snapshot of a single ship's view data.
+/// Snapshot of a single unit's view data.
 #[galeon_engine::dto(surfaces = ["authority", "gameplay"])]
-pub struct ShipView {
-    pub ship_id: u64,
+pub struct UnitView {
+    pub unit_id: u64,
     pub name: String,
 }
 
-/// Approve a port-side administrative action.
+/// Reset an administrative zone.
 #[galeon_engine::command(surface = "authority")]
-pub struct ApprovePort {
-    pub port_id: u64,
+pub struct AdminReset {
+    pub zone_id: u64,
 }
 
 // --- Tests ---
@@ -52,10 +52,10 @@ fn manifest_collects_all_items() {
 
 #[test]
 fn manifest_has_correct_versions() {
-    let manifest = ProtocolManifest::collect("moonbarons-protocol@0.1");
+    let manifest = ProtocolManifest::collect("my-game@0.1");
 
     assert_eq!(manifest.manifest_version, "2");
-    assert_eq!(manifest.protocol_version, "moonbarons-protocol@0.1");
+    assert_eq!(manifest.protocol_version, "my-game@0.1");
     assert_eq!(manifest.default_surface, "default");
 }
 
@@ -66,14 +66,14 @@ fn manifest_command_entry_has_fields() {
     let cmd = manifest
         .commands
         .iter()
-        .find(|e| e.name == "DispatchShip")
-        .expect("DispatchShip should be in commands");
+        .find(|e| e.name == "SpawnUnit")
+        .expect("SpawnUnit should be in commands");
 
     assert_eq!(cmd.kind, ProtocolKind::Command);
     assert_eq!(cmd.fields.len(), 2);
-    assert_eq!(cmd.fields[0].name, "ship_id");
+    assert_eq!(cmd.fields[0].name, "unit_id");
     assert_eq!(cmd.fields[0].ty, "u64");
-    assert_eq!(cmd.fields[1].name, "contract_id");
+    assert_eq!(cmd.fields[1].name, "location_id");
     assert_eq!(cmd.fields[1].ty, "u64");
 }
 
@@ -84,8 +84,8 @@ fn manifest_query_unit_struct() {
     let q = manifest
         .queries
         .iter()
-        .find(|e| e.name == "GetFleetSnapshot")
-        .expect("GetFleetSnapshot should be in queries");
+        .find(|e| e.name == "GetWorldSnapshot")
+        .expect("GetWorldSnapshot should be in queries");
 
     assert_eq!(q.kind, ProtocolKind::Query);
     assert!(q.fields.is_empty(), "unit struct should have no fields");
@@ -98,8 +98,8 @@ fn manifest_event_entry_has_fields() {
     let evt = manifest
         .events
         .iter()
-        .find(|e| e.name == "ShipArrived")
-        .expect("ShipArrived should be in events");
+        .find(|e| e.name == "UnitDestroyed")
+        .expect("UnitDestroyed should be in events");
 
     assert_eq!(evt.kind, ProtocolKind::Event);
     assert_eq!(evt.fields.len(), 2);
@@ -112,12 +112,12 @@ fn manifest_dto_entry_has_fields() {
     let dto = manifest
         .dtos
         .iter()
-        .find(|e| e.name == "ShipView")
-        .expect("ShipView should be in dtos");
+        .find(|e| e.name == "UnitView")
+        .expect("UnitView should be in dtos");
 
     assert_eq!(dto.kind, ProtocolKind::Dto);
     assert_eq!(dto.fields.len(), 2);
-    assert_eq!(dto.fields[0].name, "ship_id");
+    assert_eq!(dto.fields[0].name, "unit_id");
     assert_eq!(dto.fields[1].name, "name");
     assert_eq!(dto.fields[1].ty, "String");
     assert_eq!(
@@ -133,11 +133,11 @@ fn manifest_doc_comments_captured() {
     let cmd = manifest
         .commands
         .iter()
-        .find(|e| e.name == "DispatchShip")
-        .expect("DispatchShip should be in commands");
+        .find(|e| e.name == "SpawnUnit")
+        .expect("SpawnUnit should be in commands");
 
     assert!(
-        cmd.doc.contains("Dispatch a ship"),
+        cmd.doc.contains("Spawn a unit"),
         "doc should be captured: got {:?}",
         cmd.doc
     );
@@ -158,7 +158,7 @@ fn manifest_json_roundtrip() {
 
     // Verify pretty-printed and human-readable.
     assert!(json.contains('\n'), "should be pretty-printed");
-    assert!(json.contains("DispatchShip"));
+    assert!(json.contains("SpawnUnit"));
     assert!(json.contains("\"surfaces\""));
 }
 
@@ -179,8 +179,8 @@ fn manifest_collects_surface_membership() {
     let admin_command = manifest
         .commands
         .iter()
-        .find(|entry| entry.name == "ApprovePort")
-        .expect("ApprovePort should be in commands");
+        .find(|entry| entry.name == "AdminReset")
+        .expect("AdminReset should be in commands");
 
     assert_eq!(admin_command.surfaces, vec!["authority".to_string()]);
 }
@@ -198,8 +198,8 @@ fn manifest_collects_named_surfaces_with_custom_default() {
     let default_command = manifest
         .commands
         .iter()
-        .find(|entry| entry.name == "DispatchShip")
-        .expect("DispatchShip should be in commands");
+        .find(|entry| entry.name == "SpawnUnit")
+        .expect("SpawnUnit should be in commands");
     assert!(ProtocolManifest::entry_belongs_to_surface(
         default_command,
         "gameplay",

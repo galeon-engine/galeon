@@ -21,12 +21,12 @@ each tick, writing them as `Events<T>` for game systems to read via
 use galeon_engine::{Engine, Deadlines, Timestamp, TestClock, Clock};
 
 // Define your event type.
-struct ShipArrival { ship_id: u32 }
+struct TimedEvent { entity_id: u32 }
 
 let mut engine = Engine::new();
 
 // Register the deadline type (creates Deadlines<T> + Events<T>).
-engine.world_mut().add_deadline_type::<ShipArrival>();
+engine.world_mut().add_deadline_type::<TimedEvent>();
 ```
 
 ## Scheduling deadlines
@@ -35,14 +35,14 @@ engine.world_mut().add_deadline_type::<ShipArrival>();
 // Schedule from setup code:
 let id = engine.world_mut().schedule_deadline(
     Timestamp::from_secs(1700000000),
-    ShipArrival { ship_id: 42 },
+    TimedEvent { entity_id: 42 },
 );
 
 // Schedule from a system via Commands:
-fn dispatch_ship(mut cmds: Commands<'_>) {
+fn schedule_event(mut cmds: Commands<'_>) {
     cmds.schedule_deadline(
         Timestamp::from_secs(1700000060),
-        ShipArrival { ship_id: 7 },
+        TimedEvent { entity_id: 7 },
     );
 }
 ```
@@ -51,11 +51,11 @@ fn dispatch_ship(mut cmds: Commands<'_>) {
 
 ```rust
 // Cancel from setup code:
-engine.world_mut().cancel_deadline::<ShipArrival>(id);
+engine.world_mut().cancel_deadline::<TimedEvent>(id);
 
 // Cancel from a system via Commands:
 fn abort_dispatch(mut cmds: Commands<'_>) {
-    cmds.cancel_deadline::<ShipArrival>(saved_id);
+    cmds.cancel_deadline::<TimedEvent>(saved_id);
 }
 ```
 
@@ -92,7 +92,7 @@ If no `Clock` resource is present, deadline draining is silently skipped.
 For advanced use cases, you can drain a single type manually:
 
 ```rust
-world.drain_deadlines::<ShipArrival>(Timestamp::now());
+world.drain_deadlines::<TimedEvent>(Timestamp::now());
 ```
 
 ## Batch reconciliation
