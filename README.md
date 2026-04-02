@@ -3,10 +3,10 @@
 A Rust game engine with a Three.js renderer.
 
 Rust owns all engine logic. TypeScript is only used where browser APIs require it
-(Three.js scene graph, DOM for the editor shell). Games deploy to desktop
+(Three.js scene graph, DOM for the editor shell). Games target desktop
 ([Tauri](https://tauri.app) or [Electrobun](https://electrobun.dev)) and web
-(WASM + Three.js in the browser). Tauri is the fast path for shipping; Electrobun
-is the option when you need native GPU via `<electrobun-wgpu>`.
+(WASM + Three.js in the browser). Desktop shell integration is planned &mdash;
+the engine itself is shell-agnostic.
 
 > **Status:** Pre-release. The ECS, scheduler, protocol layer, and WASM bridge
 > are functional and tested (350+ passing tests). API surface is stabilizing but
@@ -23,7 +23,7 @@ is the option when you need native GPU via `<electrobun-wgpu>`.
 
 **Systems and Scheduling**
 - Parameterized systems: `fn(Res<T>, QueryMut<U>, Commands)` &mdash; no manual world access
-- `SystemParam` trait with compile-time access conflict detection
+- `SystemParam` trait with registration-time access conflict detection
 - Stage-based scheduler with automatic command application between stages
 - Fixed-timestep game loop (configurable Hz, defaults to 10 Hz for RTS)
 - Plugin API for modular engine extensions
