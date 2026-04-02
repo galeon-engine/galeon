@@ -60,6 +60,14 @@ export class RendererCache {
    */
   applyFrame(packet: FramePacketView): void {
     const activeIds = new Set<number>();
+    const customChannels = Array.from({ length: packet.custom_channel_count }, (_, index) => {
+      const name = packet.custom_channel_name_at(index);
+      return {
+        name,
+        stride: packet.custom_channel_stride(name),
+        data: packet.custom_channel_data(name),
+      };
+    });
     const {
       entity_ids,
       entity_generations,
@@ -114,15 +122,13 @@ export class RendererCache {
       obj.visible = visibility[i]! === 1;
 
       // Apply custom channel data to userData.
-      for (let c = 0; c < packet.custom_channel_count; c++) {
-        const channelName = packet.custom_channel_name_at(c);
-        const stride = packet.custom_channel_stride(channelName);
-        const data = packet.custom_channel_data(channelName);
+      for (const channel of customChannels) {
+        const { name, stride, data } = channel;
         const off = i * stride;
         if (stride === 1) {
-          obj.userData[channelName] = data[off]!;
+          obj.userData[name] = data[off]!;
         } else {
-          obj.userData[channelName] = data.slice(off, off + stride);
+          obj.userData[name] = data.slice(off, off + stride);
         }
       }
     }
