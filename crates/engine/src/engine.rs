@@ -94,6 +94,15 @@ impl Engine {
         self
     }
 
+    /// Set the fixed-timestep tick rate in Hz.
+    ///
+    /// Common values: 10 Hz (RTS/tycoon), 20 Hz (strategy), 30 Hz (action),
+    /// 60 Hz (platformer/FPS). If not called, defaults to 10 Hz on first tick.
+    pub fn set_tick_rate(&mut self, hz: f64) -> &mut Self {
+        self.world.insert_resource(FixedTimestep::new(hz));
+        self
+    }
+
     /// Insert a resource into the world.
     ///
     /// Delegates to [`World::insert_resource`]. Returns `&mut Self` for
@@ -398,6 +407,18 @@ mod tests {
             .map(|(_, c)| c.0)
             .collect();
         assert_eq!(counts, vec![3]);
+    }
+
+    #[test]
+    fn set_tick_rate_overrides_default() {
+        let mut engine = Engine::new();
+        engine.set_tick_rate(30.0);
+        engine.world_mut().spawn((Counter(0),));
+        engine.add_system::<(QueryMut<'_, Counter>,)>("update", "increment", increment);
+
+        // 0.1 s at 30 Hz → 3 ticks (step = 1/30 ≈ 0.0333)
+        let ticks = engine.tick(0.1);
+        assert_eq!(ticks, 3);
     }
 
     #[test]

@@ -122,13 +122,18 @@ let ticks = engine.tick(delta_seconds);
 // `ticks` is the number of simulation steps executed this frame.
 ```
 
-To use a custom tick rate, insert a [`FixedTimestep`] resource before the
-first call:
+To use a custom tick rate, call `set_tick_rate` on the engine:
+
+```rust
+engine.set_tick_rate(30.0); // 30 Hz for action games
+```
+
+Or use a genre preset directly:
 
 ```rust
 use galeon_engine::FixedTimestep;
 
-engine.insert_resource(FixedTimestep::new(30.0)); // 30 Hz
+engine.insert_resource(FixedTimestep::action()); // 30 Hz preset
 ```
 
 ### Single-shot Execution

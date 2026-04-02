@@ -19,9 +19,20 @@ pub struct FixedTimestep {
 }
 
 impl FixedTimestep {
+    /// Minimum tick rate (1 Hz). Below this, use event-driven scheduling instead.
+    pub const MIN_HZ: f64 = 1.0;
+    /// Maximum tick rate (240 Hz). Beyond this, the per-tick budget is too small
+    /// for meaningful simulation work and risks death-spiraling the game loop.
+    pub const MAX_HZ: f64 = 240.0;
+
     /// Create a new fixed timestep at the given tick rate (Hz).
     pub fn new(tick_rate: f64) -> Self {
-        assert!(tick_rate > 0.0, "tick rate must be positive");
+        assert!(
+            (Self::MIN_HZ..=Self::MAX_HZ).contains(&tick_rate),
+            "tick rate {tick_rate} Hz out of range [{}, {}]",
+            Self::MIN_HZ,
+            Self::MAX_HZ,
+        );
         Self {
             step: 1.0 / tick_rate,
             accumulator: 0.0,
@@ -32,6 +43,21 @@ impl FixedTimestep {
     /// Create a 10 Hz timestep (default for RTS).
     pub fn default_rts() -> Self {
         Self::new(10.0)
+    }
+
+    /// 20 Hz — good for turn-like strategy with smooth interpolation.
+    pub fn strategy() -> Self {
+        Self::new(20.0)
+    }
+
+    /// 30 Hz — action games, third-person, adventure.
+    pub fn action() -> Self {
+        Self::new(30.0)
+    }
+
+    /// 60 Hz — platformers, FPS, fighting games.
+    pub fn fast() -> Self {
+        Self::new(60.0)
     }
 
     /// Returns the tick rate in Hz.
@@ -103,6 +129,42 @@ mod tests {
         for (_, counter) in counters.iter_mut() {
             counter.0 += 1;
         }
+    }
+
+    #[test]
+    fn genre_presets() {
+        let rts = FixedTimestep::default_rts();
+        assert!((rts.tick_rate() - 10.0).abs() < f64::EPSILON);
+
+        let strat = FixedTimestep::strategy();
+        assert!((strat.tick_rate() - 20.0).abs() < f64::EPSILON);
+
+        let act = FixedTimestep::action();
+        assert!((act.tick_rate() - 30.0).abs() < f64::EPSILON);
+
+        let fps = FixedTimestep::fast();
+        assert!((fps.tick_rate() - 60.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn rejects_below_min_hz() {
+        let result = std::panic::catch_unwind(|| FixedTimestep::new(0.5));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_above_max_hz() {
+        let result = std::panic::catch_unwind(|| FixedTimestep::new(500.0));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn accepts_boundary_values() {
+        let low = FixedTimestep::new(FixedTimestep::MIN_HZ);
+        assert!((low.tick_rate() - 1.0).abs() < f64::EPSILON);
+
+        let high = FixedTimestep::new(FixedTimestep::MAX_HZ);
+        assert!((high.tick_rate() - 240.0).abs() < f64::EPSILON);
     }
 
     #[test]
