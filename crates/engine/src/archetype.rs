@@ -124,14 +124,22 @@ pub trait AnyColumn: Any + Send + Sync {
     /// Create an empty column of the same concrete type.
     fn new_empty(&self) -> Box<dyn AnyColumn>;
 
+    /// Stamp both tick vectors at `row`.
+    fn stamp_ticks(&mut self, row: usize, added: u64, changed: u64);
+
     // Down-casting helpers.
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
 /// Typed dense column for a single component type within one archetype.
+///
+/// Each row has parallel `added_ticks` and `changed_ticks` entries for
+/// change detection. Tick 0 is the sentinel meaning "never observed".
 pub struct Column<T> {
     data: Vec<T>,
+    added_ticks: Vec<u64>,
+    changed_ticks: Vec<u64>,
 }
 
 impl<T: Send + Sync + 'static> Default for Column<T> {
@@ -143,12 +151,25 @@ impl<T: Send + Sync + 'static> Default for Column<T> {
 impl<T: Send + Sync + 'static> Column<T> {
     /// Create an empty column.
     pub fn new() -> Self {
-        Self { data: Vec::new() }
+        Self {
+            data: Vec::new(),
+            added_ticks: Vec::new(),
+            changed_ticks: Vec::new(),
+        }
     }
 
-    /// Append a value at the end.
+    /// Append a value at the end with sentinel ticks (0).
     pub fn push(&mut self, value: T) {
         self.data.push(value);
+        self.added_ticks.push(0);
+        self.changed_ticks.push(0);
+    }
+
+    /// Append a value with explicit tick stamps.
+    pub fn push_with_ticks(&mut self, value: T, added: u64, changed: u64) {
+        self.data.push(value);
+        self.added_ticks.push(added);
+        self.changed_ticks.push(changed);
     }
 
     /// Get an immutable reference by row index.
@@ -162,7 +183,10 @@ impl<T: Send + Sync + 'static> Column<T> {
     }
 
     /// Swap-remove and return the value at `row`.
+    /// Tick vectors are kept in sync.
     pub fn swap_remove(&mut self, row: usize) -> T {
+        self.added_ticks.swap_remove(row);
+        self.changed_ticks.swap_remove(row);
         self.data.swap_remove(row)
     }
 
@@ -190,20 +214,63 @@ impl<T: Send + Sync + 'static> Column<T> {
     pub(crate) fn as_mut_ptr(&mut self) -> *mut T {
         self.data.as_mut_ptr()
     }
+
+    // -- Tick accessors -------------------------------------------------------
+
+    /// The added tick for `row` (0 = sentinel / never stamped).
+    pub fn added_tick(&self, row: usize) -> u64 {
+        self.added_ticks[row]
+    }
+
+    /// The changed tick for `row` (0 = sentinel / never stamped).
+    pub fn changed_tick(&self, row: usize) -> u64 {
+        self.changed_ticks[row]
+    }
+
+    /// Stamp the added tick for `row`.
+    pub fn set_added_tick(&mut self, row: usize, tick: u64) {
+        self.added_ticks[row] = tick;
+    }
+
+    /// Stamp the changed tick for `row`.
+    pub fn set_changed_tick(&mut self, row: usize, tick: u64) {
+        self.changed_ticks[row] = tick;
+    }
+
+    /// Raw pointer to the changed-ticks vector (for mutable query stamping).
+    pub(crate) fn changed_ticks_mut_ptr(&mut self) -> *mut u64 {
+        self.changed_ticks.as_mut_ptr()
+    }
+
+    /// Slice of added ticks (parallel to data rows).
+    pub fn added_ticks(&self) -> &[u64] {
+        &self.added_ticks
+    }
+
+    /// Slice of changed ticks (parallel to data rows).
+    pub fn changed_ticks(&self) -> &[u64] {
+        &self.changed_ticks
+    }
 }
 
 impl<T: Send + Sync + 'static> AnyColumn for Column<T> {
     fn swap_remove_and_drop(&mut self, row: usize) {
         self.data.swap_remove(row);
+        self.added_ticks.swap_remove(row);
+        self.changed_ticks.swap_remove(row);
     }
 
     fn move_to(&mut self, row: usize, dst: &mut dyn AnyColumn) {
         let value = self.data.swap_remove(row);
+        let added = self.added_ticks.swap_remove(row);
+        let changed = self.changed_ticks.swap_remove(row);
         let dst_typed = dst
             .as_any_mut()
             .downcast_mut::<Column<T>>()
             .expect("move_to: column type mismatch");
         dst_typed.data.push(value);
+        dst_typed.added_ticks.push(added);
+        dst_typed.changed_ticks.push(changed);
     }
 
     fn len(&self) -> usize {
@@ -212,6 +279,11 @@ impl<T: Send + Sync + 'static> AnyColumn for Column<T> {
 
     fn new_empty(&self) -> Box<dyn AnyColumn> {
         Box::new(Column::<T>::new())
+    }
+
+    fn stamp_ticks(&mut self, row: usize, added: u64, changed: u64) {
+        self.added_ticks[row] = added;
+        self.changed_ticks[row] = changed;
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -488,6 +560,26 @@ impl Archetype {
                 .as_any_mut()
                 .downcast_mut::<Column<C>>()?;
             Some((&*entities, col_a, col_b, col_c))
+        }
+    }
+
+    /// Stamp added/changed ticks on every column at `row`.
+    pub(crate) fn stamp_all_ticks(&mut self, row: u32, added: u64, changed: u64) {
+        for col in self.columns.values_mut() {
+            col.stamp_ticks(row as usize, added, changed);
+        }
+    }
+
+    /// Stamp added/changed ticks on a single column at `row`.
+    pub(crate) fn stamp_column_ticks(
+        &mut self,
+        type_id: TypeId,
+        row: u32,
+        added: u64,
+        changed: u64,
+    ) {
+        if let Some(col) = self.columns.get_mut(&type_id) {
+            col.stamp_ticks(row as usize, added, changed);
         }
     }
 
@@ -1142,5 +1234,106 @@ mod tests {
         assert_eq!(*arch.column::<u32>().unwrap().get(0).unwrap(), 20);
         assert_eq!(*arch.column::<f64>().unwrap().get(0).unwrap(), 2.5);
         assert!(!arch.column::<bool>().unwrap().get(0).unwrap());
+    }
+
+    // ---- Column tick tracking ------------------------------------------------
+
+    #[test]
+    fn column_push_defaults_to_sentinel_ticks() {
+        let mut col = Column::<u32>::new();
+        col.push(10);
+        col.push(20);
+        assert_eq!(col.added_tick(0), 0);
+        assert_eq!(col.changed_tick(0), 0);
+        assert_eq!(col.added_tick(1), 0);
+        assert_eq!(col.changed_tick(1), 0);
+    }
+
+    #[test]
+    fn column_push_with_ticks() {
+        let mut col = Column::<u32>::new();
+        col.push_with_ticks(10, 5, 7);
+        col.push_with_ticks(20, 8, 9);
+        assert_eq!(col.added_tick(0), 5);
+        assert_eq!(col.changed_tick(0), 7);
+        assert_eq!(col.added_tick(1), 8);
+        assert_eq!(col.changed_tick(1), 9);
+    }
+
+    #[test]
+    fn column_set_ticks() {
+        let mut col = Column::<u32>::new();
+        col.push(10);
+        col.set_added_tick(0, 3);
+        col.set_changed_tick(0, 5);
+        assert_eq!(col.added_tick(0), 3);
+        assert_eq!(col.changed_tick(0), 5);
+    }
+
+    #[test]
+    fn column_swap_remove_keeps_ticks_in_sync() {
+        let mut col = Column::<u32>::new();
+        col.push_with_ticks(10, 1, 2);
+        col.push_with_ticks(20, 3, 4);
+        col.push_with_ticks(30, 5, 6);
+
+        // Remove row 0 — row 2 (value=30) swaps into row 0.
+        let removed = col.swap_remove(0);
+        assert_eq!(removed, 10);
+        assert_eq!(col.len(), 2);
+        // Row 0 now holds the old row 2's data and ticks.
+        assert_eq!(*col.get(0).unwrap(), 30);
+        assert_eq!(col.added_tick(0), 5);
+        assert_eq!(col.changed_tick(0), 6);
+        // Row 1 is unchanged.
+        assert_eq!(*col.get(1).unwrap(), 20);
+        assert_eq!(col.added_tick(1), 3);
+        assert_eq!(col.changed_tick(1), 4);
+    }
+
+    #[test]
+    fn column_move_to_transfers_ticks() {
+        let mut src = Column::<u32>::new();
+        src.push_with_ticks(10, 1, 2);
+        src.push_with_ticks(20, 3, 4);
+
+        let mut dst = Column::<u32>::new();
+
+        // Move row 0 from src to dst (AnyColumn trait method).
+        AnyColumn::move_to(&mut src, 0, &mut dst);
+
+        // src: row 0 was swap-removed, row 1 (20) moved to row 0.
+        assert_eq!(src.len(), 1);
+        assert_eq!(*src.get(0).unwrap(), 20);
+        assert_eq!(src.added_tick(0), 3);
+        assert_eq!(src.changed_tick(0), 4);
+
+        // dst: received value 10 with its original ticks.
+        assert_eq!(dst.len(), 1);
+        assert_eq!(*dst.get(0).unwrap(), 10);
+        assert_eq!(dst.added_tick(0), 1);
+        assert_eq!(dst.changed_tick(0), 2);
+    }
+
+    #[test]
+    fn column_swap_remove_and_drop_keeps_ticks_in_sync() {
+        let mut col = Column::<u32>::new();
+        col.push_with_ticks(10, 1, 2);
+        col.push_with_ticks(20, 3, 4);
+
+        AnyColumn::swap_remove_and_drop(&mut col, 0);
+        assert_eq!(col.len(), 1);
+        assert_eq!(*col.get(0).unwrap(), 20);
+        assert_eq!(col.added_tick(0), 3);
+        assert_eq!(col.changed_tick(0), 4);
+    }
+
+    #[test]
+    fn column_tick_slices() {
+        let mut col = Column::<u32>::new();
+        col.push_with_ticks(10, 1, 2);
+        col.push_with_ticks(20, 3, 4);
+        assert_eq!(col.added_ticks(), &[1, 3]);
+        assert_eq!(col.changed_ticks(), &[2, 4]);
     }
 }

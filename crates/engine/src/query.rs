@@ -32,7 +32,7 @@ pub trait QuerySpecMut {
 
     fn matches(layout: &ArchetypeLayout) -> bool;
 
-    fn init_state<'w>(archetype: &'w mut Archetype) -> Option<Self::State<'w>>;
+    fn init_state<'w>(archetype: &'w mut Archetype, tick: u64) -> Option<Self::State<'w>>;
 
     fn len(state: &Self::State<'_>) -> usize;
 
@@ -44,6 +44,14 @@ pub trait QuerySpecMut {
     /// otherwise could create aliased mutable references into the same
     /// archetype column data.
     unsafe fn fetch<'w>(state: &mut Self::State<'w>, row: usize) -> Self::Item<'w>;
+
+    /// Stamp `changed_tick` on all mutable columns touched by this query at
+    /// `row`. Called by `QueryIterMut::next()` after `fetch()`.
+    ///
+    /// # Safety
+    ///
+    /// The `changed_ticks` pointers in `state` must be valid for writes at `row`.
+    unsafe fn stamp_changed(state: &mut Self::State<'_>, row: usize);
 }
 
 /// Restricts which archetypes participate in a query.
@@ -199,6 +207,7 @@ where
     archetype_len: usize,
     archetype_index: usize,
     row: usize,
+    tick: u64,
     current: Option<Q::State<'w>>,
     _filter: PhantomData<F>,
     _marker: PhantomData<&'w mut ArchetypeStore>,
@@ -209,12 +218,13 @@ where
     Q: QuerySpecMut,
     F: QueryFilter,
 {
-    pub(crate) fn new(store: &'w mut ArchetypeStore) -> Self {
+    pub(crate) fn new(store: &'w mut ArchetypeStore, tick: u64) -> Self {
         Self {
             archetype_len: store.len(),
             store,
             archetype_index: 0,
             row: 0,
+            tick,
             current: None,
             _filter: PhantomData,
             _marker: PhantomData,
@@ -234,12 +244,13 @@ where
     ///   that lives for `'w`.
     /// - The caller must guarantee exclusive mutable access to the columns
     ///   that `Q` touches (enforced by conflict detection).
-    pub(crate) unsafe fn new_from_ptr(store: *mut ArchetypeStore) -> Self {
+    pub(crate) unsafe fn new_from_ptr(store: *mut ArchetypeStore, tick: u64) -> Self {
         Self {
             archetype_len: unsafe { (*store).len() },
             store,
             archetype_index: 0,
             row: 0,
+            tick,
             current: None,
             _filter: PhantomData,
             _marker: PhantomData,
@@ -282,6 +293,9 @@ where
                     // twice, so mutable references produced for one row cannot
                     // alias later yields from the same state.
                     let item = unsafe { Q::fetch(state, row) };
+                    // SAFETY: changed_ticks pointers in state are valid for
+                    // this row (same column layout guarantees as data pointers).
+                    unsafe { Q::stamp_changed(state, row) };
                     return Some((entity, item));
                 }
                 self.current = None;
@@ -313,7 +327,7 @@ where
                 continue;
             }
 
-            self.current = Q::init_state(archetype);
+            self.current = Q::init_state(archetype, self.tick);
             self.row = 0;
         }
     }
@@ -344,6 +358,8 @@ pub type Query3MutIter<'w, A, B, C, F = NoFilter> =
 pub struct SingleMutState<'w, T> {
     entities: &'w [Entity],
     data: *mut T,
+    changed_ticks: *mut u64,
+    tick: u64,
     len: usize,
     _marker: PhantomData<&'w mut T>,
 }
@@ -353,6 +369,9 @@ pub struct PairMutState<'w, A, B> {
     entities: &'w [Entity],
     col_a: *mut A,
     col_b: *mut B,
+    changed_ticks_a: *mut u64,
+    changed_ticks_b: *mut u64,
+    tick: u64,
     len: usize,
     _marker: PhantomData<&'w mut (A, B)>,
 }
@@ -363,6 +382,10 @@ pub struct TripleMutState<'w, A, B, C> {
     col_a: *mut A,
     col_b: *mut B,
     col_c: *mut C,
+    changed_ticks_a: *mut u64,
+    changed_ticks_b: *mut u64,
+    changed_ticks_c: *mut u64,
+    tick: u64,
     len: usize,
     _marker: PhantomData<&'w mut (A, B, C)>,
 }
@@ -469,11 +492,13 @@ impl<T: Component> QuerySpecMut for &mut T {
         layout.contains(TypeId::of::<T>())
     }
 
-    fn init_state<'w>(archetype: &'w mut Archetype) -> Option<Self::State<'w>> {
+    fn init_state<'w>(archetype: &'w mut Archetype, tick: u64) -> Option<Self::State<'w>> {
         let (entities, column) = archetype.entities_and_column_mut::<T>()?;
         Some(SingleMutState {
             entities,
             data: column.as_mut_ptr(),
+            changed_ticks: column.changed_ticks_mut_ptr(),
+            tick,
             len: column.len(),
             _marker: PhantomData,
         })
@@ -493,6 +518,10 @@ impl<T: Component> QuerySpecMut for &mut T {
         // live reference produced by the same iterator.
         unsafe { &mut *state.data.add(row) }
     }
+
+    unsafe fn stamp_changed(state: &mut Self::State<'_>, row: usize) {
+        unsafe { *state.changed_ticks.add(row) = state.tick }
+    }
 }
 
 impl<A: Component, B: Component> QuerySpecMut for (&mut A, &mut B) {
@@ -504,12 +533,15 @@ impl<A: Component, B: Component> QuerySpecMut for (&mut A, &mut B) {
         layout.contains(TypeId::of::<A>()) && layout.contains(TypeId::of::<B>())
     }
 
-    fn init_state<'w>(archetype: &'w mut Archetype) -> Option<Self::State<'w>> {
+    fn init_state<'w>(archetype: &'w mut Archetype, tick: u64) -> Option<Self::State<'w>> {
         let (entities, col_a, col_b) = archetype.entities_and_two_columns_mut::<A, B>()?;
         Some(PairMutState {
             entities,
             col_a: col_a.as_mut_ptr(),
             col_b: col_b.as_mut_ptr(),
+            changed_ticks_a: col_a.changed_ticks_mut_ptr(),
+            changed_ticks_b: col_b.changed_ticks_mut_ptr(),
+            tick,
             len: entities.len(),
             _marker: PhantomData,
         })
@@ -528,6 +560,13 @@ impl<A: Component, B: Component> QuerySpecMut for (&mut A, &mut B) {
         // and `QueryIterMut` guarantees each row is yielded once.
         unsafe { (&mut *state.col_a.add(row), &mut *state.col_b.add(row)) }
     }
+
+    unsafe fn stamp_changed(state: &mut Self::State<'_>, row: usize) {
+        unsafe {
+            *state.changed_ticks_a.add(row) = state.tick;
+            *state.changed_ticks_b.add(row) = state.tick;
+        }
+    }
 }
 
 impl<A: Component, B: Component, C: Component> QuerySpecMut for (&mut A, &mut B, &mut C) {
@@ -541,7 +580,7 @@ impl<A: Component, B: Component, C: Component> QuerySpecMut for (&mut A, &mut B,
             && layout.contains(TypeId::of::<C>())
     }
 
-    fn init_state<'w>(archetype: &'w mut Archetype) -> Option<Self::State<'w>> {
+    fn init_state<'w>(archetype: &'w mut Archetype, tick: u64) -> Option<Self::State<'w>> {
         let (entities, col_a, col_b, col_c) =
             archetype.entities_and_three_columns_mut::<A, B, C>()?;
         Some(TripleMutState {
@@ -549,6 +588,10 @@ impl<A: Component, B: Component, C: Component> QuerySpecMut for (&mut A, &mut B,
             col_a: col_a.as_mut_ptr(),
             col_b: col_b.as_mut_ptr(),
             col_c: col_c.as_mut_ptr(),
+            changed_ticks_a: col_a.changed_ticks_mut_ptr(),
+            changed_ticks_b: col_b.changed_ticks_mut_ptr(),
+            changed_ticks_c: col_c.changed_ticks_mut_ptr(),
+            tick,
             len: entities.len(),
             _marker: PhantomData,
         })
@@ -571,6 +614,122 @@ impl<A: Component, B: Component, C: Component> QuerySpecMut for (&mut A, &mut B,
                 &mut *state.col_b.add(row),
                 &mut *state.col_c.add(row),
             )
+        }
+    }
+
+    unsafe fn stamp_changed(state: &mut Self::State<'_>, row: usize) {
+        unsafe {
+            *state.changed_ticks_a.add(row) = state.tick;
+            *state.changed_ticks_b.add(row) = state.tick;
+            *state.changed_ticks_c.add(row) = state.tick;
+        }
+    }
+}
+
+// =============================================================================
+// Change-detection iterators
+// =============================================================================
+
+/// Iterator yielding entities whose component `T` has a `changed_tick > since_tick`.
+pub struct ChangedIter<'w, T: Component> {
+    store: &'w ArchetypeStore,
+    archetype_index: usize,
+    row: usize,
+    since_tick: u64,
+    current: Option<(&'w [Entity], &'w Column<T>)>,
+}
+
+impl<'w, T: Component> ChangedIter<'w, T> {
+    pub(crate) fn new(store: &'w ArchetypeStore, since_tick: u64) -> Self {
+        Self {
+            store,
+            archetype_index: 0,
+            row: 0,
+            since_tick,
+            current: None,
+        }
+    }
+}
+
+impl<'w, T: Component> Iterator for ChangedIter<'w, T> {
+    type Item = (Entity, &'w T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some((entities, col)) = &self.current {
+                while self.row < entities.len() {
+                    let row = self.row;
+                    self.row += 1;
+                    if col.changed_tick(row) > self.since_tick {
+                        return Some((entities[row], col.get(row).unwrap()));
+                    }
+                }
+                self.current = None;
+            }
+
+            let archetype = self.store.get_by_index(self.archetype_index)?;
+            self.archetype_index += 1;
+
+            if !archetype.layout().contains(TypeId::of::<T>()) {
+                continue;
+            }
+
+            if let (Some(col), entities) = (archetype.column::<T>(), archetype.entities()) {
+                self.current = Some((entities, col));
+                self.row = 0;
+            }
+        }
+    }
+}
+
+/// Iterator yielding entities whose component `T` has an `added_tick > since_tick`.
+pub struct AddedIter<'w, T: Component> {
+    store: &'w ArchetypeStore,
+    archetype_index: usize,
+    row: usize,
+    since_tick: u64,
+    current: Option<(&'w [Entity], &'w Column<T>)>,
+}
+
+impl<'w, T: Component> AddedIter<'w, T> {
+    pub(crate) fn new(store: &'w ArchetypeStore, since_tick: u64) -> Self {
+        Self {
+            store,
+            archetype_index: 0,
+            row: 0,
+            since_tick,
+            current: None,
+        }
+    }
+}
+
+impl<'w, T: Component> Iterator for AddedIter<'w, T> {
+    type Item = (Entity, &'w T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some((entities, col)) = &self.current {
+                while self.row < entities.len() {
+                    let row = self.row;
+                    self.row += 1;
+                    if col.added_tick(row) > self.since_tick {
+                        return Some((entities[row], col.get(row).unwrap()));
+                    }
+                }
+                self.current = None;
+            }
+
+            let archetype = self.store.get_by_index(self.archetype_index)?;
+            self.archetype_index += 1;
+
+            if !archetype.layout().contains(TypeId::of::<T>()) {
+                continue;
+            }
+
+            if let (Some(col), entities) = (archetype.column::<T>(), archetype.entities()) {
+                self.current = Some((entities, col));
+                self.row = 0;
+            }
         }
     }
 }

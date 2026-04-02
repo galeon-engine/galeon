@@ -68,6 +68,10 @@ pub fn tick(world: &mut World, schedule: &mut Schedule, elapsed: f64) -> u32 {
         ts.tick_count += 1;
         ticks += 1;
 
+        // Advance the change-detection tick so mutations during this
+        // schedule run get a fresh stamp.
+        world.advance_tick();
+
         // Re-insert timestep so systems can read it during this tick.
         world.insert_resource(FixedTimestep {
             step: ts.step,

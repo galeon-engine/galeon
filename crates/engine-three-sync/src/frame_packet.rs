@@ -30,7 +30,17 @@ pub struct FramePacket {
     pub material_handles: Vec<u32>,
     /// Named per-entity float channels for game-specific render data.
     pub custom_channels: HashMap<String, ChannelData>,
+    /// Per-entity change flags for incremental extraction.
+    /// Bit 0: transform, Bit 1: visibility, Bit 2: mesh, Bit 3: material.
+    /// Empty for full extractions.
+    pub change_flags: Vec<u8>,
 }
+
+/// Change-flag bit positions.
+pub const CHANGED_TRANSFORM: u8 = 1 << 0;
+pub const CHANGED_VISIBILITY: u8 = 1 << 1;
+pub const CHANGED_MESH: u8 = 1 << 2;
+pub const CHANGED_MATERIAL: u8 = 1 << 3;
 
 /// Number of f32 values per entity in the transforms array.
 pub const TRANSFORM_STRIDE: usize = 10;
@@ -46,6 +56,7 @@ impl FramePacket {
             mesh_handles: Vec::new(),
             material_handles: Vec::new(),
             custom_channels: HashMap::new(),
+            change_flags: Vec::new(),
         }
     }
 
@@ -59,6 +70,7 @@ impl FramePacket {
             mesh_handles: Vec::with_capacity(entity_count),
             material_handles: Vec::with_capacity(entity_count),
             custom_channels: HashMap::new(),
+            change_flags: Vec::with_capacity(entity_count),
         }
     }
 
@@ -83,6 +95,33 @@ impl FramePacket {
         self.visibility.push(visible as u8);
         self.mesh_handles.push(mesh_id);
         self.material_handles.push(material_id);
+    }
+
+    /// Push render data with change flags (incremental extraction).
+    #[allow(clippy::too_many_arguments)]
+    pub fn push_incremental(
+        &mut self,
+        entity_id: u32,
+        generation: u32,
+        position: &[f32; 3],
+        rotation: &[f32; 4],
+        scale: &[f32; 3],
+        visible: bool,
+        mesh_id: u32,
+        material_id: u32,
+        flags: u8,
+    ) {
+        self.push(
+            entity_id,
+            generation,
+            position,
+            rotation,
+            scale,
+            visible,
+            mesh_id,
+            material_id,
+        );
+        self.change_flags.push(flags);
     }
 
     /// Number of entities in this packet.
@@ -165,7 +204,6 @@ mod tests {
             },
         );
         assert_eq!(p.channel_count(), 2);
-        // channel_names() must be sorted alphabetically
         assert_eq!(p.channel_names(), vec!["anim", "wear"]);
     }
 
@@ -192,8 +230,8 @@ mod tests {
         assert_eq!(p.entity_ids[0], 42);
         assert_eq!(p.entity_generations[0], 0);
         assert_eq!(p.transforms.len(), TRANSFORM_STRIDE);
-        assert_eq!(p.transforms[0], 1.0); // pos.x
-        assert_eq!(p.transforms[6], 1.0); // rot.w
+        assert_eq!(p.transforms[0], 1.0);
+        assert_eq!(p.transforms[6], 1.0);
         assert_eq!(p.visibility[0], 1);
         assert_eq!(p.mesh_handles[0], 10);
         assert_eq!(p.material_handles[0], 20);
@@ -224,6 +262,6 @@ mod tests {
         );
         assert_eq!(p.entity_count(), 2);
         assert_eq!(p.transforms.len(), TRANSFORM_STRIDE * 2);
-        assert_eq!(p.visibility[1], 0); // false
+        assert_eq!(p.visibility[1], 0);
     }
 }

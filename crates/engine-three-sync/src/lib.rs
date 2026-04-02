@@ -4,8 +4,11 @@ mod extract;
 mod frame_packet;
 mod snapshot;
 
-pub use extract::extract_frame;
-pub use frame_packet::{ChannelData, FramePacket, TRANSFORM_STRIDE};
+pub use extract::{extract_frame, extract_frame_incremental};
+pub use frame_packet::{
+    CHANGED_MATERIAL, CHANGED_MESH, CHANGED_TRANSFORM, CHANGED_VISIBILITY, ChannelData,
+    FramePacket, TRANSFORM_STRIDE,
+};
 pub use snapshot::{
     DebugSnapshot, EntitySnapshot, TransformSnapshot, extract_debug_snapshot, snapshot_to_json,
 };
