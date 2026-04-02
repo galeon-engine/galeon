@@ -64,10 +64,14 @@ for (entity, pos) in world.query::<&Position>() {
 Modify components:
 
 ```rust
-for (entity, pos) in world.query_mut::<&mut Position>() {
+for (entity, mut pos) in world.query_mut::<&mut Position>() {
     pos.x += 1.0;
 }
 ```
+
+Mutable queries yield `Mut<T>` smart pointers. Reading via `Deref` does not
+flag the component as changed; only writing via `DerefMut` does. This means
+`query_changed` only reports entities that were actually mutated.
 
 Query two components at once:
 
@@ -103,7 +107,7 @@ for (entity, (pos, vel, hp)) in world.query::<(&Position, &Velocity, &Health)>()
 Query three components (mutable):
 
 ```rust
-for (entity, (pos, vel, hp)) in world.query_mut::<(&mut Position, &mut Velocity, &mut Health)>() {
+for (entity, (mut pos, mut vel, mut hp)) in world.query_mut::<(&mut Position, &mut Velocity, &mut Health)>() {
     pos.x += vel.x;
     hp.current -= 1;
 }
@@ -116,7 +120,7 @@ if let Some((health, vel)) = world.one::<(&Health, &Velocity)>(unit) {
     println!("HP: {}/{}", health.current, health.max);
 }
 
-if let Some(health) = world.one_mut::<&mut Health>(unit) {
+if let Some(mut health) = world.one_mut::<&mut Health>(unit) {
     health.current -= 10;
 }
 ```
@@ -234,6 +238,32 @@ struct Position { x: f32, y: f32 }
 ```
 
 The `#[derive(Component)]` macro generates the trait impl automatically.
+
+## Change Detection
+
+Every component column stores a per-row `changed_tick`. When you write through
+a `Mut<T>` (via `DerefMut`), the tick is stamped at the current world tick.
+Read-only access via `Deref` does not stamp.
+
+```rust
+// Only entities whose Position changed after `since_tick`:
+for (entity, pos) in world.query_changed::<Position>(since_tick) {
+    // pos was actually mutated
+}
+```
+
+### Interior mutability
+
+Components that use interior mutability (`AtomicUsize`, `Mutex<T>`) can be
+mutated through `Deref` without triggering `DerefMut`. Call `set_changed()`
+explicitly to ensure change detection sees the modification:
+
+```rust
+for (_, mut counter) in world.query_mut::<&mut AtomicCounter>() {
+    counter.0.fetch_add(1, Ordering::Relaxed); // interior mutation
+    counter.set_changed(); // manual stamp
+}
+```
 
 ## Modifying Component Sets
 

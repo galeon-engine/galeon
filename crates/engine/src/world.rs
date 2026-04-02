@@ -1394,6 +1394,54 @@ mod tests {
         assert_eq!(changed[0], e1);
     }
 
+    #[test]
+    fn set_changed_stamps_for_interior_mutability() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        #[derive(Debug)]
+        struct Counter(AtomicUsize);
+        impl crate::Component for Counter {}
+
+        let mut world = World::new();
+        let e = world.spawn((Counter(AtomicUsize::new(0)),));
+        world.advance_tick(); // tick → 2
+
+        // Mutate through interior mutability (Deref, not DerefMut).
+        for (_, mut counter) in world.query_mut::<&mut Counter>() {
+            counter.0.fetch_add(1, Ordering::Relaxed); // via Deref — no auto stamp
+            counter.set_changed(); // explicit stamp
+        }
+
+        // query_changed sees the entity because set_changed was called.
+        let changed: Vec<Entity> = world.query_changed::<Counter>(1).map(|(e, _)| e).collect();
+        assert_eq!(changed, vec![e]);
+    }
+
+    #[test]
+    fn interior_mutation_without_set_changed_is_invisible() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        #[derive(Debug)]
+        struct Counter(AtomicUsize);
+        impl crate::Component for Counter {}
+
+        let mut world = World::new();
+        let _e = world.spawn((Counter(AtomicUsize::new(0)),));
+        world.advance_tick(); // tick → 2
+
+        // Mutate through interior mutability WITHOUT set_changed.
+        for (_, counter) in world.query_mut::<&mut Counter>() {
+            counter.0.fetch_add(1, Ordering::Relaxed);
+            // No set_changed — change detection will NOT see this.
+        }
+
+        let changed: Vec<Entity> = world.query_changed::<Counter>(1).map(|(e, _)| e).collect();
+        assert!(
+            changed.is_empty(),
+            "interior mutation without set_changed should be invisible"
+        );
+    }
+
     // ---- query_changed / query_added ----------------------------------------
 
     #[test]

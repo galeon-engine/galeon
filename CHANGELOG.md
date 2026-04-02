@@ -9,6 +9,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`Mut<T>` smart pointer for lazy change-tick stamping** — mutable queries now yield `Mut<T>`
+  instead of `&mut T`. Reading via `Deref` does not stamp `changed_tick`; only writing via
+  `DerefMut` does. `query_changed` and `extract_frame_incremental` now see only entities that
+  were actually mutated. `Mut::set_changed()` is available for components using interior
+  mutability (atomics, locks).
+  ([#92](https://github.com/galeon-engine/galeon/issues/92))
 - **Galeon CLI (`galeon new`)** — binary crate `galeon-cli` provides `galeon new <project> --preset <preset>`
   to scaffold a complete Galeon game project with protocol, domain, server, and db crates.
   Three presets: `server-authoritative`, `local-first`, `hybrid`.
@@ -47,6 +53,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **BREAKING: Mutable query item type changed from `&mut T` to `Mut<T>`** — `QueryIterMut`,
+  `World::query_mut`, `World::one_mut`, and `World::get_mut` now return `Mut<T>` wrappers.
+  Direct callers need `mut` bindings (e.g., `for (_, mut pos) in world.query_mut::<&mut Pos>()`).
+  `QueryMut` system parameter (`fn(QueryMut<T>)`) is transparent — `&mut Mut<T>` auto-derefs.
+  ([#92](https://github.com/galeon-engine/galeon/issues/92))
 - **BREAKING: Protocol manifest/descriptors now carry surface grouping** — manifest schema version
   is now `2`, manifests expose `default_surface` plus resolved `surfaces`, and
   `generate_descriptors(&manifest)` returns per-surface descriptor groups instead of one flat list.

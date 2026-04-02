@@ -13,10 +13,31 @@ use crate::entity::Entity;
 /// through it leaves the component's `changed_tick` untouched, so
 /// `query_changed` and incremental extraction see only entities that were
 /// actually mutated.
+///
+/// # Interior mutability
+///
+/// Components that use interior mutability (`AtomicUsize`, `Mutex<T>`, etc.)
+/// can be mutated through `Deref` without triggering `DerefMut`. In that
+/// case, call [`set_changed()`](Mut::set_changed) explicitly to stamp the
+/// change tick and ensure `query_changed` reports the modification.
 pub struct Mut<'w, T> {
     value: &'w mut T,
     changed_tick: *mut u64,
     tick: u64,
+}
+
+impl<T> Mut<'_, T> {
+    /// Manually stamp this component's `changed_tick` at the current tick.
+    ///
+    /// Use this when mutating through interior mutability (e.g., atomics)
+    /// where `DerefMut` is not triggered. Has no effect if the component
+    /// was already stamped by `DerefMut` in the same tick.
+    pub fn set_changed(&mut self) {
+        // SAFETY: same as DerefMut — pointer is valid for this row.
+        unsafe {
+            *self.changed_tick = self.tick;
+        }
+    }
 }
 
 impl<T> Deref for Mut<'_, T> {
