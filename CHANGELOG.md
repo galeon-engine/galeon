@@ -13,6 +13,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   to scaffold a complete Galeon game project with protocol, domain, server, and db crates.
   Three presets: `server-authoritative`, `local-first`, `hybrid`.
   ([#71](https://github.com/galeon-engine/galeon/issues/71))
+- **Protocol surface metadata** — protocol attribute macros now accept `surface = "..."` and
+  `surfaces = ["...", "..."]`, `ProtocolManifest::collect_with_default_surface(...)` can rename
+  the implicit default surface, and manifest entries record explicit surface memberships for
+  multi-API projects.
+  ([#82](https://github.com/galeon-engine/galeon/issues/82))
 - **Deadline scheduler** — UTC-based timed event firing. `Timestamp` (microseconds since epoch),
   `Clock` trait with `SystemClock` and `TestClock`, `Deadlines<T>` sorted resource, `DeadlineId`
   for cancellation. Integrates with Events API — fired deadlines become `Events<T>` readable via
@@ -42,6 +47,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **BREAKING: Protocol manifest/descriptors now carry surface grouping** — manifest schema version
+  is now `2`, manifests expose `default_surface` plus resolved `surfaces`, and
+  `generate_descriptors(&manifest)` returns per-surface descriptor groups instead of one flat list.
+  Single-surface projects still work without annotations; multi-surface projects now keep shared
+  items explicit instead of flattening everything into one generated surface.
+  ([#82](https://github.com/galeon-engine/galeon/issues/82))
 - **BREAKING: `protocol::Query` renamed to `protocol::ProtocolQuery`** — frees up the `Query`
   name for the ECS system parameter. Code using `galeon_engine::Query` as the protocol trait must
   update to `galeon_engine::ProtocolQuery`. The `#[galeon::query]` attribute macro is unchanged.

@@ -26,10 +26,16 @@ pub struct ShipArrived {
 }
 
 /// Snapshot of a single ship's view data.
-#[galeon_engine::dto]
+#[galeon_engine::dto(surfaces = ["authority", "gameplay"])]
 pub struct ShipView {
     pub ship_id: u64,
     pub name: String,
+}
+
+/// Approve a port-side administrative action.
+#[galeon_engine::command(surface = "authority")]
+pub struct ApprovePort {
+    pub port_id: u64,
 }
 
 // --- Tests ---
@@ -48,8 +54,9 @@ fn manifest_collects_all_items() {
 fn manifest_has_correct_versions() {
     let manifest = ProtocolManifest::collect("moonbarons-protocol@0.1");
 
-    assert_eq!(manifest.manifest_version, "1");
+    assert_eq!(manifest.manifest_version, "2");
     assert_eq!(manifest.protocol_version, "moonbarons-protocol@0.1");
+    assert_eq!(manifest.default_surface, "default");
 }
 
 #[test]
@@ -113,6 +120,10 @@ fn manifest_dto_entry_has_fields() {
     assert_eq!(dto.fields[0].name, "ship_id");
     assert_eq!(dto.fields[1].name, "name");
     assert_eq!(dto.fields[1].ty, "String");
+    assert_eq!(
+        dto.surfaces,
+        vec!["authority".to_string(), "gameplay".to_string()]
+    );
 }
 
 #[test]
@@ -139,12 +150,16 @@ fn manifest_json_roundtrip() {
 
     // Verify it's valid JSON that round-trips.
     let back: ProtocolManifest = serde_json::from_str(&json).unwrap();
-    assert_eq!(back.manifest_version, "1");
+    assert_eq!(back.manifest_version, "2");
     assert_eq!(back.protocol_version, "test@0.1");
+    assert_eq!(back.default_surface, "default");
+    assert!(back.surfaces.contains(&"default".to_string()));
+    assert!(back.surfaces.contains(&"authority".to_string()));
 
     // Verify pretty-printed and human-readable.
     assert!(json.contains('\n'), "should be pretty-printed");
     assert!(json.contains("DispatchShip"));
+    assert!(json.contains("\"surfaces\""));
 }
 
 #[test]
@@ -153,6 +168,41 @@ fn manifest_ron_roundtrip() {
     let ron_str = manifest.to_ron_pretty().unwrap();
 
     let back: ProtocolManifest = ron::from_str(&ron_str).unwrap();
-    assert_eq!(back.manifest_version, "1");
+    assert_eq!(back.manifest_version, "2");
     assert_eq!(back.protocol_version, "test@0.1");
+}
+
+#[test]
+fn manifest_collects_surface_membership() {
+    let manifest = ProtocolManifest::collect("test@0.1");
+
+    let admin_command = manifest
+        .commands
+        .iter()
+        .find(|entry| entry.name == "ApprovePort")
+        .expect("ApprovePort should be in commands");
+
+    assert_eq!(admin_command.surfaces, vec!["authority".to_string()]);
+}
+
+#[test]
+fn manifest_collects_named_surfaces_with_custom_default() {
+    let manifest = ProtocolManifest::collect_with_default_surface("test@0.1", "gameplay");
+
+    assert_eq!(manifest.default_surface, "gameplay");
+    assert_eq!(
+        manifest.surfaces,
+        vec!["authority".to_string(), "gameplay".to_string()]
+    );
+
+    let default_command = manifest
+        .commands
+        .iter()
+        .find(|entry| entry.name == "DispatchShip")
+        .expect("DispatchShip should be in commands");
+    assert!(ProtocolManifest::entry_belongs_to_surface(
+        default_command,
+        "gameplay",
+        &manifest.default_surface
+    ));
 }

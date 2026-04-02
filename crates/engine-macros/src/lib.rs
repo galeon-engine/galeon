@@ -4,6 +4,7 @@ use proc_macro::TokenStream;
 use proc_macro_crate::{FoundCrate, crate_name};
 use quote::quote;
 use syn::spanned::Spanned;
+use syn::{Token, parse::Parser, punctuated::Punctuated};
 
 /// Resolve the `galeon-engine` crate path as used by the consumer.
 /// Handles renames like `engine = { package = "galeon-engine" }`.
@@ -92,8 +93,97 @@ fn type_to_string(ty: &syn::Type) -> String {
         .replace(":: ", "::")
 }
 
+/// Parse optional `surface = "..."` or `surfaces = ["...", "..."]` arguments.
+fn parse_surfaces(attr: TokenStream) -> Result<Vec<String>, syn::Error> {
+    if attr.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let parser = Punctuated::<syn::MetaNameValue, Token![,]>::parse_terminated;
+    let args = parser.parse(attr)?;
+    let mut surfaces = Vec::new();
+    let mut saw_surface = false;
+    let mut saw_surfaces = false;
+
+    for arg in args {
+        if arg.path.is_ident("surface") {
+            if saw_surfaces {
+                return Err(syn::Error::new(
+                    arg.path.span(),
+                    "use either `surface = \"...\"` or `surfaces = [..]`, not both",
+                ));
+            }
+            if saw_surface {
+                return Err(syn::Error::new(
+                    arg.path.span(),
+                    "`surface` may only be specified once",
+                ));
+            }
+            let syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Str(surface),
+                ..
+            }) = arg.value
+            else {
+                return Err(syn::Error::new(
+                    arg.path.span(),
+                    "`surface` must be a string literal",
+                ));
+            };
+            saw_surface = true;
+            surfaces.push(surface.value());
+            continue;
+        }
+
+        if arg.path.is_ident("surfaces") {
+            if saw_surface {
+                return Err(syn::Error::new(
+                    arg.path.span(),
+                    "use either `surface = \"...\"` or `surfaces = [..]`, not both",
+                ));
+            }
+            if saw_surfaces {
+                return Err(syn::Error::new(
+                    arg.path.span(),
+                    "`surfaces` may only be specified once",
+                ));
+            }
+            let syn::Expr::Array(array) = arg.value else {
+                return Err(syn::Error::new(
+                    arg.path.span(),
+                    "`surfaces` must be an array of string literals",
+                ));
+            };
+            for elem in array.elems {
+                let syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Str(surface),
+                    ..
+                }) = elem
+                else {
+                    return Err(syn::Error::new(
+                        arg.path.span(),
+                        "`surfaces` must be an array of string literals",
+                    ));
+                };
+                surfaces.push(surface.value());
+            }
+            saw_surfaces = true;
+            continue;
+        }
+
+        return Err(syn::Error::new(
+            arg.path.span(),
+            "unsupported protocol attribute argument; expected `surface` or `surfaces`",
+        ));
+    }
+
+    surfaces.sort();
+    surfaces.dedup();
+    Ok(surfaces)
+}
+
 /// Shared implementation for protocol attribute macros.
 fn protocol_attr(
+    attr: TokenStream,
     input: TokenStream,
     marker_trait: &str,
     kind_variant: &str,
@@ -118,6 +208,14 @@ fn protocol_attr(
 
     let marker_trait_ident = syn::Ident::new(marker_trait, proc_macro2::Span::call_site());
     let kind_variant_ident = syn::Ident::new(kind_variant, proc_macro2::Span::call_site());
+    let surfaces = match parse_surfaces(attr) {
+        Ok(surfaces) => surfaces,
+        Err(e) => return e.to_compile_error().into(),
+    };
+    let surface_literals: Vec<syn::LitStr> = surfaces
+        .iter()
+        .map(|surface| syn::LitStr::new(surface, proc_macro2::Span::call_site()))
+        .collect();
 
     let extra: Vec<syn::Path> = extra_derives
         .iter()
@@ -169,6 +267,7 @@ fn protocol_attr(
                 kind: #krate::protocol::ProtocolKind::#kind_variant_ident,
                 fields: &[#(#field_entries),*],
                 doc: #doc_str,
+                surfaces: &[#(#surface_literals),*],
             }
         }
     };
@@ -190,8 +289,8 @@ fn protocol_attr(
 /// }
 /// ```
 #[proc_macro_attribute]
-pub fn command(_attr: TokenStream, input: TokenStream) -> TokenStream {
-    protocol_attr(input, "Command", "Command", &[])
+pub fn command(attr: TokenStream, input: TokenStream) -> TokenStream {
+    protocol_attr(attr, input, "Command", "Command", &[])
 }
 
 /// Marks a struct as a protocol **query** (read-only request).
@@ -205,8 +304,8 @@ pub fn command(_attr: TokenStream, input: TokenStream) -> TokenStream {
 /// pub struct GetFleetSnapshot;
 /// ```
 #[proc_macro_attribute]
-pub fn query(_attr: TokenStream, input: TokenStream) -> TokenStream {
-    protocol_attr(input, "ProtocolQuery", "Query", &[])
+pub fn query(attr: TokenStream, input: TokenStream) -> TokenStream {
+    protocol_attr(attr, input, "ProtocolQuery", "Query", &[])
 }
 
 /// Marks a struct as a protocol **event** (authoritative fact).
@@ -223,8 +322,8 @@ pub fn query(_attr: TokenStream, input: TokenStream) -> TokenStream {
 /// }
 /// ```
 #[proc_macro_attribute]
-pub fn event(_attr: TokenStream, input: TokenStream) -> TokenStream {
-    protocol_attr(input, "Event", "Event", &[])
+pub fn event(attr: TokenStream, input: TokenStream) -> TokenStream {
+    protocol_attr(attr, input, "Event", "Event", &[])
 }
 
 /// Marks a struct as a protocol **DTO** (boundary-facing data structure).
@@ -240,6 +339,6 @@ pub fn event(_attr: TokenStream, input: TokenStream) -> TokenStream {
 /// }
 /// ```
 #[proc_macro_attribute]
-pub fn dto(_attr: TokenStream, input: TokenStream) -> TokenStream {
-    protocol_attr(input, "Dto", "Dto", &["Clone"])
+pub fn dto(attr: TokenStream, input: TokenStream) -> TokenStream {
+    protocol_attr(attr, input, "Dto", "Dto", &["Clone"])
 }

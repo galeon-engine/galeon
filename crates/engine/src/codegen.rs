@@ -163,11 +163,29 @@ pub struct ProtocolDescriptor {
     pub fields: Vec<ManifestField>,
 }
 
+/// A per-surface descriptor group.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SurfaceDescriptorSet {
+    /// Surface name these descriptors belong to.
+    pub name: String,
+    /// Commands, queries, and events reachable from this surface.
+    pub descriptors: Vec<ProtocolDescriptor>,
+}
+
 /// A complete set of protocol descriptors for a project.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProtocolDescriptorSet {
     pub protocol_version: String,
-    pub descriptors: Vec<ProtocolDescriptor>,
+    pub surfaces: Vec<SurfaceDescriptorSet>,
+}
+
+impl ProtocolDescriptorSet {
+    /// Iterate all descriptors across every surface group.
+    pub fn iter_descriptors(&self) -> impl Iterator<Item = &ProtocolDescriptor> {
+        self.surfaces
+            .iter()
+            .flat_map(|surface| surface.descriptors.iter())
+    }
 }
 
 /// Convert a PascalCase name to a kebab-case route segment.
@@ -189,49 +207,76 @@ fn to_kebab_case(name: &str) -> String {
 /// - Queries → `GET /queries/<kebab-name>` (POST if has fields)
 /// - Events → `GET /events/<kebab-name>` (stream subscription)
 pub fn generate_descriptors(manifest: &ProtocolManifest) -> ProtocolDescriptorSet {
-    let mut descriptors = Vec::new();
+    let mut surfaces = Vec::new();
 
-    for entry in &manifest.commands {
-        let slug = to_kebab_case(&entry.name);
-        descriptors.push(ProtocolDescriptor {
-            name: entry.name.clone(),
-            kind: ProtocolKind::Command,
-            route: format!("/commands/{}", slug),
-            method: HttpMethod::Post,
-            fields: entry.fields.clone(),
-        });
-    }
+    for surface_name in &manifest.surfaces {
+        let mut descriptors = Vec::new();
 
-    for entry in &manifest.queries {
-        let slug = to_kebab_case(&entry.name);
-        let method = if entry.fields.is_empty() {
-            HttpMethod::Get
-        } else {
-            HttpMethod::Post
-        };
-        descriptors.push(ProtocolDescriptor {
-            name: entry.name.clone(),
-            kind: ProtocolKind::Query,
-            route: format!("/queries/{}", slug),
-            method,
-            fields: entry.fields.clone(),
-        });
-    }
+        for entry in manifest.commands.iter().filter(|entry| {
+            ProtocolManifest::entry_belongs_to_surface(
+                entry,
+                surface_name,
+                &manifest.default_surface,
+            )
+        }) {
+            let slug = to_kebab_case(&entry.name);
+            descriptors.push(ProtocolDescriptor {
+                name: entry.name.clone(),
+                kind: ProtocolKind::Command,
+                route: format!("/commands/{}", slug),
+                method: HttpMethod::Post,
+                fields: entry.fields.clone(),
+            });
+        }
 
-    for entry in &manifest.events {
-        let slug = to_kebab_case(&entry.name);
-        descriptors.push(ProtocolDescriptor {
-            name: entry.name.clone(),
-            kind: ProtocolKind::Event,
-            route: format!("/events/{}", slug),
-            method: HttpMethod::Get,
-            fields: entry.fields.clone(),
+        for entry in manifest.queries.iter().filter(|entry| {
+            ProtocolManifest::entry_belongs_to_surface(
+                entry,
+                surface_name,
+                &manifest.default_surface,
+            )
+        }) {
+            let slug = to_kebab_case(&entry.name);
+            let method = if entry.fields.is_empty() {
+                HttpMethod::Get
+            } else {
+                HttpMethod::Post
+            };
+            descriptors.push(ProtocolDescriptor {
+                name: entry.name.clone(),
+                kind: ProtocolKind::Query,
+                route: format!("/queries/{}", slug),
+                method,
+                fields: entry.fields.clone(),
+            });
+        }
+
+        for entry in manifest.events.iter().filter(|entry| {
+            ProtocolManifest::entry_belongs_to_surface(
+                entry,
+                surface_name,
+                &manifest.default_surface,
+            )
+        }) {
+            let slug = to_kebab_case(&entry.name);
+            descriptors.push(ProtocolDescriptor {
+                name: entry.name.clone(),
+                kind: ProtocolKind::Event,
+                route: format!("/events/{}", slug),
+                method: HttpMethod::Get,
+                fields: entry.fields.clone(),
+            });
+        }
+
+        surfaces.push(SurfaceDescriptorSet {
+            name: surface_name.clone(),
+            descriptors,
         });
     }
 
     ProtocolDescriptorSet {
         protocol_version: manifest.protocol_version.clone(),
-        descriptors,
+        surfaces,
     }
 }
 
@@ -284,8 +329,10 @@ mod tests {
 
     fn sample_manifest() -> ProtocolManifest {
         ProtocolManifest {
-            manifest_version: "1".into(),
+            manifest_version: "2".into(),
             protocol_version: "test@0.1".into(),
+            default_surface: "default".into(),
+            surfaces: vec!["default".into()],
             commands: vec![ManifestEntry {
                 name: "DispatchShip".into(),
                 kind: ProtocolKind::Command,
@@ -300,12 +347,14 @@ mod tests {
                     },
                 ],
                 doc: "Dispatch a ship to a contract.".into(),
+                surfaces: vec![],
             }],
             queries: vec![ManifestEntry {
                 name: "GetFleetSnapshot".into(),
                 kind: ProtocolKind::Query,
                 fields: vec![],
                 doc: "Get fleet status.".into(),
+                surfaces: vec![],
             }],
             events: vec![ManifestEntry {
                 name: "ShipArrived".into(),
@@ -321,6 +370,7 @@ mod tests {
                     },
                 ],
                 doc: "".into(),
+                surfaces: vec![],
             }],
             dtos: vec![ManifestEntry {
                 name: "FleetSnapshot".into(),
@@ -336,7 +386,51 @@ mod tests {
                     },
                 ],
                 doc: "Fleet overview.".into(),
+                surfaces: vec![],
             }],
+        }
+    }
+
+    fn sample_multi_surface_manifest() -> ProtocolManifest {
+        ProtocolManifest {
+            manifest_version: "2".into(),
+            protocol_version: "test@0.1".into(),
+            default_surface: "gameplay".into(),
+            surfaces: vec!["authority".into(), "gameplay".into()],
+            commands: vec![
+                ManifestEntry {
+                    name: "DispatchShip".into(),
+                    kind: ProtocolKind::Command,
+                    fields: vec![ManifestField {
+                        name: "ship_id".into(),
+                        ty: "u64".into(),
+                    }],
+                    doc: "".into(),
+                    surfaces: vec![],
+                },
+                ManifestEntry {
+                    name: "ApprovePort".into(),
+                    kind: ProtocolKind::Command,
+                    fields: vec![ManifestField {
+                        name: "port_id".into(),
+                        ty: "u64".into(),
+                    }],
+                    doc: "".into(),
+                    surfaces: vec!["authority".into()],
+                },
+            ],
+            queries: vec![],
+            events: vec![ManifestEntry {
+                name: "ShipArrived".into(),
+                kind: ProtocolKind::Event,
+                fields: vec![ManifestField {
+                    name: "ship_id".into(),
+                    ty: "u64".into(),
+                }],
+                doc: "".into(),
+                surfaces: vec!["authority".into(), "gameplay".into()],
+            }],
+            dtos: vec![],
         }
     }
 
@@ -371,8 +465,10 @@ mod tests {
     #[test]
     fn generate_ts_empty_manifest() {
         let manifest = ProtocolManifest {
-            manifest_version: "1".into(),
+            manifest_version: "2".into(),
             protocol_version: "empty@0.0".into(),
+            default_surface: "default".into(),
+            surfaces: vec![],
             commands: vec![],
             queries: vec![],
             events: vec![],
@@ -398,10 +494,12 @@ mod tests {
         let descs = generate_descriptors(&sample_manifest());
 
         assert_eq!(descs.protocol_version, "test@0.1");
+        assert_eq!(descs.surfaces.len(), 1);
+        assert_eq!(descs.surfaces[0].name, "default");
         // DTOs are type-only — no descriptor (3 = command + query + event)
-        assert_eq!(descs.descriptors.len(), 3);
+        assert_eq!(descs.surfaces[0].descriptors.len(), 3);
 
-        let cmd = descs
+        let cmd = descs.surfaces[0]
             .descriptors
             .iter()
             .find(|d| d.name == "DispatchShip")
@@ -410,7 +508,7 @@ mod tests {
         assert_eq!(cmd.method, HttpMethod::Post);
         assert_eq!(cmd.kind, ProtocolKind::Command);
 
-        let query = descs
+        let query = descs.surfaces[0]
             .descriptors
             .iter()
             .find(|d| d.name == "GetFleetSnapshot")
@@ -418,7 +516,7 @@ mod tests {
         assert_eq!(query.route, "/queries/get-fleet-snapshot");
         assert_eq!(query.method, HttpMethod::Get);
 
-        let event = descs
+        let event = descs.surfaces[0]
             .descriptors
             .iter()
             .find(|d| d.name == "ShipArrived")
@@ -428,10 +526,57 @@ mod tests {
     }
 
     #[test]
+    fn generate_descriptors_groups_entries_by_surface() {
+        let descs = generate_descriptors(&sample_multi_surface_manifest());
+
+        assert_eq!(descs.surfaces.len(), 2);
+        let authority = descs
+            .surfaces
+            .iter()
+            .find(|surface| surface.name == "authority")
+            .unwrap();
+        let gameplay = descs
+            .surfaces
+            .iter()
+            .find(|surface| surface.name == "gameplay")
+            .unwrap();
+
+        assert_eq!(authority.descriptors.len(), 2);
+        assert!(
+            authority
+                .descriptors
+                .iter()
+                .any(|desc| desc.name == "ApprovePort")
+        );
+        assert!(
+            authority
+                .descriptors
+                .iter()
+                .any(|desc| desc.name == "ShipArrived")
+        );
+
+        assert_eq!(gameplay.descriptors.len(), 2);
+        assert!(
+            gameplay
+                .descriptors
+                .iter()
+                .any(|desc| desc.name == "DispatchShip")
+        );
+        assert!(
+            gameplay
+                .descriptors
+                .iter()
+                .any(|desc| desc.name == "ShipArrived")
+        );
+    }
+
+    #[test]
     fn query_with_fields_uses_post() {
         let manifest = ProtocolManifest {
-            manifest_version: "1".into(),
+            manifest_version: "2".into(),
             protocol_version: "test@0.1".into(),
+            default_surface: "default".into(),
+            surfaces: vec!["default".into()],
             commands: vec![],
             queries: vec![ManifestEntry {
                 name: "SearchUnits".into(),
@@ -441,12 +586,13 @@ mod tests {
                     ty: "String".into(),
                 }],
                 doc: "".into(),
+                surfaces: vec![],
             }],
             events: vec![],
             dtos: vec![],
         };
         let descs = generate_descriptors(&manifest);
-        let q = &descs.descriptors[0];
+        let q = &descs.surfaces[0].descriptors[0];
         assert_eq!(q.method, HttpMethod::Post);
     }
 
@@ -456,9 +602,11 @@ mod tests {
         let json = serde_json::to_string_pretty(&descs).unwrap();
         assert!(json.contains("/commands/dispatch-ship"));
         assert!(json.contains("\"Post\""));
+        assert!(json.contains("\"surfaces\""));
 
         // Round-trip
         let back: ProtocolDescriptorSet = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.descriptors.len(), 3);
+        assert_eq!(back.surfaces.len(), 1);
+        assert_eq!(back.iter_descriptors().count(), 3);
     }
 }
