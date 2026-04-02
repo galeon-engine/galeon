@@ -34,6 +34,21 @@ impl FixedTimestep {
         Self::new(10.0)
     }
 
+    /// 20 Hz — good for turn-like strategy with smooth interpolation.
+    pub fn strategy() -> Self {
+        Self::new(20.0)
+    }
+
+    /// 30 Hz — action games, third-person, adventure.
+    pub fn action() -> Self {
+        Self::new(30.0)
+    }
+
+    /// 60 Hz — platformers, FPS, fighting games.
+    pub fn fast() -> Self {
+        Self::new(60.0)
+    }
+
     /// Returns the tick rate in Hz.
     pub fn tick_rate(&self) -> f64 {
         1.0 / self.step
@@ -103,6 +118,21 @@ mod tests {
         for (_, counter) in counters.iter_mut() {
             counter.0 += 1;
         }
+    }
+
+    #[test]
+    fn genre_presets() {
+        let rts = FixedTimestep::default_rts();
+        assert!((rts.tick_rate() - 10.0).abs() < f64::EPSILON);
+
+        let strat = FixedTimestep::strategy();
+        assert!((strat.tick_rate() - 20.0).abs() < f64::EPSILON);
+
+        let act = FixedTimestep::action();
+        assert!((act.tick_rate() - 30.0).abs() < f64::EPSILON);
+
+        let fps = FixedTimestep::fast();
+        assert!((fps.tick_rate() - 60.0).abs() < f64::EPSILON);
     }
 
     #[test]

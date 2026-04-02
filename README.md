@@ -25,7 +25,7 @@ the engine itself is shell-agnostic.
 - Parameterized systems: `fn(Res<T>, QueryMut<U>, Commands)` &mdash; no manual world access
 - `SystemParam` trait with registration-time access conflict detection
 - Stage-based scheduler with automatic command application between stages
-- Fixed-timestep game loop (configurable Hz, defaults to 10 Hz for RTS)
+- Fixed-timestep game loop with genre presets (10 Hz RTS, 20 Hz strategy, 30 Hz action, 60 Hz fast)
 - Plugin API for modular engine extensions
 
 **Resources and Events**
@@ -78,6 +78,7 @@ fn add_score(mut scores: QueryMut<'_, Score>) {
 
 fn main() {
     let mut engine = Engine::new();
+    engine.set_tick_rate(30.0); // 30 Hz for action games (default: 10 Hz)
     engine.add_system::<(QueryMut<'_, Score>,)>("update", "add_score", add_score);
     engine.world_mut().spawn((Score(0),));
     engine.tick(0.1);
