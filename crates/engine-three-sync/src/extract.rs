@@ -9,9 +9,10 @@ use crate::frame_packet::{
 
 /// Extract render-facing data from the ECS world into a packed frame packet.
 ///
-/// Iterates all entities with a `Transform` component (the implicit "renderable"
-/// marker) and packs their transform, visibility, mesh, and material data into
-/// flat arrays suitable for WASM transport.
+/// Single-pass query using optional components: iterates all entities with a
+/// `Transform` component (the implicit "renderable" marker) and packs their
+/// transform, visibility, mesh, and material data into flat arrays suitable
+/// for WASM transport.
 ///
 /// If a [`RenderChannelRegistry`] resource is present, also extracts all
 /// registered custom channels into `FramePacket::custom_channels`.
@@ -24,43 +25,29 @@ use crate::frame_packet::{
 type Renderable = (Entity, [f32; 3], [f32; 4], [f32; 3]);
 
 pub fn extract_frame(world: &World) -> FramePacket {
-    // First pass: collect entity IDs and transform data into owned values.
-    // The `QueryIter` borrows `world.archetypes` for its lifetime; `.collect()`
-    // consumes the iterator and releases that borrow, so we can call
-    // `world.get()` per entity in the second pass.
-    let renderables: Vec<Renderable> = world
-        .query::<&Transform>()
-        .map(|(e, t)| (e, t.position, t.rotation, t.scale))
-        .collect();
+    let query = world.query::<(
+        &Transform,
+        Option<&Visibility>,
+        Option<&MeshHandle>,
+        Option<&MaterialHandle>,
+    )>();
 
-    let mut packet = FramePacket::with_capacity(renderables.len());
-    let mut entities = Vec::with_capacity(renderables.len());
+    let mut packet = FramePacket::with_capacity(query.len());
+    let mut entities = Vec::with_capacity(query.len());
 
-    for (entity, position, rotation, scale) in &renderables {
-        let visible = world
-            .get::<Visibility>(*entity)
-            .map(|v| v.visible)
-            .unwrap_or(true);
-
-        let mesh_id = world.get::<MeshHandle>(*entity).map(|m| m.id).unwrap_or(0);
-
-        let material_id = world
-            .get::<MaterialHandle>(*entity)
-            .map(|m| m.id)
-            .unwrap_or(0);
-
+    for (entity, (transform, vis, mesh, mat)) in query {
         packet.push(
             entity.index(),
             entity.generation(),
-            position,
-            rotation,
-            scale,
-            visible,
-            mesh_id,
-            material_id,
+            &transform.position,
+            &transform.rotation,
+            &transform.scale,
+            vis.map(|v| v.visible).unwrap_or(true),
+            mesh.map(|m| m.id).unwrap_or(0),
+            mat.map(|m| m.id).unwrap_or(0),
         );
 
-        entities.push(*entity);
+        entities.push(entity);
     }
 
     // Extract registered custom channels.

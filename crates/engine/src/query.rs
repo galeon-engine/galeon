@@ -355,6 +355,14 @@ pub type Query3MutIter<'w, A, B, C, F = NoFilter> =
     QueryIterMut<'w, (&'w mut A, &'w mut B, &'w mut C), F>;
 
 #[doc(hidden)]
+pub struct OptionalMutState<'w, T> {
+    entities: &'w [Entity],
+    /// Null when the column is absent from the archetype.
+    data: *mut T,
+    _marker: PhantomData<&'w mut T>,
+}
+
+#[doc(hidden)]
 pub struct SingleMutState<'w, T> {
     entities: &'w [Entity],
     data: *mut T,
@@ -416,6 +424,34 @@ impl<T: Component> QuerySpec for &T {
     }
 }
 
+/// Optional immutable query: matches all archetypes (never filters), returns
+/// `Some(&T)` when the column is present and `None` when absent.
+impl<T: Component> QuerySpec for Option<&T> {
+    type Item<'w> = Option<&'w T>;
+
+    type State<'w> = (&'w [Entity], Option<&'w Column<T>>);
+
+    fn matches(_layout: &ArchetypeLayout) -> bool {
+        true
+    }
+
+    fn init_state<'w>(archetype: &'w Archetype) -> Option<Self::State<'w>> {
+        Some((archetype.entities(), archetype.column::<T>()))
+    }
+
+    fn len(state: &Self::State<'_>) -> usize {
+        state.0.len()
+    }
+
+    fn entity(state: &Self::State<'_>, row: usize) -> Entity {
+        state.0[row]
+    }
+
+    fn fetch<'w>(state: &Self::State<'w>, row: usize) -> Self::Item<'w> {
+        state.1.as_ref().and_then(|col| col.get(row))
+    }
+}
+
 impl<A: Component, B: Component> QuerySpec for (&A, &B) {
     type Item<'w> = (&'w A, &'w B);
 
@@ -443,6 +479,39 @@ impl<A: Component, B: Component> QuerySpec for (&A, &B) {
 
     fn fetch<'w>(state: &Self::State<'w>, row: usize) -> Self::Item<'w> {
         (state.1.get(row).unwrap(), state.2.get(row).unwrap())
+    }
+}
+
+impl<A: Component, B: Component> QuerySpec for (&A, Option<&B>) {
+    type Item<'w> = (&'w A, Option<&'w B>);
+
+    type State<'w> = (&'w [Entity], &'w Column<A>, Option<&'w Column<B>>);
+
+    fn matches(layout: &ArchetypeLayout) -> bool {
+        layout.contains(TypeId::of::<A>())
+    }
+
+    fn init_state<'w>(archetype: &'w Archetype) -> Option<Self::State<'w>> {
+        Some((
+            archetype.entities(),
+            archetype.column::<A>()?,
+            archetype.column::<B>(),
+        ))
+    }
+
+    fn len(state: &Self::State<'_>) -> usize {
+        state.0.len()
+    }
+
+    fn entity(state: &Self::State<'_>, row: usize) -> Entity {
+        state.0[row]
+    }
+
+    fn fetch<'w>(state: &Self::State<'w>, row: usize) -> Self::Item<'w> {
+        (
+            state.1.get(row).unwrap(),
+            state.2.as_ref().and_then(|col| col.get(row)),
+        )
     }
 }
 
@@ -479,6 +548,51 @@ impl<A: Component, B: Component, C: Component> QuerySpec for (&A, &B, &C) {
             state.1.get(row).unwrap(),
             state.2.get(row).unwrap(),
             state.3.get(row).unwrap(),
+        )
+    }
+}
+
+impl<A: Component, B: Component, C: Component, D: Component> QuerySpec
+    for (&A, Option<&B>, Option<&C>, Option<&D>)
+{
+    type Item<'w> = (&'w A, Option<&'w B>, Option<&'w C>, Option<&'w D>);
+
+    type State<'w> = (
+        &'w [Entity],
+        &'w Column<A>,
+        Option<&'w Column<B>>,
+        Option<&'w Column<C>>,
+        Option<&'w Column<D>>,
+    );
+
+    fn matches(layout: &ArchetypeLayout) -> bool {
+        layout.contains(TypeId::of::<A>())
+    }
+
+    fn init_state<'w>(archetype: &'w Archetype) -> Option<Self::State<'w>> {
+        Some((
+            archetype.entities(),
+            archetype.column::<A>()?,
+            archetype.column::<B>(),
+            archetype.column::<C>(),
+            archetype.column::<D>(),
+        ))
+    }
+
+    fn len(state: &Self::State<'_>) -> usize {
+        state.0.len()
+    }
+
+    fn entity(state: &Self::State<'_>, row: usize) -> Entity {
+        state.0[row]
+    }
+
+    fn fetch<'w>(state: &Self::State<'w>, row: usize) -> Self::Item<'w> {
+        (
+            state.1.get(row).unwrap(),
+            state.2.as_ref().and_then(|col| col.get(row)),
+            state.3.as_ref().and_then(|col| col.get(row)),
+            state.4.as_ref().and_then(|col| col.get(row)),
         )
     }
 }
@@ -521,6 +635,50 @@ impl<T: Component> QuerySpecMut for &mut T {
 
     unsafe fn stamp_changed(state: &mut Self::State<'_>, row: usize) {
         unsafe { *state.changed_ticks.add(row) = state.tick }
+    }
+}
+
+/// Optional mutable query: matches all archetypes (never filters), returns
+/// `Some(&mut T)` when the column is present and `None` when absent.
+impl<T: Component> QuerySpecMut for Option<&mut T> {
+    type Item<'w> = Option<&'w mut T>;
+
+    type State<'w> = OptionalMutState<'w, T>;
+
+    fn matches(_layout: &ArchetypeLayout) -> bool {
+        true
+    }
+
+    fn init_state<'w>(archetype: &'w mut Archetype) -> Option<Self::State<'w>> {
+        let entities = archetype.entities() as *const [Entity];
+        let data = match archetype.column_mut::<T>() {
+            Some(col) => col.as_mut_ptr(),
+            None => std::ptr::null_mut(),
+        };
+        // SAFETY: `entities` pointer is valid for the lifetime of the archetype
+        // borrow, which is `'w`.
+        Some(OptionalMutState {
+            entities: unsafe { &*entities },
+            data,
+            _marker: PhantomData,
+        })
+    }
+
+    fn len(state: &Self::State<'_>) -> usize {
+        state.entities.len()
+    }
+
+    fn entity(state: &Self::State<'_>, row: usize) -> Entity {
+        state.entities[row]
+    }
+
+    unsafe fn fetch<'w>(state: &mut Self::State<'w>, row: usize) -> Self::Item<'w> {
+        if state.data.is_null() {
+            None
+        } else {
+            // SAFETY: `QueryIterMut` guarantees each row is yielded at most once.
+            Some(unsafe { &mut *state.data.add(row) })
+        }
     }
 }
 
@@ -731,5 +889,272 @@ impl<'w, T: Component> Iterator for AddedIter<'w, T> {
                 self.row = 0;
             }
         }
+    }
+}
+
+#[doc(hidden)]
+pub struct PairMutOptionalState<'w, A, B> {
+    entities: &'w [Entity],
+    col_a: *mut A,
+    col_b: *mut B,
+    len: usize,
+    _marker: PhantomData<&'w mut (A, B)>,
+}
+
+impl<A: Component, B: Component> QuerySpecMut for (&mut A, Option<&mut B>) {
+    type Item<'w> = (&'w mut A, Option<&'w mut B>);
+
+    type State<'w> = PairMutOptionalState<'w, A, B>;
+
+    fn matches(layout: &ArchetypeLayout) -> bool {
+        layout.contains(TypeId::of::<A>())
+    }
+
+    fn init_state<'w>(archetype: &'w mut Archetype) -> Option<Self::State<'w>> {
+        let entities = archetype.entities() as *const [Entity];
+        // Required column A
+        let col_a = archetype.column_mut::<A>()?;
+        let col_a_ptr = col_a.as_mut_ptr();
+        let len = col_a.len();
+        // Optional column B (may be null)
+        let col_b_ptr = archetype
+            .column_mut::<B>()
+            .map_or(std::ptr::null_mut(), |c| c.as_mut_ptr());
+        // SAFETY: `entities` pointer is valid for `'w`.
+        Some(PairMutOptionalState {
+            entities: unsafe { &*entities },
+            col_a: col_a_ptr,
+            col_b: col_b_ptr,
+            len,
+            _marker: PhantomData,
+        })
+    }
+
+    fn len(state: &Self::State<'_>) -> usize {
+        state.len
+    }
+
+    fn entity(state: &Self::State<'_>, row: usize) -> Entity {
+        state.entities[row]
+    }
+
+    unsafe fn fetch<'w>(state: &mut Self::State<'w>, row: usize) -> Self::Item<'w> {
+        // SAFETY: `QueryIterMut` guarantees each row is yielded at most once.
+        // A and B are distinct types, so column pointers cannot alias.
+        unsafe {
+            let a = &mut *state.col_a.add(row);
+            let b = if state.col_b.is_null() {
+                None
+            } else {
+                Some(&mut *state.col_b.add(row))
+            };
+            (a, b)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::World;
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct Pos {
+        x: f32,
+        y: f32,
+    }
+    impl crate::Component for Pos {}
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct Vel {
+        x: f32,
+        y: f32,
+    }
+    impl crate::Component for Vel {}
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct Name(String);
+    impl crate::Component for Name {}
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct Health(i32);
+    impl crate::Component for Health {}
+
+    // -- Option<&T> standalone --
+
+    #[test]
+    fn optional_query_returns_some_when_present() {
+        let mut world = World::new();
+        world.spawn((Pos { x: 1.0, y: 2.0 },));
+
+        let results: Vec<_> = world.query::<Option<&Pos>>().collect();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].1, Some(&Pos { x: 1.0, y: 2.0 }));
+    }
+
+    #[test]
+    fn optional_query_returns_none_when_absent() {
+        let mut world = World::new();
+        world.spawn((Vel { x: 1.0, y: 0.0 },));
+
+        let results: Vec<_> = world.query::<Option<&Pos>>().collect();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].1, None);
+    }
+
+    // -- (&A, Option<&B>) tuple --
+
+    #[test]
+    fn required_plus_optional_both_present() {
+        let mut world = World::new();
+        world.spawn((Pos { x: 1.0, y: 0.0 }, Vel { x: 2.0, y: 0.0 }));
+
+        let results: Vec<_> = world.query::<(&Pos, Option<&Vel>)>().collect();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].1.0, &Pos { x: 1.0, y: 0.0 });
+        assert_eq!(results[0].1.1, Some(&Vel { x: 2.0, y: 0.0 }));
+    }
+
+    #[test]
+    fn required_plus_optional_absent() {
+        let mut world = World::new();
+        world.spawn((Pos { x: 1.0, y: 0.0 },));
+
+        let results: Vec<_> = world.query::<(&Pos, Option<&Vel>)>().collect();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].1.1, None);
+    }
+
+    #[test]
+    fn required_plus_optional_filters_by_required() {
+        let mut world = World::new();
+        world.spawn((Pos { x: 1.0, y: 0.0 },));
+        world.spawn((Vel { x: 2.0, y: 0.0 },)); // no Pos — should NOT appear
+
+        let results: Vec<_> = world.query::<(&Pos, Option<&Vel>)>().collect();
+        assert_eq!(results.len(), 1);
+    }
+
+    // -- (&A, Option<&B>, Option<&C>, Option<&D>) 4-tuple --
+
+    #[test]
+    fn four_tuple_all_present() {
+        let mut world = World::new();
+        world.spawn((
+            Pos { x: 1.0, y: 0.0 },
+            Vel { x: 2.0, y: 0.0 },
+            Name("a".into()),
+            Health(100),
+        ));
+
+        let results: Vec<_> = world
+            .query::<(&Pos, Option<&Vel>, Option<&Name>, Option<&Health>)>()
+            .collect();
+        assert_eq!(results.len(), 1);
+        let (pos, vel, name, hp) = &results[0].1;
+        assert_eq!(*pos, &Pos { x: 1.0, y: 0.0 });
+        assert!(vel.is_some());
+        assert!(name.is_some());
+        assert!(hp.is_some());
+    }
+
+    #[test]
+    fn four_tuple_mixed_presence() {
+        let mut world = World::new();
+        // Entity with Pos + Health only
+        world.spawn((Pos { x: 1.0, y: 0.0 }, Health(50)));
+        // Entity with Pos + Vel + Name only
+        world.spawn((
+            Pos { x: 2.0, y: 0.0 },
+            Vel { x: 1.0, y: 0.0 },
+            Name("b".into()),
+        ));
+
+        let mut results: Vec<_> = world
+            .query::<(&Pos, Option<&Vel>, Option<&Name>, Option<&Health>)>()
+            .map(|(_, (pos, vel, name, hp))| (pos.x, vel.is_some(), name.is_some(), hp.is_some()))
+            .collect();
+        results.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0], (1.0, false, false, true));
+        assert_eq!(results[1], (2.0, true, true, false));
+    }
+
+    // -- Option<&mut T> --
+
+    #[test]
+    fn optional_mut_modifies_when_present() {
+        let mut world = World::new();
+        world.spawn((Pos { x: 1.0, y: 0.0 }, Vel { x: 0.0, y: 0.0 }));
+
+        for (_, vel) in world.query_mut::<Option<&mut Vel>>() {
+            if let Some(v) = vel {
+                v.x += 10.0;
+            }
+        }
+
+        let vel = world.query::<&Vel>().next().unwrap().1;
+        assert_eq!(vel.x, 10.0);
+    }
+
+    #[test]
+    fn optional_mut_skips_when_absent() {
+        let mut world = World::new();
+        world.spawn((Pos { x: 1.0, y: 0.0 },));
+
+        let mut count = 0;
+        for (_, vel) in world.query_mut::<Option<&mut Vel>>() {
+            count += 1;
+            assert!(vel.is_none());
+        }
+        assert_eq!(count, 1);
+    }
+
+    // -- (&mut A, Option<&mut B>) --
+
+    #[test]
+    fn required_mut_plus_optional_mut() {
+        let mut world = World::new();
+        world.spawn((Pos { x: 1.0, y: 0.0 }, Vel { x: 0.0, y: 0.0 }));
+        world.spawn((Pos { x: 2.0, y: 0.0 },)); // no Vel
+
+        for (_, (pos, vel)) in world.query_mut::<(&mut Pos, Option<&mut Vel>)>() {
+            pos.x += 100.0;
+            if let Some(v) = vel {
+                v.x += 50.0;
+            }
+        }
+
+        let mut results: Vec<_> = world.query::<&Pos>().map(|(_, p)| p.x).collect();
+        results.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(results, vec![101.0, 102.0]);
+
+        let vel = world.query::<&Vel>().next().unwrap().1;
+        assert_eq!(vel.x, 50.0);
+    }
+
+    // -- Cross-archetype iteration --
+
+    #[test]
+    fn optional_query_spans_multiple_archetypes() {
+        let mut world = World::new();
+        // Archetype 1: Pos only
+        world.spawn((Pos { x: 1.0, y: 0.0 },));
+        // Archetype 2: Pos + Vel
+        world.spawn((Pos { x: 2.0, y: 0.0 }, Vel { x: 5.0, y: 0.0 }));
+        // Archetype 3: Pos + Name
+        world.spawn((Pos { x: 3.0, y: 0.0 }, Name("c".into())));
+
+        let mut results: Vec<_> = world
+            .query::<(&Pos, Option<&Vel>)>()
+            .map(|(_, (pos, vel))| (pos.x, vel.map(|v| v.x)))
+            .collect();
+        results.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0], (1.0, None));
+        assert_eq!(results[1], (2.0, Some(5.0)));
+        assert_eq!(results[2], (3.0, None));
     }
 }

@@ -41,59 +41,42 @@ pub struct TransformSnapshot {
     pub scale: [f32; 3],
 }
 
-/// Owned copy of a single entity's transform, held between the query borrow
-/// and the optional-component lookups.
-struct RawTransform {
-    entity: galeon_engine::Entity,
-    position: [f32; 3],
-    rotation: [f32; 4],
-    scale: [f32; 3],
-}
-
 /// Extract a debug snapshot from the world.
 ///
-/// Iterates all entities with a `Transform` component (same filter as the
-/// render hot path) and serializes their render-facing data into a
-/// human-readable structure.
+/// Single-pass query using optional components: iterates all entities with a
+/// `Transform` component (same filter as the render hot path) and serializes
+/// their render-facing data into a human-readable structure.
 pub fn extract_debug_snapshot(world: &World) -> DebugSnapshot {
-    // Collect transform entities into owned data first. The `QueryIter`
-    // borrows `world.archetypes`; `.collect()` consumes it and releases that
-    // borrow so we can call `world.get()` per entity below.
-    let renderables: Vec<RawTransform> = world
-        .query::<&Transform>()
-        .map(|(e, t)| RawTransform {
-            entity: e,
-            position: t.position,
-            rotation: t.rotation,
-            scale: t.scale,
-        })
-        .collect();
+    let query = world.query::<(
+        &Transform,
+        Option<&Visibility>,
+        Option<&MeshHandle>,
+        Option<&MaterialHandle>,
+    )>();
 
     let registry = world.try_resource::<RenderChannelRegistry>();
+    let mut entities = Vec::with_capacity(query.len());
 
-    let mut entities = Vec::with_capacity(renderables.len());
-
-    for raw in &renderables {
+    for (entity, (transform, vis, mesh, mat)) in query {
         let mut custom_channels = HashMap::new();
         if let Some(reg) = registry {
             for channel in &reg.channels {
                 let mut buf = vec![0.0f32; channel.stride];
-                (channel.extract_fn)(world, raw.entity, &mut buf);
+                (channel.extract_fn)(world, entity, &mut buf);
                 custom_channels.insert(channel.name.clone(), buf);
             }
         }
-
         entities.push(EntitySnapshot {
-            id: raw.entity.index(),
-            generation: raw.entity.generation(),
+            id: entity.index(),
+            generation: entity.generation(),
             transform: Some(TransformSnapshot {
-                position: raw.position,
-                rotation: raw.rotation,
-                scale: raw.scale,
+                position: transform.position,
+                rotation: transform.rotation,
+                scale: transform.scale,
             }),
-            visible: world.get::<Visibility>(raw.entity).map(|v| v.visible),
-            mesh_handle: world.get::<MeshHandle>(raw.entity).map(|m| m.id),
-            material_handle: world.get::<MaterialHandle>(raw.entity).map(|m| m.id),
+            visible: vis.map(|v| v.visible),
+            mesh_handle: mesh.map(|m| m.id),
+            material_handle: mat.map(|m| m.id),
             custom_channels,
         });
     }
