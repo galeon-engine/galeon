@@ -359,6 +359,9 @@ pub struct OptionalMutState<'w, T> {
     entities: &'w [Entity],
     /// Null when the column is absent from the archetype.
     data: *mut T,
+    /// Null when the column is absent from the archetype.
+    changed_ticks: *mut u64,
+    tick: u64,
     _marker: PhantomData<&'w mut T>,
 }
 
@@ -649,17 +652,19 @@ impl<T: Component> QuerySpecMut for Option<&mut T> {
         true
     }
 
-    fn init_state<'w>(archetype: &'w mut Archetype) -> Option<Self::State<'w>> {
+    fn init_state<'w>(archetype: &'w mut Archetype, tick: u64) -> Option<Self::State<'w>> {
         let entities = archetype.entities() as *const [Entity];
-        let data = match archetype.column_mut::<T>() {
-            Some(col) => col.as_mut_ptr(),
-            None => std::ptr::null_mut(),
+        let (data, changed_ticks) = match archetype.column_mut::<T>() {
+            Some(col) => (col.as_mut_ptr(), col.changed_ticks_mut_ptr()),
+            None => (std::ptr::null_mut(), std::ptr::null_mut()),
         };
         // SAFETY: `entities` pointer is valid for the lifetime of the archetype
         // borrow, which is `'w`.
         Some(OptionalMutState {
             entities: unsafe { &*entities },
             data,
+            changed_ticks,
+            tick,
             _marker: PhantomData,
         })
     }
@@ -678,6 +683,12 @@ impl<T: Component> QuerySpecMut for Option<&mut T> {
         } else {
             // SAFETY: `QueryIterMut` guarantees each row is yielded at most once.
             Some(unsafe { &mut *state.data.add(row) })
+        }
+    }
+
+    unsafe fn stamp_changed(state: &mut Self::State<'_>, row: usize) {
+        if !state.changed_ticks.is_null() {
+            unsafe { *state.changed_ticks.add(row) = state.tick };
         }
     }
 }
@@ -897,6 +908,9 @@ pub struct PairMutOptionalState<'w, A, B> {
     entities: &'w [Entity],
     col_a: *mut A,
     col_b: *mut B,
+    changed_ticks_a: *mut u64,
+    changed_ticks_b: *mut u64,
+    tick: u64,
     len: usize,
     _marker: PhantomData<&'w mut (A, B)>,
 }
@@ -910,7 +924,7 @@ impl<A: Component, B: Component> QuerySpecMut for (&mut A, Option<&mut B>) {
         layout.contains(TypeId::of::<A>())
     }
 
-    fn init_state<'w>(archetype: &'w mut Archetype) -> Option<Self::State<'w>> {
+    fn init_state<'w>(archetype: &'w mut Archetype, tick: u64) -> Option<Self::State<'w>> {
         assert_ne!(
             TypeId::of::<A>(),
             TypeId::of::<B>(),
@@ -919,12 +933,19 @@ impl<A: Component, B: Component> QuerySpecMut for (&mut A, Option<&mut B>) {
         let (entities, col_a, col_b) =
             archetype.entities_and_required_optional_columns_mut::<A, B>()?;
         let col_a_ptr = col_a.as_mut_ptr();
+        let changed_ticks_a = col_a.changed_ticks_mut_ptr();
         let len = col_a.len();
-        let col_b_ptr = col_b.map_or(std::ptr::null_mut(), |c| c.as_mut_ptr());
+        let (col_b_ptr, changed_ticks_b) = match col_b {
+            Some(col) => (col.as_mut_ptr(), col.changed_ticks_mut_ptr()),
+            None => (std::ptr::null_mut(), std::ptr::null_mut()),
+        };
         Some(PairMutOptionalState {
             entities,
             col_a: col_a_ptr,
             col_b: col_b_ptr,
+            changed_ticks_a,
+            changed_ticks_b,
+            tick,
             len,
             _marker: PhantomData,
         })
@@ -951,11 +972,19 @@ impl<A: Component, B: Component> QuerySpecMut for (&mut A, Option<&mut B>) {
             (a, b)
         }
     }
+
+    unsafe fn stamp_changed(state: &mut Self::State<'_>, row: usize) {
+        unsafe {
+            *state.changed_ticks_a.add(row) = state.tick;
+            if !state.changed_ticks_b.is_null() {
+                *state.changed_ticks_b.add(row) = state.tick;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::World;
 
     #[derive(Debug, Clone, PartialEq)]
