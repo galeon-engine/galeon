@@ -19,6 +19,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   to scaffold a complete Galeon game project with protocol, domain, server, and db crates.
   Three presets: `server-authoritative`, `local-first`, `hybrid`.
   ([#71](https://github.com/galeon-engine/galeon/issues/71))
+- **Per-surface TypeScript codegen** — `generate_typescript_for_surface(&manifest, surface)` emits
+  a self-contained TypeScript module containing only the protocol items belonging to that surface.
+  `generate_all_surface_typescripts(&manifest)` returns one module per surface. Single-surface
+  projects get identical output to the existing `generate_typescript()`.
+  ([#81](https://github.com/galeon-engine/galeon/issues/81))
 - **Protocol surface metadata** — protocol attribute macros now accept `surface = "..."` and
   `surfaces = ["...", "..."]`, `ProtocolManifest::collect_with_default_surface(...)` can rename
   the implicit default surface, and manifest entries record explicit surface memberships for
