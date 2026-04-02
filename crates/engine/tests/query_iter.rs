@@ -152,6 +152,14 @@ fn query2_mut_same_type_panics() {
 }
 
 #[test]
+#[should_panic(expected = "cannot borrow the same column mutably twice")]
+fn pair_mut_optional_same_type_panics() {
+    let mut world = World::new();
+    world.spawn((Pos { x: 0.0, y: 0.0 },));
+    let _ = world.query_mut::<(&mut Pos, Option<&mut Pos>)>().next();
+}
+
+#[test]
 fn query3_wrapper_yields_entities_with_all_three() {
     let mut world = World::new();
     world.spawn((

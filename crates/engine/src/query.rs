@@ -911,18 +911,18 @@ impl<A: Component, B: Component> QuerySpecMut for (&mut A, Option<&mut B>) {
     }
 
     fn init_state<'w>(archetype: &'w mut Archetype) -> Option<Self::State<'w>> {
-        let entities = archetype.entities() as *const [Entity];
-        // Required column A
-        let col_a = archetype.column_mut::<A>()?;
+        assert_ne!(
+            TypeId::of::<A>(),
+            TypeId::of::<B>(),
+            "cannot borrow the same column mutably twice"
+        );
+        let (entities, col_a, col_b) =
+            archetype.entities_and_required_optional_columns_mut::<A, B>()?;
         let col_a_ptr = col_a.as_mut_ptr();
         let len = col_a.len();
-        // Optional column B (may be null)
-        let col_b_ptr = archetype
-            .column_mut::<B>()
-            .map_or(std::ptr::null_mut(), |c| c.as_mut_ptr());
-        // SAFETY: `entities` pointer is valid for `'w`.
+        let col_b_ptr = col_b.map_or(std::ptr::null_mut(), |c| c.as_mut_ptr());
         Some(PairMutOptionalState {
-            entities: unsafe { &*entities },
+            entities,
             col_a: col_a_ptr,
             col_b: col_b_ptr,
             len,

@@ -308,6 +308,9 @@ pub struct ArchetypeEdge {
     pub remove: Option<ArchetypeId>,
 }
 
+type RequiredOptionalColumnsMut<'a, A, B> =
+    (&'a [Entity], &'a mut Column<A>, Option<&'a mut Column<B>>);
+
 type ThreeColumnsMut<'a, A, B, C> = (
     &'a [Entity],
     &'a mut Column<A>,
@@ -503,6 +506,44 @@ impl Archetype {
                 .get_mut(&TypeId::of::<B>())?
                 .as_any_mut()
                 .downcast_mut::<Column<B>>()?;
+            Some((&*entities, col_a, col_b))
+        }
+    }
+
+    /// Split-borrow: shared entity slice + required column A + optional column B.
+    ///
+    /// Panics if `A == B`. Returns `None` if required type A is absent.
+    /// Optional type B may be absent (returns `None` in the Option).
+    pub(crate) fn entities_and_required_optional_columns_mut<A, B>(
+        &mut self,
+    ) -> Option<RequiredOptionalColumnsMut<'_, A, B>>
+    where
+        A: Send + Sync + 'static,
+        B: Send + Sync + 'static,
+    {
+        assert_ne!(
+            TypeId::of::<A>(),
+            TypeId::of::<B>(),
+            "cannot borrow the same column mutably twice"
+        );
+        let Self {
+            entities, columns, ..
+        } = self;
+        let ptr = columns as *mut HashMap<TypeId, Box<dyn AnyColumn>>;
+        // SAFETY: A != B (asserted above), so if both columns exist, `get_mut`
+        // returns pointers to two distinct Box<dyn AnyColumn> heap allocations.
+        // The two temporary &mut to HashMap entries access different keys, and
+        // because values are boxed (heap-allocated), the returned &mut Column<T>
+        // references point into separate allocations with no overlap. No insertion
+        // occurs, so no reallocation can invalidate either pointer.
+        unsafe {
+            let col_a = (*ptr)
+                .get_mut(&TypeId::of::<A>())?
+                .as_any_mut()
+                .downcast_mut::<Column<A>>()?;
+            let col_b = (*ptr)
+                .get_mut(&TypeId::of::<B>())
+                .and_then(|col| col.as_any_mut().downcast_mut::<Column<B>>());
             Some((&*entities, col_a, col_b))
         }
     }
