@@ -1,5 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
+use std::collections::HashMap;
+
+/// Per-channel float data attached to a [`FramePacket`].
+///
+/// The `data` array is flat: for `n` entities and a stride of `s`, the values
+/// for entity `i` live at `data[i * stride .. i * stride + stride]`.
+#[derive(Debug, Clone)]
+pub struct ChannelData {
+    /// Number of f32 values per entity in this channel.
+    pub stride: usize,
+    /// Flat buffer of all per-entity values for this channel.
+    pub data: Vec<f32>,
+}
+
 /// Packed per-frame render data extracted from the ECS.
 ///
 /// Uses a struct-of-arrays layout for efficient WASM transport.
@@ -14,6 +28,8 @@ pub struct FramePacket {
     pub visibility: Vec<u8>,
     pub mesh_handles: Vec<u32>,
     pub material_handles: Vec<u32>,
+    /// Named per-entity float channels for game-specific render data.
+    pub custom_channels: HashMap<String, ChannelData>,
 }
 
 /// Number of f32 values per entity in the transforms array.
@@ -29,6 +45,7 @@ impl FramePacket {
             visibility: Vec::new(),
             mesh_handles: Vec::new(),
             material_handles: Vec::new(),
+            custom_channels: HashMap::new(),
         }
     }
 
@@ -41,6 +58,7 @@ impl FramePacket {
             visibility: Vec::with_capacity(entity_count),
             mesh_handles: Vec::with_capacity(entity_count),
             material_handles: Vec::with_capacity(entity_count),
+            custom_channels: HashMap::new(),
         }
     }
 
@@ -71,6 +89,27 @@ impl FramePacket {
     pub fn entity_count(&self) -> usize {
         self.entity_ids.len()
     }
+
+    /// Number of custom channels attached to this packet.
+    pub fn channel_count(&self) -> usize {
+        self.custom_channels.len()
+    }
+
+    /// Sorted list of custom channel names.
+    ///
+    /// Sorted alphabetically so callers get a deterministic order regardless
+    /// of insertion order.
+    pub fn channel_names(&self) -> Vec<&str> {
+        let mut names: Vec<&str> = self.custom_channels.keys().map(|s| s.as_str()).collect();
+        names.sort_unstable();
+        names
+    }
+
+    /// Look up a custom channel by name. Returns `None` if the channel does
+    /// not exist.
+    pub fn channel(&self, name: &str) -> Option<&ChannelData> {
+        self.custom_channels.get(name)
+    }
 }
 
 impl Default for FramePacket {
@@ -88,6 +127,52 @@ mod tests {
         let p = FramePacket::new();
         assert_eq!(p.entity_count(), 0);
         assert!(p.entity_ids.is_empty());
+        assert_eq!(p.channel_count(), 0);
+    }
+
+    #[test]
+    fn custom_channel_insertion() {
+        let mut p = FramePacket::new();
+        p.custom_channels.insert(
+            "health".to_string(),
+            ChannelData {
+                stride: 1,
+                data: vec![1.0, 0.5],
+            },
+        );
+        assert_eq!(p.channel_count(), 1);
+        assert_eq!(p.channel_names(), vec!["health"]);
+        let ch = p.channel("health").unwrap();
+        assert_eq!(ch.stride, 1);
+        assert_eq!(ch.data, vec![1.0, 0.5]);
+    }
+
+    #[test]
+    fn multiple_custom_channels() {
+        let mut p = FramePacket::new();
+        p.custom_channels.insert(
+            "wear".to_string(),
+            ChannelData {
+                stride: 1,
+                data: vec![0.0, 0.9],
+            },
+        );
+        p.custom_channels.insert(
+            "anim".to_string(),
+            ChannelData {
+                stride: 2,
+                data: vec![0.0, 1.0, 0.5, 0.0],
+            },
+        );
+        assert_eq!(p.channel_count(), 2);
+        // channel_names() must be sorted alphabetically
+        assert_eq!(p.channel_names(), vec!["anim", "wear"]);
+    }
+
+    #[test]
+    fn channel_returns_none_for_missing() {
+        let p = FramePacket::new();
+        assert!(p.channel("nonexistent").is_none());
     }
 
     #[test]

@@ -5,7 +5,7 @@ mod frame_packet;
 mod snapshot;
 
 pub use extract::extract_frame;
-pub use frame_packet::{FramePacket, TRANSFORM_STRIDE};
+pub use frame_packet::{ChannelData, FramePacket, TRANSFORM_STRIDE};
 pub use snapshot::{
     DebugSnapshot, EntitySnapshot, TransformSnapshot, extract_debug_snapshot, snapshot_to_json,
 };
