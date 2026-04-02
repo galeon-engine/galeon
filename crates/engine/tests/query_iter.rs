@@ -65,7 +65,7 @@ fn query_mut_allows_modification() {
     world.spawn((Pos { x: 0.0, y: 0.0 },));
     world.spawn((Pos { x: 10.0, y: 10.0 },));
 
-    for (_, pos) in world.query_mut::<&mut Pos>() {
+    for (_, mut pos) in world.query_mut::<&mut Pos>() {
         pos.x += 1.0;
     }
 
@@ -122,7 +122,7 @@ fn query2_mut_mutates_both() {
     let mut world = World::new();
     let e = world.spawn((Pos { x: 1.0, y: 1.0 }, Vel { dx: 10.0, dy: 10.0 }));
 
-    for (_, (pos, vel)) in world.query_mut::<(&mut Pos, &mut Vel)>() {
+    for (_, (mut pos, mut vel)) in world.query_mut::<(&mut Pos, &mut Vel)>() {
         pos.x += 100.0;
         vel.dy += 200.0;
     }
@@ -186,7 +186,7 @@ fn query3_mut_wrapper_mutates_all_three() {
         Health(100),
     ));
 
-    for (_, (pos, vel, hp)) in world.query3_mut::<Pos, Vel, Health>() {
+    for (_, (mut pos, mut vel, mut hp)) in world.query3_mut::<Pos, Vel, Health>() {
         pos.x += 10.0;
         vel.dx += 20.0;
         hp.0 -= 50;
@@ -256,7 +256,7 @@ fn one_and_one_mut_use_typed_query_specs() {
     assert_eq!(pos.x, 1.0);
     assert_eq!(vel.dx, 3.0);
 
-    let (pos, vel) = world.one_mut::<(&mut Pos, &mut Vel)>(e).unwrap();
+    let (mut pos, mut vel) = world.one_mut::<(&mut Pos, &mut Vel)>(e).unwrap();
     pos.x = 10.0;
     vel.dy = 20.0;
 

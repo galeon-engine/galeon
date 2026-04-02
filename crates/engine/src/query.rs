@@ -2,10 +2,41 @@
 
 use std::any::TypeId;
 use std::marker::PhantomData;
+use std::ops::{Deref, DerefMut};
 
 use crate::archetype::{Archetype, ArchetypeLayout, ArchetypeStore, Column};
 use crate::component::Component;
 use crate::entity::Entity;
+
+/// A smart pointer providing mutable access to a component that defers
+/// change-tick stamping to `DerefMut`. Holding a `Mut<T>` without writing
+/// through it leaves the component's `changed_tick` untouched, so
+/// `query_changed` and incremental extraction see only entities that were
+/// actually mutated.
+pub struct Mut<'w, T> {
+    value: &'w mut T,
+    changed_tick: *mut u64,
+    tick: u64,
+}
+
+impl<T> Deref for Mut<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        self.value
+    }
+}
+
+impl<T> DerefMut for Mut<'_, T> {
+    fn deref_mut(&mut self) -> &mut T {
+        // SAFETY: `changed_tick` points into the same archetype
+        // `Column<T>::changed_ticks` Vec that `value` came from, and the
+        // iterator guarantees unique row access.
+        unsafe {
+            *self.changed_tick = self.tick;
+        }
+        self.value
+    }
+}
 
 /// Describes an immutable query fetch over matching archetypes.
 pub trait QuerySpec {
@@ -44,14 +75,6 @@ pub trait QuerySpecMut {
     /// otherwise could create aliased mutable references into the same
     /// archetype column data.
     unsafe fn fetch<'w>(state: &mut Self::State<'w>, row: usize) -> Self::Item<'w>;
-
-    /// Stamp `changed_tick` on all mutable columns touched by this query at
-    /// `row`. Called by `QueryIterMut::next()` after `fetch()`.
-    ///
-    /// # Safety
-    ///
-    /// The `changed_ticks` pointers in `state` must be valid for writes at `row`.
-    unsafe fn stamp_changed(state: &mut Self::State<'_>, row: usize);
 }
 
 /// Restricts which archetypes participate in a query.
@@ -292,10 +315,10 @@ where
                     // single archetype state and never yields the same row
                     // twice, so mutable references produced for one row cannot
                     // alias later yields from the same state.
+                    //
+                    // Change-tick stamping is deferred to `Mut<T>::deref_mut()`
+                    // — no eager stamp here.
                     let item = unsafe { Q::fetch(state, row) };
-                    // SAFETY: changed_ticks pointers in state are valid for
-                    // this row (same column layout guarantees as data pointers).
-                    unsafe { Q::stamp_changed(state, row) };
                     return Some((entity, item));
                 }
                 self.current = None;
@@ -601,7 +624,7 @@ impl<A: Component, B: Component, C: Component, D: Component> QuerySpec
 }
 
 impl<T: Component> QuerySpecMut for &mut T {
-    type Item<'w> = &'w mut T;
+    type Item<'w> = Mut<'w, T>;
 
     type State<'w> = SingleMutState<'w, T>;
 
@@ -632,19 +655,22 @@ impl<T: Component> QuerySpecMut for &mut T {
     unsafe fn fetch<'w>(state: &mut Self::State<'w>, row: usize) -> Self::Item<'w> {
         // SAFETY: `QueryIterMut` guarantees that each row is yielded at most
         // once, so the mutable reference to this slot cannot alias another
-        // live reference produced by the same iterator.
-        unsafe { &mut *state.data.add(row) }
-    }
-
-    unsafe fn stamp_changed(state: &mut Self::State<'_>, row: usize) {
-        unsafe { *state.changed_ticks.add(row) = state.tick }
+        // live reference produced by the same iterator. The `changed_ticks`
+        // pointer points into the same column and is valid for this row.
+        unsafe {
+            Mut {
+                value: &mut *state.data.add(row),
+                changed_tick: state.changed_ticks.add(row),
+                tick: state.tick,
+            }
+        }
     }
 }
 
 /// Optional mutable query: matches all archetypes (never filters), returns
 /// `Some(&mut T)` when the column is present and `None` when absent.
 impl<T: Component> QuerySpecMut for Option<&mut T> {
-    type Item<'w> = Option<&'w mut T>;
+    type Item<'w> = Option<Mut<'w, T>>;
 
     type State<'w> = OptionalMutState<'w, T>;
 
@@ -682,19 +708,19 @@ impl<T: Component> QuerySpecMut for Option<&mut T> {
             None
         } else {
             // SAFETY: `QueryIterMut` guarantees each row is yielded at most once.
-            Some(unsafe { &mut *state.data.add(row) })
-        }
-    }
-
-    unsafe fn stamp_changed(state: &mut Self::State<'_>, row: usize) {
-        if !state.changed_ticks.is_null() {
-            unsafe { *state.changed_ticks.add(row) = state.tick };
+            unsafe {
+                Some(Mut {
+                    value: &mut *state.data.add(row),
+                    changed_tick: state.changed_ticks.add(row),
+                    tick: state.tick,
+                })
+            }
         }
     }
 }
 
 impl<A: Component, B: Component> QuerySpecMut for (&mut A, &mut B) {
-    type Item<'w> = (&'w mut A, &'w mut B);
+    type Item<'w> = (Mut<'w, A>, Mut<'w, B>);
 
     type State<'w> = PairMutState<'w, A, B>;
 
@@ -727,19 +753,25 @@ impl<A: Component, B: Component> QuerySpecMut for (&mut A, &mut B) {
     unsafe fn fetch<'w>(state: &mut Self::State<'w>, row: usize) -> Self::Item<'w> {
         // SAFETY: `entities_and_two_columns_mut` guarantees distinct columns
         // and `QueryIterMut` guarantees each row is yielded once.
-        unsafe { (&mut *state.col_a.add(row), &mut *state.col_b.add(row)) }
-    }
-
-    unsafe fn stamp_changed(state: &mut Self::State<'_>, row: usize) {
         unsafe {
-            *state.changed_ticks_a.add(row) = state.tick;
-            *state.changed_ticks_b.add(row) = state.tick;
+            (
+                Mut {
+                    value: &mut *state.col_a.add(row),
+                    changed_tick: state.changed_ticks_a.add(row),
+                    tick: state.tick,
+                },
+                Mut {
+                    value: &mut *state.col_b.add(row),
+                    changed_tick: state.changed_ticks_b.add(row),
+                    tick: state.tick,
+                },
+            )
         }
     }
 }
 
 impl<A: Component, B: Component, C: Component> QuerySpecMut for (&mut A, &mut B, &mut C) {
-    type Item<'w> = (&'w mut A, &'w mut B, &'w mut C);
+    type Item<'w> = (Mut<'w, A>, Mut<'w, B>, Mut<'w, C>);
 
     type State<'w> = TripleMutState<'w, A, B, C>;
 
@@ -779,18 +811,22 @@ impl<A: Component, B: Component, C: Component> QuerySpecMut for (&mut A, &mut B,
         // columns and `QueryIterMut` yields each row at most once.
         unsafe {
             (
-                &mut *state.col_a.add(row),
-                &mut *state.col_b.add(row),
-                &mut *state.col_c.add(row),
+                Mut {
+                    value: &mut *state.col_a.add(row),
+                    changed_tick: state.changed_ticks_a.add(row),
+                    tick: state.tick,
+                },
+                Mut {
+                    value: &mut *state.col_b.add(row),
+                    changed_tick: state.changed_ticks_b.add(row),
+                    tick: state.tick,
+                },
+                Mut {
+                    value: &mut *state.col_c.add(row),
+                    changed_tick: state.changed_ticks_c.add(row),
+                    tick: state.tick,
+                },
             )
-        }
-    }
-
-    unsafe fn stamp_changed(state: &mut Self::State<'_>, row: usize) {
-        unsafe {
-            *state.changed_ticks_a.add(row) = state.tick;
-            *state.changed_ticks_b.add(row) = state.tick;
-            *state.changed_ticks_c.add(row) = state.tick;
         }
     }
 }
@@ -916,7 +952,7 @@ pub struct PairMutOptionalState<'w, A, B> {
 }
 
 impl<A: Component, B: Component> QuerySpecMut for (&mut A, Option<&mut B>) {
-    type Item<'w> = (&'w mut A, Option<&'w mut B>);
+    type Item<'w> = (Mut<'w, A>, Option<Mut<'w, B>>);
 
     type State<'w> = PairMutOptionalState<'w, A, B>;
 
@@ -963,22 +999,21 @@ impl<A: Component, B: Component> QuerySpecMut for (&mut A, Option<&mut B>) {
         // SAFETY: `QueryIterMut` guarantees each row is yielded at most once.
         // A and B are distinct types, so column pointers cannot alias.
         unsafe {
-            let a = &mut *state.col_a.add(row);
+            let a = Mut {
+                value: &mut *state.col_a.add(row),
+                changed_tick: state.changed_ticks_a.add(row),
+                tick: state.tick,
+            };
             let b = if state.col_b.is_null() {
                 None
             } else {
-                Some(&mut *state.col_b.add(row))
+                Some(Mut {
+                    value: &mut *state.col_b.add(row),
+                    changed_tick: state.changed_ticks_b.add(row),
+                    tick: state.tick,
+                })
             };
             (a, b)
-        }
-    }
-
-    unsafe fn stamp_changed(state: &mut Self::State<'_>, row: usize) {
-        unsafe {
-            *state.changed_ticks_a.add(row) = state.tick;
-            if !state.changed_ticks_b.is_null() {
-                *state.changed_ticks_b.add(row) = state.tick;
-            }
         }
     }
 }
@@ -1118,7 +1153,7 @@ mod tests {
         world.spawn((Pos { x: 1.0, y: 0.0 }, Vel { x: 0.0, y: 0.0 }));
 
         for (_, vel) in world.query_mut::<Option<&mut Vel>>() {
-            if let Some(v) = vel {
+            if let Some(mut v) = vel {
                 v.x += 10.0;
             }
         }
@@ -1148,9 +1183,9 @@ mod tests {
         world.spawn((Pos { x: 1.0, y: 0.0 }, Vel { x: 0.0, y: 0.0 }));
         world.spawn((Pos { x: 2.0, y: 0.0 },)); // no Vel
 
-        for (_, (pos, vel)) in world.query_mut::<(&mut Pos, Option<&mut Vel>)>() {
+        for (_, (mut pos, vel)) in world.query_mut::<(&mut Pos, Option<&mut Vel>)>() {
             pos.x += 100.0;
-            if let Some(v) = vel {
+            if let Some(mut v) = vel {
                 v.x += 50.0;
             }
         }

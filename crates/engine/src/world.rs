@@ -10,7 +10,7 @@ use crate::deadline::{Clock, DeadlineId, Deadlines, Timestamp};
 use crate::entity::{Entity, EntityMetaStore};
 use crate::event::Events;
 use crate::query::{
-    AddedIter, ChangedIter, Query2Iter, Query2MutIter, Query3Iter, Query3MutIter, QueryFilter,
+    AddedIter, ChangedIter, Mut, Query2Iter, Query2MutIter, Query3Iter, Query3MutIter, QueryFilter,
     QueryIter, QueryIterMut, QuerySpec, QuerySpecMut,
 };
 use crate::resource::Resources;
@@ -589,7 +589,10 @@ impl World {
     }
 
     /// Get a mutable component for an entity.
-    pub fn get_mut<T: Component>(&mut self, entity: Entity) -> Option<&mut T> {
+    ///
+    /// Returns `Mut<T>` — reading via `Deref` does not stamp the change tick;
+    /// only writing via `DerefMut` does.
+    pub fn get_mut<T: Component>(&mut self, entity: Entity) -> Option<Mut<'_, T>> {
         self.one_mut::<&mut T>(entity)
     }
 
@@ -617,9 +620,8 @@ impl World {
         // SAFETY: `loc.row` identifies one concrete row in the matched
         // archetype, so returning the fetched mutable references cannot alias
         // any other result from this method call.
+        // Change-tick stamping is deferred to `Mut<T>::deref_mut()`.
         let item = unsafe { Q::fetch(&mut state, row) };
-        // SAFETY: changed_ticks pointers in state are valid for this row.
-        unsafe { Q::stamp_changed(&mut state, row) };
         Some(item)
     }
 
@@ -978,7 +980,7 @@ mod tests {
         world.spawn((Pos { x: 0.0, y: 0.0 },));
         world.spawn((Pos { x: 10.0, y: 10.0 },));
 
-        for (_, pos) in world.query_mut::<&mut Pos>() {
+        for (_, mut pos) in world.query_mut::<&mut Pos>() {
             pos.x += 1.0;
         }
 
@@ -1031,7 +1033,7 @@ mod tests {
         let e2 = world.spawn((Pos { x: 2.0, y: 2.0 }, Vel { x: 20.0, y: 20.0 }));
         let e3 = world.spawn((Pos { x: 3.0, y: 3.0 }, Vel { x: 30.0, y: 30.0 }));
 
-        for (_, (pos, vel)) in world.query_mut::<(&mut Pos, &mut Vel)>() {
+        for (_, (mut pos, mut vel)) in world.query_mut::<(&mut Pos, &mut Vel)>() {
             pos.x += 100.0;
             vel.y += 200.0;
         }
@@ -1097,7 +1099,7 @@ mod tests {
         assert_eq!(pos.x, 1.0);
         assert_eq!(vel.x, 3.0);
 
-        let (pos, vel) = world.one_mut::<(&mut Pos, &mut Vel)>(e).unwrap();
+        let (mut pos, mut vel) = world.one_mut::<(&mut Pos, &mut Vel)>(e).unwrap();
         pos.x = 10.0;
         vel.y = 20.0;
 
@@ -1336,17 +1338,60 @@ mod tests {
         let mut world = World::new();
         world.spawn((Pos { x: 1.0, y: 2.0 },));
         world.advance_tick(); // tick → 2
-        for (_, pos) in world.query_mut::<&mut Pos>() {
+        for (_, mut pos) in world.query_mut::<&mut Pos>() {
             pos.x = 99.0;
         }
 
-        // Check that changed_tick was stamped at tick 2.
+        // Check that changed_tick was stamped at tick 2 (via Mut::deref_mut).
         for (e, _) in world.query::<&Pos>() {
             let loc = world.entity_location(e).unwrap();
             let arch = world.archetypes().get(loc.archetype_id);
             let col = arch.column::<Pos>().unwrap();
             assert_eq!(col.changed_tick(loc.row as usize), 2);
         }
+    }
+
+    #[test]
+    fn query_mut_read_only_does_not_stamp_tick() {
+        let mut world = World::new();
+        let e = world.spawn((Pos { x: 1.0, y: 2.0 },));
+        world.advance_tick(); // tick → 2
+
+        // Iterate via query_mut but only READ through Deref — no DerefMut.
+        for (_, pos) in world.query_mut::<&mut Pos>() {
+            let _read = pos.x; // Deref only — should NOT stamp
+        }
+
+        // changed_tick must still be 1 (from spawn), not 2.
+        let loc = world.entity_location(e).unwrap();
+        let arch = world.archetypes().get(loc.archetype_id);
+        let col = arch.column::<Pos>().unwrap();
+        assert_eq!(col.changed_tick(loc.row as usize), 1);
+
+        // query_changed should NOT see this entity.
+        let changed: Vec<Entity> = world.query_changed::<Pos>(1).map(|(e, _)| e).collect();
+        assert!(changed.is_empty());
+    }
+
+    #[test]
+    fn query_mut_selective_mutation_stamps_only_mutated() {
+        let mut world = World::new();
+        let e1 = world.spawn((Pos { x: 1.0, y: 0.0 },));
+        let e2 = world.spawn((Pos { x: 2.0, y: 0.0 },));
+        world.advance_tick(); // tick → 2
+
+        // Mutate only e1, read e2.
+        for (entity, mut pos) in world.query_mut::<&mut Pos>() {
+            if entity == e1 {
+                pos.x = 99.0; // DerefMut — stamps tick
+            } else {
+                let _read = pos.x; // Deref only — no stamp
+            }
+        }
+
+        let changed: Vec<Entity> = world.query_changed::<Pos>(1).map(|(e, _)| e).collect();
+        assert_eq!(changed.len(), 1);
+        assert_eq!(changed[0], e1);
     }
 
     // ---- query_changed / query_added ----------------------------------------
