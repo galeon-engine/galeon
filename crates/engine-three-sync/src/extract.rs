@@ -79,14 +79,13 @@ pub fn extract_frame(world: &World) -> FramePacket {
 /// The change flags further indicate if Visibility, MeshHandle, or
 /// MaterialHandle changed on those entities.
 ///
-/// # Caveats
+/// # Change detection precision
 ///
-/// `QueryMut<T>` eagerly stamps `changed_tick` on every yielded row, even
-/// if the system body does not actually mutate the component. Any system
-/// using `QueryMut<Transform>` (rather than read-only `Query<&Transform>`)
-/// will cause the next incremental extraction to include every entity with
-/// a `Transform`. A future `Mut<T>` wrapper that defers stamping to
-/// actual mutation would eliminate these false positives.
+/// `QueryMut<T>` yields `Mut<T>` smart pointers that only stamp
+/// `changed_tick` when written through (`DerefMut`). Systems that iterate
+/// `QueryMut<Transform>` but only read some entities will not trigger
+/// false positives — only actually-mutated entities appear in
+/// `query_changed` results.
 pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket {
     // Collect changed Transform entities first (releases archetype borrow).
     let renderables: Vec<Renderable> = world

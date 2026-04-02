@@ -54,7 +54,7 @@ pub use manifest::{
 };
 pub use protocol::{Command, Dto, Event, ProtocolKind, ProtocolMeta, ProtocolQuery};
 pub use query::{
-    AddedIter, ChangedIter, NoFilter, Query2Iter, Query2MutIter, Query3Iter, Query3MutIter,
+    AddedIter, ChangedIter, Mut, NoFilter, Query2Iter, Query2MutIter, Query3Iter, Query3MutIter,
     QueryFilter, QueryIter, QueryIterMut, QuerySpec, QuerySpecMut, With, Without,
 };
 pub use render::{MaterialHandle, MeshHandle, Transform, Visibility};

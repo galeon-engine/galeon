@@ -5,7 +5,7 @@ use std::ops::{Deref, DerefMut};
 
 use crate::component::Component;
 use crate::entity::Entity;
-use crate::query::{QueryIter, QueryIterMut};
+use crate::query::{Mut, QueryIter, QueryIterMut};
 use crate::world::UnsafeWorldCell;
 
 // =============================================================================
@@ -206,13 +206,17 @@ unsafe impl<T: Component> SystemParam for Query<'_, T> {
 
 /// Exclusive write access to all entities with component `T`.
 pub struct QueryMut<'w, T: Component> {
-    results: Vec<(Entity, &'w mut T)>,
+    results: Vec<(Entity, Mut<'w, T>)>,
 }
 
 impl<'w, T: Component> QueryMut<'w, T> {
-    /// Iterate mutably over matching `(Entity, &mut T)` pairs.
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = (Entity, &mut T)> + '_ {
-        self.results.iter_mut().map(|(e, v)| (*e, &mut **v))
+    /// Iterate mutably over matching `(Entity, &mut Mut<T>)` pairs.
+    ///
+    /// Reading through `Mut<T>` (via `Deref`) does not stamp the change tick.
+    /// Only writing through `DerefMut` stamps it, so `query_changed` sees
+    /// only entities that were actually mutated.
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (Entity, &mut Mut<'w, T>)> + '_ {
+        self.results.iter_mut().map(|(e, v)| (*e, v))
     }
 
     /// Returns `true` if no entities matched.
