@@ -147,7 +147,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn rejects_below_min_hz() {
         let result = std::panic::catch_unwind(|| FixedTimestep::new(0.5));
         assert!(result.is_err());
@@ -168,6 +167,7 @@ mod tests {
         assert!((high.tick_rate() - 240.0).abs() < f64::EPSILON);
     }
 
+    #[test]
     fn fixed_timestep_creation() {
         let ts = FixedTimestep::new(10.0);
         assert!((ts.step - 0.1).abs() < f64::EPSILON);

@@ -83,7 +83,7 @@ fn main() {
     engine.world_mut().spawn((Score(0),));
     engine.tick(0.1);
 
-    // Score is now 1 after one tick.
+    // Score is now 3 after three ticks (0.1s × 30 Hz = 3).
 }
 ```
 
