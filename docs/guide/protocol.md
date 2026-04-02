@@ -34,12 +34,36 @@ pub struct FleetSnapshot {
     pub ships_in_transit: u32,
     pub ships_docked: u32,
 }
+
+#[galeon_engine::command(surface = "authority")]
+pub struct ApprovePort {
+    pub port_id: u64,
+}
+
+#[galeon_engine::dto(surfaces = ["authority", "gameplay"])]
+pub struct ShipView {
+    pub ship_id: u64,
+    pub name: String,
+}
 ```
 
 ## Manifest
 
 `ProtocolManifest::collect("my-protocol@0.1")` gathers all registered items
 into a machine-readable JSON manifest. This is the input to code generation.
+
+Unannotated items land in the manifest's `default_surface`, which defaults to
+`"default"`. Multi-surface projects can rename that implicit surface with
+`ProtocolManifest::collect_with_default_surface("my-protocol@0.1", "gameplay")`.
+
+Surface rules:
+
+- `surface = "authority"` assigns an item to one named surface
+- `surfaces = ["authority", "gameplay"]` shares an item across named surfaces
+- no surface annotation means "default surface only"
+
+That keeps single-surface projects zero-config while making shared DTOs, events,
+queries, and commands explicit instead of globally flattened.
 
 ## TypeScript Generation
 
@@ -65,7 +89,7 @@ Type mapping: `u64`/`f32` → `number`, `String` → `string`, `bool` → `boole
 
 ## Protocol Descriptors
 
-`generate_descriptors(&manifest)` produces route metadata for adapters:
+`generate_descriptors(&manifest)` produces route metadata grouped by surface:
 
 | Kind | Default route | HTTP method |
 |------|--------------|-------------|
@@ -73,6 +97,25 @@ Type mapping: `u64`/`f32` → `number`, `String` → `string`, `bool` → `boole
 | Query (no fields) | `/queries/<kebab-name>` | GET |
 | Query (with fields) | `/queries/<kebab-name>` | POST |
 | Event | `/events/<kebab-name>` | GET (stream) |
+
+```rust
+let manifest = ProtocolManifest::collect_with_default_surface(
+    "my-protocol@0.1",
+    "gameplay",
+);
+let descriptors = generate_descriptors(&manifest);
+
+for surface in &descriptors.surfaces {
+    println!("surface: {}", surface.name);
+    for descriptor in &surface.descriptors {
+        println!("  {} {}", descriptor.name, descriptor.route);
+    }
+}
+```
+
+Routes remain relative to a surface. Adapters can mount each surface under their
+own base path without flattening unrelated commands, queries, or events into one
+project-wide descriptor list.
 
 ## Handler Registry
 

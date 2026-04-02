@@ -489,8 +489,10 @@ mod tests {
 
         // Build a manifest matching our test protocol items.
         let manifest = ProtocolManifest {
-            manifest_version: "1".into(),
+            manifest_version: "2".into(),
             protocol_version: "test@0.1".into(),
+            default_surface: "default".into(),
+            surfaces: vec!["default".into()],
             commands: vec![ManifestEntry {
                 name: "DispatchShip".into(),
                 kind: ProtocolKind::Command,
@@ -505,12 +507,14 @@ mod tests {
                     },
                 ],
                 doc: "".into(),
+                surfaces: vec![],
             }],
             queries: vec![ManifestEntry {
                 name: "GetFleetSnapshot".into(),
                 kind: ProtocolKind::Query,
                 fields: vec![],
                 doc: "".into(),
+                surfaces: vec![],
             }],
             events: vec![],
             dtos: vec![],
@@ -525,20 +529,22 @@ mod tests {
         registry.register_query::<GetFleetSnapshot, FleetSnapshot, _>(FleetQuerier);
 
         // Dispatch using descriptor names — no TypeId, no Rust-only knowledge.
-        for desc in &desc_set.descriptors {
-            match desc.kind {
-                ProtocolKind::Command => {
-                    let response = registry
-                        .dispatch_command_json(&desc.name, r#"{"ship_id":1,"contract_id":42}"#)
-                        .unwrap();
-                    assert!(response.contains("true"));
+        for surface in &desc_set.surfaces {
+            for desc in &surface.descriptors {
+                match desc.kind {
+                    ProtocolKind::Command => {
+                        let response = registry
+                            .dispatch_command_json(&desc.name, r#"{"ship_id":1,"contract_id":42}"#)
+                            .unwrap();
+                        assert!(response.contains("true"));
+                    }
+                    ProtocolKind::Query => {
+                        let response = registry.dispatch_query_json(&desc.name, "null").unwrap();
+                        let snapshot: FleetSnapshot = serde_json::from_str(&response).unwrap();
+                        assert_eq!(snapshot.ships_docked, 5);
+                    }
+                    _ => {}
                 }
-                ProtocolKind::Query => {
-                    let response = registry.dispatch_query_json(&desc.name, "null").unwrap();
-                    let snapshot: FleetSnapshot = serde_json::from_str(&response).unwrap();
-                    assert_eq!(snapshot.ships_docked, 5);
-                }
-                _ => {}
             }
         }
     }

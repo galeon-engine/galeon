@@ -21,6 +21,7 @@
 
 use crate::protocol::ProtocolKind;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
 /// A field descriptor used in compile-time registration.
 ///
@@ -45,6 +46,8 @@ pub struct ProtocolRegistration {
     pub fields: &'static [FieldEntry],
     /// Doc comment (first line), if any.
     pub doc: &'static str,
+    /// Explicit surface memberships. Empty means "default surface only".
+    pub surfaces: &'static [&'static str],
 }
 
 inventory::collect!(ProtocolRegistration);
@@ -70,6 +73,9 @@ pub struct ManifestEntry {
     /// Doc comment (first line).
     #[serde(skip_serializing_if = "String::is_empty")]
     pub doc: String,
+    /// Explicit surface memberships. Empty means the manifest's default surface.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub surfaces: Vec<String>,
 }
 
 /// The complete protocol manifest for a project.
@@ -82,6 +88,15 @@ pub struct ProtocolManifest {
     pub manifest_version: String,
     /// The project's protocol version (e.g., `"moonbarons-protocol@0.1"`).
     pub protocol_version: String,
+    /// The implicit surface for unannotated protocol items.
+    #[serde(
+        default = "ProtocolManifest::default_surface_name_owned",
+        skip_serializing_if = "ProtocolManifest::is_default_surface_name"
+    )]
+    pub default_surface: String,
+    /// All resolved surface names referenced by the manifest.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub surfaces: Vec<String>,
     /// Command entries.
     pub commands: Vec<ManifestEntry>,
     /// Query entries.
@@ -94,7 +109,17 @@ pub struct ProtocolManifest {
 
 impl ProtocolManifest {
     /// Current manifest schema version.
-    pub const MANIFEST_VERSION: &'static str = "1";
+    pub const MANIFEST_VERSION: &'static str = "2";
+    /// The default surface name for single-surface projects.
+    pub const DEFAULT_SURFACE: &'static str = "default";
+
+    fn default_surface_name_owned() -> String {
+        Self::DEFAULT_SURFACE.to_string()
+    }
+
+    fn is_default_surface_name(name: &String) -> bool {
+        name == Self::DEFAULT_SURFACE
+    }
 
     /// Collect all protocol items registered via attribute macros.
     ///
@@ -102,12 +127,31 @@ impl ProtocolManifest {
     /// (e.g., `"moonbarons-protocol@0.1"`). If empty, defaults to the
     /// calling crate's version.
     pub fn collect(protocol_version: &str) -> Self {
+        Self::collect_with_default_surface(protocol_version, Self::DEFAULT_SURFACE)
+    }
+
+    /// Collect all protocol items, resolving unannotated items into `default_surface`.
+    pub fn collect_with_default_surface(protocol_version: &str, default_surface: &str) -> Self {
         let mut commands = Vec::new();
         let mut queries = Vec::new();
         let mut events = Vec::new();
         let mut dtos = Vec::new();
+        let mut surface_names = BTreeSet::new();
 
         for reg in inventory::iter::<ProtocolRegistration> {
+            let mut surfaces: Vec<String> = reg
+                .surfaces
+                .iter()
+                .map(|surface| surface.to_string())
+                .collect();
+            surfaces.sort();
+            surfaces.dedup();
+            let resolved_surfaces = if surfaces.is_empty() {
+                vec![default_surface.to_string()]
+            } else {
+                surfaces.clone()
+            };
+            surface_names.extend(resolved_surfaces);
             let entry = ManifestEntry {
                 name: reg.name.to_string(),
                 kind: reg.kind,
@@ -120,6 +164,7 @@ impl ProtocolManifest {
                     })
                     .collect(),
                 doc: reg.doc.to_string(),
+                surfaces,
             };
             match reg.kind {
                 ProtocolKind::Command => commands.push(entry),
@@ -138,11 +183,59 @@ impl ProtocolManifest {
         ProtocolManifest {
             manifest_version: Self::MANIFEST_VERSION.to_string(),
             protocol_version: protocol_version.to_string(),
+            default_surface: default_surface.to_string(),
+            surfaces: surface_names.into_iter().collect(),
             commands,
             queries,
             events,
             dtos,
         }
+    }
+
+    /// Check whether an entry belongs to a surface, resolving the default surface when needed.
+    pub fn entry_belongs_to_surface(
+        entry: &ManifestEntry,
+        surface: &str,
+        default_surface: &str,
+    ) -> bool {
+        if entry.surfaces.is_empty() {
+            surface == default_surface
+        } else {
+            entry.surfaces.iter().any(|candidate| candidate == surface)
+        }
+    }
+
+    /// Return the manifest's effective surface names.
+    ///
+    /// Schema v2 manifests persist `surfaces`, but older manifests may be
+    /// deserialized without that field. In that case, derive the surface set
+    /// from entry memberships so descriptor/codegen consumers degrade safely.
+    pub fn resolved_surface_names(&self) -> Vec<String> {
+        if !self.surfaces.is_empty() {
+            return self.surfaces.clone();
+        }
+
+        let mut surface_names = BTreeSet::new();
+        for entry in self
+            .commands
+            .iter()
+            .chain(self.queries.iter())
+            .chain(self.events.iter())
+            .chain(self.dtos.iter())
+        {
+            if entry.surfaces.is_empty() {
+                surface_names.insert(self.default_surface.clone());
+            } else {
+                surface_names.extend(entry.surfaces.iter().cloned());
+            }
+        }
+
+        // If no surfaces were found, ensure the default surface is included
+        if surface_names.is_empty() {
+            surface_names.insert(self.default_surface.clone());
+        }
+
+        surface_names.into_iter().collect()
     }
 
     /// Serialize to pretty-printed JSON.
