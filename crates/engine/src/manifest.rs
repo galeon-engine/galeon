@@ -205,6 +205,34 @@ impl ProtocolManifest {
         }
     }
 
+    /// Return the manifest's effective surface names.
+    ///
+    /// Schema v2 manifests persist `surfaces`, but older manifests may be
+    /// deserialized without that field. In that case, derive the surface set
+    /// from entry memberships so descriptor/codegen consumers degrade safely.
+    pub fn resolved_surface_names(&self) -> Vec<String> {
+        if !self.surfaces.is_empty() {
+            return self.surfaces.clone();
+        }
+
+        let mut surface_names = BTreeSet::new();
+        for entry in self
+            .commands
+            .iter()
+            .chain(self.queries.iter())
+            .chain(self.events.iter())
+            .chain(self.dtos.iter())
+        {
+            if entry.surfaces.is_empty() {
+                surface_names.insert(self.default_surface.clone());
+            } else {
+                surface_names.extend(entry.surfaces.iter().cloned());
+            }
+        }
+
+        surface_names.into_iter().collect()
+    }
+
     /// Serialize to pretty-printed JSON.
     pub fn to_json_pretty(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)

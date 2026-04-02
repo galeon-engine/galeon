@@ -208,8 +208,9 @@ fn to_kebab_case(name: &str) -> String {
 /// - Events → `GET /events/<kebab-name>` (stream subscription)
 pub fn generate_descriptors(manifest: &ProtocolManifest) -> ProtocolDescriptorSet {
     let mut surfaces = Vec::new();
+    let surface_names = manifest.resolved_surface_names();
 
-    for surface_name in &manifest.surfaces {
+    for surface_name in &surface_names {
         let mut descriptors = Vec::new();
 
         for entry in manifest.commands.iter().filter(|entry| {
@@ -608,5 +609,33 @@ mod tests {
         let back: ProtocolDescriptorSet = serde_json::from_str(&json).unwrap();
         assert_eq!(back.surfaces.len(), 1);
         assert_eq!(back.iter_descriptors().count(), 3);
+    }
+
+    #[test]
+    fn generate_descriptors_derives_surfaces_for_legacy_manifests() {
+        let manifest: ProtocolManifest = serde_json::from_str(
+            r#"{
+                "manifest_version": "1",
+                "protocol_version": "legacy@0.1",
+                "commands": [
+                    {
+                        "name": "DispatchShip",
+                        "kind": "Command",
+                        "fields": [],
+                        "doc": ""
+                    }
+                ],
+                "queries": [],
+                "events": [],
+                "dtos": []
+            }"#,
+        )
+        .unwrap();
+
+        let descs = generate_descriptors(&manifest);
+        assert_eq!(descs.surfaces.len(), 1);
+        assert_eq!(descs.surfaces[0].name, "default");
+        assert_eq!(descs.surfaces[0].descriptors.len(), 1);
+        assert_eq!(descs.surfaces[0].descriptors[0].name, "DispatchShip");
     }
 }
