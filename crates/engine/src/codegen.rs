@@ -177,9 +177,18 @@ pub fn generate_typescript_for_surface(manifest: &ProtocolManifest, surface: &st
 /// Generate one TypeScript module per surface in the manifest.
 ///
 /// Returns `(surface_name, typescript_source)` pairs sorted by surface name.
+/// Single-surface manifests delegate to [`generate_typescript`] so that
+/// existing consumers see identical output (no `Surface:` header drift).
 pub fn generate_all_surface_typescripts(manifest: &ProtocolManifest) -> Vec<(String, String)> {
-    manifest
-        .resolved_surface_names()
+    let mut names = manifest.resolved_surface_names();
+    names.sort();
+    names.dedup();
+
+    if names.len() == 1 {
+        return vec![(names[0].clone(), generate_typescript(manifest))];
+    }
+
+    names
         .into_iter()
         .map(|name| {
             let ts = generate_typescript_for_surface(manifest, &name);
@@ -770,11 +779,21 @@ mod tests {
         let all = generate_all_surface_typescripts(&manifest);
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].0, "default");
-        // Single-surface output should contain every entry
-        assert!(all[0].1.contains("DispatchShip"));
-        assert!(all[0].1.contains("GetFleetSnapshot"));
-        assert!(all[0].1.contains("ShipArrived"));
-        assert!(all[0].1.contains("FleetSnapshot"));
+        // Single-surface output must be byte-identical to generate_typescript()
+        assert_eq!(all[0].1, generate_typescript(&manifest));
+    }
+
+    #[test]
+    fn generate_all_surface_typescripts_sorts_and_dedups_surface_names() {
+        let mut manifest = sample_multi_surface_manifest();
+        // Intentionally out-of-order with a duplicate
+        manifest.surfaces = vec!["gameplay".into(), "authority".into(), "authority".into()];
+
+        let all = generate_all_surface_typescripts(&manifest);
+
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].0, "authority");
+        assert_eq!(all[1].0, "gameplay");
     }
 
     // -- T6: End-to-end multi-surface proof --
