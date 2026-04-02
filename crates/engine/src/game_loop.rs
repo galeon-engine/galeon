@@ -19,9 +19,20 @@ pub struct FixedTimestep {
 }
 
 impl FixedTimestep {
+    /// Minimum tick rate (1 Hz). Below this, use event-driven scheduling instead.
+    pub const MIN_HZ: f64 = 1.0;
+    /// Maximum tick rate (240 Hz). Beyond this, the per-tick budget is too small
+    /// for meaningful simulation work and risks death-spiraling the game loop.
+    pub const MAX_HZ: f64 = 240.0;
+
     /// Create a new fixed timestep at the given tick rate (Hz).
     pub fn new(tick_rate: f64) -> Self {
-        assert!(tick_rate > 0.0, "tick rate must be positive");
+        assert!(
+            (Self::MIN_HZ..=Self::MAX_HZ).contains(&tick_rate),
+            "tick rate {tick_rate} Hz out of range [{}, {}]",
+            Self::MIN_HZ,
+            Self::MAX_HZ,
+        );
         Self {
             step: 1.0 / tick_rate,
             accumulator: 0.0,
@@ -136,6 +147,27 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn rejects_below_min_hz() {
+        let result = std::panic::catch_unwind(|| FixedTimestep::new(0.5));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_above_max_hz() {
+        let result = std::panic::catch_unwind(|| FixedTimestep::new(500.0));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn accepts_boundary_values() {
+        let low = FixedTimestep::new(FixedTimestep::MIN_HZ);
+        assert!((low.tick_rate() - 1.0).abs() < f64::EPSILON);
+
+        let high = FixedTimestep::new(FixedTimestep::MAX_HZ);
+        assert!((high.tick_rate() - 240.0).abs() < f64::EPSILON);
+    }
+
     fn fixed_timestep_creation() {
         let ts = FixedTimestep::new(10.0);
         assert!((ts.step - 0.1).abs() < f64::EPSILON);
