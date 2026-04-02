@@ -242,7 +242,8 @@ unsafe impl<T: Component> SystemParam for QueryMut<'_, T> {
     unsafe fn fetch<'w>(world: UnsafeWorldCell) -> QueryMut<'w, T> {
         QueryMut {
             results: unsafe {
-                QueryIterMut::<'w, &mut T>::new_from_ptr(world.archetypes_mut_ptr()).collect()
+                let tick = world.change_tick();
+                QueryIterMut::<'w, &mut T>::new_from_ptr(world.archetypes_mut_ptr(), tick).collect()
             },
         }
     }

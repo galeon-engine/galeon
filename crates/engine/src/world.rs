@@ -10,8 +10,8 @@ use crate::deadline::{Clock, DeadlineId, Deadlines, Timestamp};
 use crate::entity::{Entity, EntityMetaStore};
 use crate::event::Events;
 use crate::query::{
-    Query2Iter, Query2MutIter, Query3Iter, Query3MutIter, QueryFilter, QueryIter, QueryIterMut,
-    QuerySpec, QuerySpecMut,
+    AddedIter, ChangedIter, Query2Iter, Query2MutIter, Query3Iter, Query3MutIter, QueryFilter,
+    QueryIter, QueryIterMut, QuerySpec, QuerySpecMut,
 };
 use crate::resource::Resources;
 
@@ -226,6 +226,19 @@ impl UnsafeWorldCell {
             &mut *ptr
         }
     }
+
+    /// Read the current change-detection tick without creating `&World`.
+    ///
+    /// # Safety
+    ///
+    /// The `World` must be valid for the duration of this call.
+    #[inline]
+    pub unsafe fn change_tick(self) -> u64 {
+        unsafe {
+            let ptr: *const u64 = std::ptr::addr_of!((*self.0).change_tick);
+            *ptr
+        }
+    }
 }
 
 // =============================================================================
@@ -244,6 +257,9 @@ pub struct World {
     archetypes: ArchetypeStore,
     resources: Resources,
     commands: CommandBuffer,
+    /// Monotonically increasing change-detection tick. Starts at 1; tick 0 is
+    /// the sentinel meaning "never observed". Incremented by `advance_tick()`.
+    change_tick: u64,
     /// Type-erased closures that advance each registered `Events<T>` buffer.
     ///
     /// Populated by [`World::add_event::<T>()`]. Each closure calls
@@ -273,11 +289,27 @@ impl World {
             archetypes,
             resources: Resources::new(),
             commands: CommandBuffer::new(),
+            change_tick: 1,
             event_updaters: Vec::new(),
             registered_events: HashSet::new(),
             deadline_drainers: Vec::new(),
             registered_deadlines: HashSet::new(),
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Change-detection tick
+    // -------------------------------------------------------------------------
+
+    /// The current change-detection tick. Starts at 1; 0 is the sentinel.
+    pub fn change_tick(&self) -> u64 {
+        self.change_tick
+    }
+
+    /// Advance the change-detection tick by one. Returns the new tick value.
+    pub fn advance_tick(&mut self) -> u64 {
+        self.change_tick += 1;
+        self.change_tick
     }
 
     // -------------------------------------------------------------------------
@@ -291,9 +323,12 @@ impl World {
         B::register_columns(&mut self.archetypes);
         let layout = ArchetypeLayout::from_type_ids(&type_ids);
         let arch_id = self.archetypes.get_or_create(layout);
+        let tick = self.change_tick;
         let arch = self.archetypes.get_mut(arch_id);
         bundle.push_into_columns(arch);
         let row = arch.push_entity(entity);
+        // Stamp all columns: newly spawned entity is both added and changed.
+        arch.stamp_all_ticks(row, tick, tick);
         self.meta.set_location(
             entity,
             EntityLocation {
@@ -572,15 +607,20 @@ impl World {
     /// Fetch a typed mutable query item for a single entity.
     pub fn one_mut<Q: QuerySpecMut>(&mut self, entity: Entity) -> Option<Q::Item<'_>> {
         let loc = self.meta.get_location(entity)?;
+        let tick = self.change_tick;
         let arch = self.archetypes.get_mut(loc.archetype_id);
         if !Q::matches(arch.layout()) {
             return None;
         }
-        let mut state = Q::init_state(arch)?;
+        let mut state = Q::init_state(arch, tick)?;
+        let row = loc.row as usize;
         // SAFETY: `loc.row` identifies one concrete row in the matched
         // archetype, so returning the fetched mutable references cannot alias
         // any other result from this method call.
-        Some(unsafe { Q::fetch(&mut state, loc.row as usize) })
+        let item = unsafe { Q::fetch(&mut state, row) };
+        // SAFETY: changed_ticks pointers in state are valid for this row.
+        unsafe { Q::stamp_changed(&mut state, row) };
+        Some(item)
     }
 
     // -------------------------------------------------------------------------
@@ -605,9 +645,13 @@ impl World {
             .layout()
             .contains(TypeId::of::<C>())
         {
+            let tick = self.change_tick;
             let arch = self.archetypes.get_mut(src_arch_id);
-            if let Some(slot) = arch.column_mut::<C>().and_then(|c| c.get_mut(row)) {
-                *slot = value;
+            if let Some(col) = arch.column_mut::<C>() {
+                if let Some(slot) = col.get_mut(row) {
+                    *slot = value;
+                }
+                col.set_changed_tick(row, tick);
             }
             return;
         }
@@ -626,7 +670,10 @@ impl World {
         // Collect source layout type IDs before mutable borrow.
         let src_type_ids: Vec<TypeId> = self.archetypes.get(src_arch_id).layout().iter().collect();
 
+        let tick = self.change_tick;
+
         // Move all existing columns from source to destination.
+        // Ticks are preserved by move_to.
         let (src_arch, dst_arch) = self.archetypes.get_two_mut(src_arch_id, dst_arch_id);
         for &tid in &src_type_ids {
             let src_col = src_arch.column_raw_mut(tid).unwrap();
@@ -642,6 +689,9 @@ impl World {
 
         // Push entity into destination.
         let new_row = dst_arch.push_entity(entity);
+
+        // Stamp ticks on the newly added component C (added + changed).
+        dst_arch.stamp_column_ticks(TypeId::of::<C>(), new_row, tick, tick);
 
         // Update locations.
         self.meta.set_location(
@@ -751,14 +801,16 @@ impl World {
 
     /// Query all entities mutably matching `Q`.
     pub fn query_mut<Q: QuerySpecMut>(&mut self) -> QueryIterMut<'_, Q> {
-        QueryIterMut::new(&mut self.archetypes)
+        let tick = self.change_tick;
+        QueryIterMut::new(&mut self.archetypes, tick)
     }
 
     /// Query all entities mutably matching `Q` and `F`.
     pub fn query_filtered_mut<Q: QuerySpecMut, F: QueryFilter>(
         &mut self,
     ) -> QueryIterMut<'_, Q, F> {
-        QueryIterMut::new(&mut self.archetypes)
+        let tick = self.change_tick;
+        QueryIterMut::new(&mut self.archetypes, tick)
     }
 
     /// Convenience wrapper for two-component immutable queries.
@@ -803,9 +855,37 @@ impl World {
         self.query_mut::<(&mut A, &mut B, &mut C)>()
     }
 
+    // -------------------------------------------------------------------------
+    // Change-detection queries
+    // -------------------------------------------------------------------------
+
+    /// Iterate entities whose component `T` changed after `since_tick`.
+    pub fn query_changed<T: Component>(&self, since_tick: u64) -> ChangedIter<'_, T> {
+        ChangedIter::new(&self.archetypes, since_tick)
+    }
+
+    /// Iterate entities whose component `T` was added after `since_tick`.
+    pub fn query_added<T: Component>(&self, since_tick: u64) -> AddedIter<'_, T> {
+        AddedIter::new(&self.archetypes, since_tick)
+    }
+
+    // -------------------------------------------------------------------------
+    // Metadata
+    // -------------------------------------------------------------------------
+
     /// Returns the number of alive entities.
     pub fn entity_count(&self) -> usize {
         self.meta.alive_entities().count()
+    }
+
+    /// Shared access to the archetype store (for change-detection inspection).
+    pub fn archetypes(&self) -> &ArchetypeStore {
+        &self.archetypes
+    }
+
+    /// Look up where an entity lives in archetype storage.
+    pub fn entity_location(&self, entity: Entity) -> Option<EntityLocation> {
+        self.meta.get_location(entity)
     }
 }
 
@@ -1152,5 +1232,202 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(world.entity_count(), 0);
         assert!(world.query::<&Pos>().next().is_none());
+    }
+
+    // ---- Change-detection tick -----------------------------------------------
+
+    #[test]
+    fn change_tick_starts_at_one() {
+        let world = World::new();
+        assert_eq!(world.change_tick(), 1);
+    }
+
+    #[test]
+    fn advance_tick_increments() {
+        let mut world = World::new();
+        assert_eq!(world.change_tick(), 1);
+        let t = world.advance_tick();
+        assert_eq!(t, 2);
+        assert_eq!(world.change_tick(), 2);
+        world.advance_tick();
+        assert_eq!(world.change_tick(), 3);
+    }
+
+    #[test]
+    fn unsafe_world_cell_reads_change_tick() {
+        let mut world = World::new();
+        world.advance_tick();
+        let cell = unsafe { UnsafeWorldCell::new(&mut world as *mut World) };
+        assert_eq!(unsafe { cell.change_tick() }, 2);
+    }
+
+    // ---- Tick stamping on mutation -------------------------------------------
+
+    #[test]
+    fn spawn_stamps_added_and_changed_ticks() {
+        let mut world = World::new();
+        // change_tick starts at 1
+        let e = world.spawn((Pos { x: 1.0, y: 2.0 },));
+        let loc = world.entity_location(e).unwrap();
+        let arch = world.archetypes().get(loc.archetype_id);
+        let col = arch.column::<Pos>().unwrap();
+        assert_eq!(col.added_tick(loc.row as usize), 1);
+        assert_eq!(col.changed_tick(loc.row as usize), 1);
+    }
+
+    #[test]
+    fn get_mut_stamps_changed_tick() {
+        let mut world = World::new();
+        let e = world.spawn((Pos { x: 1.0, y: 2.0 },));
+        world.advance_tick(); // tick → 2
+        world.get_mut::<Pos>(e).unwrap().x = 99.0;
+
+        let loc = world.entity_location(e).unwrap();
+        let arch = world.archetypes().get(loc.archetype_id);
+        let col = arch.column::<Pos>().unwrap();
+        assert_eq!(col.added_tick(loc.row as usize), 1); // unchanged
+        assert_eq!(col.changed_tick(loc.row as usize), 2); // stamped
+    }
+
+    #[test]
+    fn insert_overwrite_stamps_changed_tick() {
+        let mut world = World::new();
+        let e = world.spawn((Pos { x: 1.0, y: 2.0 },));
+        world.advance_tick(); // tick → 2
+        world.insert(e, Pos { x: 99.0, y: 0.0 });
+
+        let loc = world.entity_location(e).unwrap();
+        let arch = world.archetypes().get(loc.archetype_id);
+        let col = arch.column::<Pos>().unwrap();
+        assert_eq!(col.added_tick(loc.row as usize), 1);
+        assert_eq!(col.changed_tick(loc.row as usize), 2);
+    }
+
+    #[test]
+    fn insert_migration_stamps_new_component_ticks() {
+        let mut world = World::new();
+        let e = world.spawn((Pos { x: 1.0, y: 2.0 },));
+        world.advance_tick(); // tick → 2
+        world.insert(e, Vel { x: 3.0, y: 4.0 });
+
+        let loc = world.entity_location(e).unwrap();
+        let arch = world.archetypes().get(loc.archetype_id);
+
+        // Pos was migrated — ticks preserved from spawn (tick 1).
+        let pos_col = arch.column::<Pos>().unwrap();
+        assert_eq!(pos_col.added_tick(loc.row as usize), 1);
+        assert_eq!(pos_col.changed_tick(loc.row as usize), 1);
+
+        // Vel is newly added at tick 2.
+        let vel_col = arch.column::<Vel>().unwrap();
+        assert_eq!(vel_col.added_tick(loc.row as usize), 2);
+        assert_eq!(vel_col.changed_tick(loc.row as usize), 2);
+    }
+
+    #[test]
+    fn query_mut_stamps_changed_tick() {
+        let mut world = World::new();
+        world.spawn((Pos { x: 1.0, y: 2.0 },));
+        world.advance_tick(); // tick → 2
+        for (_, pos) in world.query_mut::<&mut Pos>() {
+            pos.x = 99.0;
+        }
+
+        // Check that changed_tick was stamped at tick 2.
+        for (e, _) in world.query::<&Pos>() {
+            let loc = world.entity_location(e).unwrap();
+            let arch = world.archetypes().get(loc.archetype_id);
+            let col = arch.column::<Pos>().unwrap();
+            assert_eq!(col.changed_tick(loc.row as usize), 2);
+        }
+    }
+
+    // ---- query_changed / query_added ----------------------------------------
+
+    #[test]
+    fn query_changed_returns_mutated_entities() {
+        let mut world = World::new();
+        let e1 = world.spawn((Pos { x: 1.0, y: 0.0 },));
+        let e2 = world.spawn((Pos { x: 2.0, y: 0.0 },));
+        let _e3 = world.spawn((Pos { x: 3.0, y: 0.0 },));
+
+        let since = world.change_tick(); // 1
+        world.advance_tick(); // tick → 2
+
+        // Mutate only e1 and e2.
+        world.get_mut::<Pos>(e1).unwrap().x = 10.0;
+        world.get_mut::<Pos>(e2).unwrap().x = 20.0;
+
+        let changed: Vec<Entity> = world.query_changed::<Pos>(since).map(|(e, _)| e).collect();
+        assert_eq!(changed.len(), 2);
+        assert!(changed.contains(&e1));
+        assert!(changed.contains(&e2));
+    }
+
+    #[test]
+    fn query_changed_excludes_untouched() {
+        let mut world = World::new();
+        world.spawn((Pos { x: 1.0, y: 0.0 },));
+
+        let since = world.change_tick();
+        world.advance_tick();
+        // Don't mutate anything.
+
+        let changed: Vec<Entity> = world.query_changed::<Pos>(since).map(|(e, _)| e).collect();
+        assert!(changed.is_empty());
+    }
+
+    #[test]
+    fn query_added_returns_newly_spawned() {
+        let mut world = World::new();
+        let _old = world.spawn((Pos { x: 1.0, y: 0.0 },));
+
+        let since = world.change_tick(); // 1
+        world.advance_tick(); // tick → 2
+
+        let new = world.spawn((Pos { x: 2.0, y: 0.0 },));
+
+        let added: Vec<Entity> = world.query_added::<Pos>(since).map(|(e, _)| e).collect();
+        assert_eq!(added, vec![new]);
+    }
+
+    #[test]
+    fn query_added_returns_component_inserted_via_migration() {
+        let mut world = World::new();
+        let e = world.spawn((Pos { x: 1.0, y: 0.0 },));
+
+        let since = world.change_tick();
+        world.advance_tick();
+
+        world.insert(e, Vel { x: 3.0, y: 4.0 });
+
+        // Vel was added after since_tick.
+        let added: Vec<Entity> = world.query_added::<Vel>(since).map(|(e, _)| e).collect();
+        assert_eq!(added, vec![e]);
+
+        // Pos was added at tick 1, not after since_tick (also 1).
+        let added_pos: Vec<Entity> = world.query_added::<Pos>(since).map(|(e, _)| e).collect();
+        assert!(added_pos.is_empty());
+    }
+
+    #[test]
+    fn query_changed_across_multiple_archetypes() {
+        let mut world = World::new();
+        // Archetype 1: (Pos,)
+        let e1 = world.spawn((Pos { x: 1.0, y: 0.0 },));
+        // Archetype 2: (Pos, Vel)
+        let e2 = world.spawn((Pos { x: 2.0, y: 0.0 }, Vel { x: 0.0, y: 0.0 }));
+
+        let since = world.change_tick();
+        world.advance_tick();
+
+        // Mutate Pos on both.
+        world.get_mut::<Pos>(e1).unwrap().x = 10.0;
+        world.get_mut::<Pos>(e2).unwrap().x = 20.0;
+
+        let changed: Vec<Entity> = world.query_changed::<Pos>(since).map(|(e, _)| e).collect();
+        assert_eq!(changed.len(), 2);
+        assert!(changed.contains(&e1));
+        assert!(changed.contains(&e2));
     }
 }
