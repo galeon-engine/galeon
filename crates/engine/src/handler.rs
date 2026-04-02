@@ -142,6 +142,15 @@ struct QueryEntry(std::sync::Arc<dyn ErasedQueryHandler>);
 /// Game projects register handlers here. Both local and remote adapters
 /// dispatch through this registry. Local dispatch uses `TypeId` (zero-cost).
 /// Remote dispatch uses the stable protocol name from `ProtocolMeta::name()`.
+///
+/// # Surface independence
+///
+/// The registry is deliberately surface-unaware. Protocol surfaces partition
+/// *generated artifacts* (TypeScript modules, route descriptors) but not
+/// handler registration. A handler registered once serves every surface that
+/// includes its protocol item. Transport adapters (e.g., an axum router)
+/// filter descriptors by surface when mounting routes — the registry itself
+/// stays flat.
 pub struct HandlerRegistry {
     /// TypeId → handler index (local adapter path).
     commands_by_type: HashMap<TypeId, CommandEntry>,
@@ -612,5 +621,111 @@ mod tests {
         registry.register_command::<DispatchShip, DispatchResult, _>(ShipDispatcher);
         // This must panic — same protocol name, different type.
         registry.register_command::<DispatchShipV2, DispatchResult, _>(V2Handler);
+    }
+
+    /// One flat registry serves multiple surfaces — surface filtering happens
+    /// at the descriptor/routing layer, not the handler layer.
+    #[test]
+    fn single_registry_serves_multiple_surfaces() {
+        use crate::codegen::generate_descriptors;
+        use crate::manifest::{ManifestEntry, ManifestField, ProtocolManifest};
+
+        // Two-surface manifest: DispatchShip on gameplay, ApprovePort on authority.
+        // A real game registers handlers once; adapters mount per-surface routes.
+
+        #[derive(Debug, Serialize, Deserialize)]
+        struct ApprovePort {
+            port_id: u64,
+        }
+        impl Command for ApprovePort {}
+        impl ProtocolMeta for ApprovePort {
+            fn name() -> &'static str {
+                "ApprovePort"
+            }
+            fn kind() -> ProtocolKind {
+                ProtocolKind::Command
+            }
+        }
+
+        struct PortApprover;
+        impl CommandHandler<ApprovePort, DispatchResult> for PortApprover {
+            fn handle(&self, _cmd: ApprovePort) -> Result<DispatchResult, String> {
+                Ok(DispatchResult { ok: true })
+            }
+        }
+
+        let manifest = ProtocolManifest {
+            manifest_version: "2".into(),
+            protocol_version: "test@0.1".into(),
+            default_surface: "gameplay".into(),
+            surfaces: vec!["authority".into(), "gameplay".into()],
+            commands: vec![
+                ManifestEntry {
+                    name: "DispatchShip".into(),
+                    kind: ProtocolKind::Command,
+                    fields: vec![ManifestField {
+                        name: "ship_id".into(),
+                        ty: "u64".into(),
+                    }],
+                    doc: "".into(),
+                    surfaces: vec![],
+                },
+                ManifestEntry {
+                    name: "ApprovePort".into(),
+                    kind: ProtocolKind::Command,
+                    fields: vec![ManifestField {
+                        name: "port_id".into(),
+                        ty: "u64".into(),
+                    }],
+                    doc: "".into(),
+                    surfaces: vec!["authority".into()],
+                },
+            ],
+            queries: vec![],
+            events: vec![],
+            dtos: vec![],
+        };
+
+        // One registry, all handlers.
+        let mut registry = HandlerRegistry::new();
+        registry.register_command::<DispatchShip, DispatchResult, _>(ShipDispatcher);
+        registry.register_command::<ApprovePort, DispatchResult, _>(PortApprover);
+
+        // Generate per-surface descriptors.
+        let descs = generate_descriptors(&manifest);
+
+        // Simulate per-surface routing: only dispatch commands whose descriptors
+        // appear in that surface's descriptor set.
+        for surface in &descs.surfaces {
+            for desc in &surface.descriptors {
+                if desc.kind == ProtocolKind::Command {
+                    let payload = match desc.name.as_str() {
+                        "DispatchShip" => r#"{"ship_id":1,"contract_id":42}"#,
+                        "ApprovePort" => r#"{"port_id":7}"#,
+                        other => panic!("unexpected descriptor: {other}"),
+                    };
+                    let response = registry.dispatch_command_json(&desc.name, payload).unwrap();
+                    assert!(response.contains("true"));
+                }
+            }
+        }
+
+        // Gameplay surface should only see DispatchShip
+        let gameplay = descs
+            .surfaces
+            .iter()
+            .find(|s| s.name == "gameplay")
+            .unwrap();
+        assert_eq!(gameplay.descriptors.len(), 1);
+        assert_eq!(gameplay.descriptors[0].name, "DispatchShip");
+
+        // Authority surface should only see ApprovePort
+        let authority = descs
+            .surfaces
+            .iter()
+            .find(|s| s.name == "authority")
+            .unwrap();
+        assert_eq!(authority.descriptors.len(), 1);
+        assert_eq!(authority.descriptors[0].name, "ApprovePort");
     }
 }
