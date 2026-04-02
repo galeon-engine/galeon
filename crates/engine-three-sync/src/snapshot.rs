@@ -3,6 +3,9 @@
 //! Debug snapshot for tooling — human-readable JSON representation of
 //! render-facing world state. NOT used in the render hot path.
 
+use std::collections::HashMap;
+
+use galeon_engine::RenderChannelRegistry;
 use galeon_engine::World;
 use galeon_engine::render::{MaterialHandle, MeshHandle, Transform, Visibility};
 use serde::Serialize;
@@ -27,6 +30,7 @@ pub struct EntitySnapshot {
     pub visible: Option<bool>,
     pub mesh_handle: Option<u32>,
     pub material_handle: Option<u32>,
+    pub custom_channels: HashMap<String, Vec<f32>>,
 }
 
 /// Human-readable transform with named fields.
@@ -65,9 +69,20 @@ pub fn extract_debug_snapshot(world: &World) -> DebugSnapshot {
         })
         .collect();
 
+    let registry = world.try_resource::<RenderChannelRegistry>();
+
     let mut entities = Vec::with_capacity(renderables.len());
 
     for raw in &renderables {
+        let mut custom_channels = HashMap::new();
+        if let Some(reg) = registry {
+            for channel in &reg.channels {
+                let mut buf = vec![0.0f32; channel.stride];
+                (channel.extract_fn)(world, raw.entity, &mut buf);
+                custom_channels.insert(channel.name.clone(), buf);
+            }
+        }
+
         entities.push(EntitySnapshot {
             id: raw.entity.index(),
             generation: raw.entity.generation(),
@@ -79,6 +94,7 @@ pub fn extract_debug_snapshot(world: &World) -> DebugSnapshot {
             visible: world.get::<Visibility>(raw.entity).map(|v| v.visible),
             mesh_handle: world.get::<MeshHandle>(raw.entity).map(|m| m.id),
             material_handle: world.get::<MaterialHandle>(raw.entity).map(|m| m.id),
+            custom_channels,
         });
     }
 
@@ -155,5 +171,46 @@ mod tests {
         assert!(json.contains("\"entity_count\": 1"));
         assert!(json.contains("\"position\""));
         assert!(json.contains("5.0"));
+    }
+
+    #[derive(Debug)]
+    struct HeatLevel {
+        value: f32,
+    }
+
+    impl galeon_engine::Component for HeatLevel {}
+
+    impl galeon_engine::ExtractToFloats for HeatLevel {
+        const STRIDE: usize = 1;
+        fn extract(&self, buf: &mut [f32]) {
+            buf[0] = self.value;
+        }
+    }
+
+    #[test]
+    fn snapshot_includes_custom_channels() {
+        let mut world = World::new();
+        let mut reg = galeon_engine::RenderChannelRegistry::new();
+        reg.register::<HeatLevel>("heat");
+        world.insert_resource(reg);
+
+        world.spawn((
+            Transform::from_position(1.0, 0.0, 0.0),
+            HeatLevel { value: 0.9 },
+        ));
+
+        let snap = extract_debug_snapshot(&world);
+        let e = &snap.entities[0];
+        assert_eq!(e.custom_channels.len(), 1);
+        let heat = &e.custom_channels["heat"];
+        assert!((heat[0] - 0.9).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn snapshot_custom_channels_empty_when_no_registry() {
+        let mut world = World::new();
+        world.spawn((Transform::identity(),));
+        let snap = extract_debug_snapshot(&world);
+        assert!(snap.entities[0].custom_channels.is_empty());
     }
 }

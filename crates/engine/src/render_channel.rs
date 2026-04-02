@@ -18,7 +18,7 @@ use crate::world::World;
 /// The closure receives a `&World`, the target `Entity`, and a mutable slice
 /// of exactly `stride` floats. It returns `true` when the entity has the
 /// component and `false` (with a zeroed buffer) when it is absent.
-pub(crate) type ExtractFn = Box<dyn Fn(&World, Entity, &mut [f32]) -> bool + Send + Sync>;
+pub type ExtractFn = Box<dyn Fn(&World, Entity, &mut [f32]) -> bool + Send + Sync>;
 
 // =============================================================================
 // ExtractToFloats trait
@@ -57,10 +57,9 @@ pub trait ExtractToFloats: Component {
 // =============================================================================
 
 /// Type-erased entry for a single registered render channel.
-// `stride` and `extract_fn` are read by the extraction pass (Task 4).
-// They are unused in this task but intentionally pub(crate) for that consumer.
+// `stride` and `extract_fn` are read by the extraction pass and debug snapshot.
 #[allow(dead_code)]
-pub(crate) struct ChannelRegistration {
+pub struct ChannelRegistration {
     /// Channel name, as supplied by the caller at registration time.
     pub name: String,
     /// Number of `f32` values per entity for this channel.
@@ -96,7 +95,7 @@ pub(crate) struct ChannelRegistration {
 /// registry.register::<WearState>("wear");
 /// ```
 pub struct RenderChannelRegistry {
-    pub(crate) channels: Vec<ChannelRegistration>,
+    pub channels: Vec<ChannelRegistration>,
 }
 
 impl RenderChannelRegistry {

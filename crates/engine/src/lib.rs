@@ -58,7 +58,7 @@ pub use query::{
     QueryIterMut, QuerySpec, QuerySpecMut, With, Without,
 };
 pub use render::{MaterialHandle, MeshHandle, Transform, Visibility};
-pub use render_channel::{ExtractToFloats, RenderChannelRegistry};
+pub use render_channel::{ChannelRegistration, ExtractToFloats, RenderChannelRegistry};
 pub use schedule::Schedule;
 pub use system_param::{Access, Query, QueryMut, Res, ResMut, SystemParam};
 pub use virtual_time::VirtualTime;

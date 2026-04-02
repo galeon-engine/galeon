@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
-use galeon_engine::World;
 use galeon_engine::render::{MaterialHandle, MeshHandle, Transform, Visibility};
+use galeon_engine::{Entity, RenderChannelRegistry, World};
 
-use crate::frame_packet::FramePacket;
+use crate::frame_packet::{ChannelData, FramePacket};
 
 /// Extract render-facing data from the ECS world into a packed frame packet.
 ///
@@ -11,11 +11,15 @@ use crate::frame_packet::FramePacket;
 /// marker) and packs their transform, visibility, mesh, and material data into
 /// flat arrays suitable for WASM transport.
 ///
+/// If a [`RenderChannelRegistry`] resource is present, also extracts all
+/// registered custom channels into `FramePacket::custom_channels`.
+///
 /// Missing optional components use sensible defaults:
 /// - `Visibility`: defaults to visible (`true`)
 /// - `MeshHandle`: defaults to `0` (no mesh)
 /// - `MaterialHandle`: defaults to `0` (no material)
-type Renderable = (galeon_engine::Entity, [f32; 3], [f32; 4], [f32; 3]);
+/// - Custom channels: defaults to `0.0` for all floats
+type Renderable = (Entity, [f32; 3], [f32; 4], [f32; 3]);
 
 pub fn extract_frame(world: &World) -> FramePacket {
     // First pass: collect entity IDs and transform data into owned values.
@@ -28,6 +32,7 @@ pub fn extract_frame(world: &World) -> FramePacket {
         .collect();
 
     let mut packet = FramePacket::with_capacity(renderables.len());
+    let mut entities = Vec::with_capacity(renderables.len());
 
     for (entity, position, rotation, scale) in &renderables {
         let visible = world
@@ -52,6 +57,26 @@ pub fn extract_frame(world: &World) -> FramePacket {
             mesh_id,
             material_id,
         );
+
+        entities.push(*entity);
+    }
+
+    // Extract registered custom channels.
+    if let Some(registry) = world.try_resource::<RenderChannelRegistry>() {
+        for channel in &registry.channels {
+            let mut data = vec![0.0f32; entities.len() * channel.stride];
+            for (i, entity) in entities.iter().enumerate() {
+                let offset = i * channel.stride;
+                (channel.extract_fn)(world, *entity, &mut data[offset..offset + channel.stride]);
+            }
+            packet.custom_channels.insert(
+                channel.name.clone(),
+                ChannelData {
+                    stride: channel.stride,
+                    data,
+                },
+            );
+        }
     }
 
     packet
@@ -159,5 +184,107 @@ mod tests {
 
         let packet = extract_frame(&world);
         assert_eq!(packet.entity_count(), 3);
+    }
+
+    // -------------------------------------------------------------------------
+    // Custom channel extraction
+    // -------------------------------------------------------------------------
+
+    #[derive(Debug)]
+    struct WearState {
+        wear: f32,
+        heat: f32,
+    }
+
+    impl galeon_engine::Component for WearState {}
+
+    impl galeon_engine::ExtractToFloats for WearState {
+        const STRIDE: usize = 2;
+        fn extract(&self, buf: &mut [f32]) {
+            buf[0] = self.wear;
+            buf[1] = self.heat;
+        }
+    }
+
+    #[test]
+    fn extract_no_channels_when_registry_absent() {
+        let mut world = World::new();
+        world.spawn((Transform::identity(),));
+        let packet = extract_frame(&world);
+        assert_eq!(packet.channel_count(), 0);
+    }
+
+    #[test]
+    fn extract_custom_channel_for_all_entities() {
+        let mut world = World::new();
+        let mut reg = galeon_engine::RenderChannelRegistry::new();
+        reg.register::<WearState>("wear");
+        world.insert_resource(reg);
+
+        world.spawn((
+            Transform::identity(),
+            WearState {
+                wear: 0.5,
+                heat: 0.3,
+            },
+        ));
+        world.spawn((
+            Transform::from_position(1.0, 0.0, 0.0),
+            WearState {
+                wear: 0.8,
+                heat: 0.1,
+            },
+        ));
+
+        let packet = extract_frame(&world);
+        assert_eq!(packet.entity_count(), 2);
+        assert_eq!(packet.channel_count(), 1);
+
+        let ch = packet.channel("wear").unwrap();
+        assert_eq!(ch.stride, 2);
+        assert_eq!(ch.data.len(), 4);
+        assert!((ch.data[0] - 0.5).abs() < f32::EPSILON);
+        assert!((ch.data[1] - 0.3).abs() < f32::EPSILON);
+        assert!((ch.data[2] - 0.8).abs() < f32::EPSILON);
+        assert!((ch.data[3] - 0.1).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn extract_channel_zeroes_when_component_absent() {
+        let mut world = World::new();
+        let mut reg = galeon_engine::RenderChannelRegistry::new();
+        reg.register::<WearState>("wear");
+        world.insert_resource(reg);
+
+        world.spawn((
+            Transform::identity(),
+            WearState {
+                wear: 0.5,
+                heat: 0.3,
+            },
+        ));
+        world.spawn((Transform::from_position(1.0, 0.0, 0.0),));
+
+        let packet = extract_frame(&world);
+        assert_eq!(packet.entity_count(), 2);
+
+        let ch = packet.channel("wear").unwrap();
+        assert!((ch.data[0] - 0.5).abs() < f32::EPSILON);
+        assert!((ch.data[1] - 0.3).abs() < f32::EPSILON);
+        assert!((ch.data[2]).abs() < f32::EPSILON);
+        assert!((ch.data[3]).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn extract_empty_channel_when_no_entities() {
+        let mut world = World::new();
+        let mut reg = galeon_engine::RenderChannelRegistry::new();
+        reg.register::<WearState>("wear");
+        world.insert_resource(reg);
+
+        let packet = extract_frame(&world);
+        assert_eq!(packet.entity_count(), 0);
+        let ch = packet.channel("wear").unwrap();
+        assert!(ch.data.is_empty());
     }
 }
