@@ -4,8 +4,7 @@ use galeon_engine::render::{MaterialHandle, MeshHandle, Transform, Visibility};
 use galeon_engine::{Entity, RenderChannelRegistry, World};
 
 use crate::frame_packet::{
-    CHANGED_MATERIAL, CHANGED_MESH, CHANGED_TRANSFORM, CHANGED_VISIBILITY, ChannelData,
-    FramePacket,
+    CHANGED_MATERIAL, CHANGED_MESH, CHANGED_TRANSFORM, CHANGED_VISIBILITY, ChannelData, FramePacket,
 };
 
 /// Extract render-facing data from the ECS world into a packed frame packet.
