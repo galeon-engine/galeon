@@ -129,8 +129,15 @@ fn parse_surfaces(attr: TokenStream) -> Result<Vec<String>, syn::Error> {
                     "`surface` must be a string literal",
                 ));
             };
+            let val = surface.value();
+            if val.is_empty() {
+                return Err(syn::Error::new(
+                    surface.span(),
+                    "surface name must not be empty",
+                ));
+            }
             saw_surface = true;
-            surfaces.push(surface.value());
+            surfaces.push(val);
             continue;
         }
 
@@ -164,7 +171,14 @@ fn parse_surfaces(attr: TokenStream) -> Result<Vec<String>, syn::Error> {
                         "`surfaces` must be an array of string literals",
                     ));
                 };
-                surfaces.push(surface.value());
+                let surface_val = surface.value();
+                if surface_val.is_empty() {
+                    return Err(syn::Error::new(
+                        surface.span(),
+                        "surface name must not be empty",
+                    ));
+                }
+                surfaces.push(surface_val);
             }
             saw_surfaces = true;
             continue;

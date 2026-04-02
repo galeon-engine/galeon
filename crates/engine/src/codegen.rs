@@ -181,6 +181,10 @@ pub struct ProtocolDescriptorSet {
 
 impl ProtocolDescriptorSet {
     /// Iterate all descriptors across every surface group.
+    ///
+    /// Items annotated with multiple surfaces will appear once per surface
+    /// they belong to. Callers that need unique items should deduplicate
+    /// by name.
     pub fn iter_descriptors(&self) -> impl Iterator<Item = &ProtocolDescriptor> {
         self.surfaces
             .iter()
@@ -637,5 +641,23 @@ mod tests {
         assert_eq!(descs.surfaces[0].name, "default");
         assert_eq!(descs.surfaces[0].descriptors.len(), 1);
         assert_eq!(descs.surfaces[0].descriptors[0].name, "DispatchShip");
+    }
+
+    #[test]
+    fn generate_descriptors_empty_manifest_has_default_surface() {
+        let manifest = ProtocolManifest {
+            manifest_version: "2".into(),
+            protocol_version: "empty@0.0".into(),
+            default_surface: "default".into(),
+            surfaces: vec![],
+            commands: vec![],
+            queries: vec![],
+            events: vec![],
+            dtos: vec![],
+        };
+        let descs = generate_descriptors(&manifest);
+        assert_eq!(descs.surfaces.len(), 1);
+        assert_eq!(descs.surfaces[0].name, "default");
+        assert!(descs.surfaces[0].descriptors.is_empty());
     }
 }

@@ -230,6 +230,11 @@ impl ProtocolManifest {
             }
         }
 
+        // If no surfaces were found, ensure the default surface is included
+        if surface_names.is_empty() {
+            surface_names.insert(self.default_surface.clone());
+        }
+
         surface_names.into_iter().collect()
     }
 
