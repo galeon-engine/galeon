@@ -70,7 +70,7 @@ impl FramePacket {
             mesh_handles: Vec::with_capacity(entity_count),
             material_handles: Vec::with_capacity(entity_count),
             custom_channels: HashMap::new(),
-            change_flags: Vec::new(),
+            change_flags: Vec::with_capacity(entity_count),
         }
     }
 
@@ -95,6 +95,33 @@ impl FramePacket {
         self.visibility.push(visible as u8);
         self.mesh_handles.push(mesh_id);
         self.material_handles.push(material_id);
+    }
+
+    /// Push render data with change flags (incremental extraction).
+    #[allow(clippy::too_many_arguments)]
+    pub fn push_incremental(
+        &mut self,
+        entity_id: u32,
+        generation: u32,
+        position: &[f32; 3],
+        rotation: &[f32; 4],
+        scale: &[f32; 3],
+        visible: bool,
+        mesh_id: u32,
+        material_id: u32,
+        flags: u8,
+    ) {
+        self.push(
+            entity_id,
+            generation,
+            position,
+            rotation,
+            scale,
+            visible,
+            mesh_id,
+            material_id,
+        );
+        self.change_flags.push(flags);
     }
 
     /// Number of entities in this packet.

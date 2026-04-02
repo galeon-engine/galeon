@@ -630,6 +630,13 @@ impl World {
     /// Insert a component into an entity. If the entity already has this
     /// component type, the value is overwritten in place. Otherwise, the
     /// entity migrates to an archetype that includes the new component.
+    ///
+    /// # Change detection
+    ///
+    /// When overwriting an existing component, only `changed_tick` is stamped
+    /// at the current tick. `added_tick` is preserved from the original
+    /// insertion (typically `spawn`). Use `query_added` to detect newly added
+    /// components; it will not fire for overwrites.
     pub fn insert<C: Component>(&mut self, entity: Entity, value: C) {
         let Some(loc) = self.meta.get_location(entity) else {
             return; // dead entity

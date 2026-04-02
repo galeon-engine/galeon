@@ -92,6 +92,15 @@ pub fn extract_frame(world: &World) -> FramePacket {
 /// Entities whose Transform was added or changed are always included.
 /// The change flags further indicate if Visibility, MeshHandle, or
 /// MaterialHandle changed on those entities.
+///
+/// # Caveats
+///
+/// `QueryMut<T>` eagerly stamps `changed_tick` on every yielded row, even
+/// if the system body does not actually mutate the component. Any system
+/// using `QueryMut<Transform>` (rather than read-only `Query<&Transform>`)
+/// will cause the next incremental extraction to include every entity with
+/// a `Transform`. A future `Mut<T>` wrapper that defers stamping to
+/// actual mutation would eliminate these false positives.
 pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket {
     // Collect changed Transform entities first (releases archetype borrow).
     let renderables: Vec<Renderable> = world
@@ -117,6 +126,9 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
             .unwrap_or(0);
 
         // Check optional component change flags via entity location.
+        // SAFETY: `world` is borrowed immutably for this entire function, so no
+        // archetype migration can occur. The row from `entity_location` is the
+        // same row where `query_changed` found the entity.
         if let Some(loc) = world.entity_location(*entity) {
             let arch = world.archetypes().get(loc.archetype_id);
             let row = loc.row as usize;
@@ -140,7 +152,7 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
             }
         }
 
-        packet.push(
+        packet.push_incremental(
             entity.index(),
             entity.generation(),
             position,
@@ -149,8 +161,8 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
             visible,
             mesh_id,
             material_id,
+            flags,
         );
-        packet.change_flags.push(flags);
     }
 
     packet
