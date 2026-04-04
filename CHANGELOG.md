@@ -9,6 +9,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **npm publishing surface** — `@galeon/runtime`, `@galeon/engine-ts`, and `@galeon/shell`
+  now emit JS + declarations to `dist/`, include proper `exports`/`types`/`main` fields,
+  and are publishable to npm. `workspace:*` replaced with exact version pins (`=0.1.0`).
+  CI validates `npm pack --dry-run` on every PR. Release workflow supports npm with
+  OIDC trusted publishing (provenance). Publishing guide updated for both registries.
+  ([#122](https://github.com/galeon-engine/galeon/issues/122))
 - **Crates.io publishing surface** — crate metadata (`description`, `keywords`, `categories`),
   `publish = false` on non-registry crates (`galeon-cli`, test crates), and pinned
   `version = "=0.1.0"` on path dependencies between publishable crates. CI dry-run

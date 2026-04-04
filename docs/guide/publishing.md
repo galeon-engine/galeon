@@ -1,86 +1,115 @@
-# Publishing Galeon crates to crates.io
+# Publishing Galeon packages
 
-This repository publishes **three** Rust crates. Everything else in the workspace
-is internal (tests, CLI tooling, or deferred).
+Galeon publishes **three Rust crates** to crates.io and **three TypeScript
+packages** to npm. Everything else in the workspace is internal.
 
-## Publish surface
+## Publish surfaces
 
-| Crate | Package name on crates.io | Order |
-|-------|---------------------------|-------|
+### Rust crates (crates.io)
+
+| Crate | Package name | Order |
+|-------|-------------|-------|
 | Macros | `galeon-engine-macros` | 1 — publish first |
 | Core engine | `galeon-engine` | 2 — depends on macros |
 | Three.js sync | `galeon-engine-three-sync` | 3 — depends on engine |
 
-## Not published
+### TypeScript packages (npm)
+
+| Package | npm name | Order |
+|---------|----------|-------|
+| Runtime | `@galeon/runtime` | 1 — publish first |
+| Engine TS | `@galeon/engine-ts` | 2 — depends on runtime |
+| Shell | `@galeon/shell` | 3 — no deps, last by convention |
+
+### Not published
 
 - `galeon-cli` — `publish = false` (deferred)
 - `galeon-protocol-rename-test`, `galeon-protocol-consumer-test` — `publish = false` (integration tests)
 
-JavaScript packages under `packages/` are **not** published to npm until separate
-blockers are resolved (see project issues).
+## Versioning
 
-## Path dependencies and versions
+All Rust crates and all TypeScript packages move in **lockstep**. Internal
+dependencies use exact pins (`=0.1.0`) to enforce this.
 
-Workspace crates that ship to crates.io use **path + pinned version** on each
-other, for example:
+When bumping versions:
+1. Update `version` in all three `crates/*/Cargo.toml` and the workspace root.
+2. Update `version` in all three `packages/*/package.json`.
+3. Update dependency version pins between packages.
+
+## Path dependencies and versions (Rust)
+
+Workspace crates use **path + pinned version**:
 
 ```toml
 galeon-engine-macros = { path = "../engine-macros", version = "=0.1.0" }
 ```
 
-When you publish, Cargo strips `path` and keeps the version for consumers.
-Keep these versions aligned with the `[package] version` of the dependency.
+Cargo strips `path` for published tarballs.
 
 ## Local checks
 
-Cargo turns path dependencies into registry versions when it builds the publish
-tarball. Until a dependency already exists on crates.io at the pinned version,
-`cargo publish -p galeon-engine` and `cargo publish -p galeon-engine-three-sync`
-fail during packaging (even with `--no-verify`).
-
-**Always valid (CI runs this after tests):**
+### Rust
 
 ```bash
 cargo publish -p galeon-engine-macros --dry-run
 ```
 
-**After `galeon-engine-macros` is on crates.io at the pinned version:**
+`galeon-engine` and `galeon-engine-three-sync` dry-runs only pass after their
+dependencies exist on crates.io at the pinned version.
+
+### TypeScript
 
 ```bash
-cargo publish -p galeon-engine --dry-run --no-verify
+bunx tsc --build                           # Build JS + declarations
+npm pack --dry-run --workspace=packages/runtime
+npm pack --dry-run --workspace=packages/engine-ts
+npm pack --dry-run --workspace=packages/shell
 ```
-
-**After `galeon-engine` is on crates.io at the pinned version:**
-
-```bash
-cargo publish -p galeon-engine-three-sync --dry-run --no-verify
-```
-
-`--no-verify` skips the extracted-crate build step against the registry; you can
-drop it once you want the stricter check.
-
-After all three crates exist on crates.io for the current versions, you can run
-the three commands back-to-back for a full preflight.
 
 ## Release procedure
 
-1. Bump versions in all three `Cargo.toml` files (keep path-dep pins in sync).
-2. Commit and tag (for example `v0.1.1` if all three share the same release).
-3. Run the **Release** GitHub workflow (see `.github/workflows/release.yml`) or
-   publish manually:
+1. Bump versions in all `Cargo.toml` and `package.json` files (keep pins in sync).
+2. Commit and tag (e.g. `v0.2.0`).
+3. Run the **Release** GitHub workflow (`.github/workflows/release.yml`):
+   - Choose target: `all`, `crates`, or `npm`.
+   - Use `dry_run: true` first to validate.
+
+### Manual publish (first time or fallback)
+
+**Rust:**
 
 ```bash
 cargo publish -p galeon-engine-macros
-# wait until the crate is visible on crates.io
+# wait ~45s for crates.io index
 cargo publish -p galeon-engine
+# wait ~45s
 cargo publish -p galeon-engine-three-sync
 ```
 
-4. `galeon-engine-three-sync` needs the `wasm32-unknown-unknown` target for
-   packaging; ensure it is installed (`rustup target add wasm32-unknown-unknown`).
+**npm (first publish — after this, use trusted publishing via CI):**
+
+```bash
+npm login
+cd packages/runtime  && npm publish --access public && cd ../..
+cd packages/engine-ts && npm publish --access public && cd ../..
+cd packages/shell    && npm publish --access public && cd ../..
+```
+
+After the first publish, enable trusted publishing on npm for each package
+(link to the `galeon-engine/galeon` GitHub repo). Subsequent releases use
+OIDC provenance from GitHub Actions — no token needed.
 
 ## Authentication
 
-- **CI / GitHub Actions:** store a crates.io token in the repository secret
-  `CARGO_REGISTRY_TOKEN`.
+### crates.io
+
+- **CI:** `CARGO_REGISTRY_TOKEN` repository secret.
 - **Local:** `cargo login` or set `CARGO_REGISTRY_TOKEN` in the environment.
+
+### npm
+
+- **CI:** Trusted publishing via OIDC (`id-token: write` permission in workflow).
+  No `NPM_TOKEN` secret needed after initial setup.
+- **Local (first publish only):** `npm login` with your npm account.
+- **Scope:** The `@galeon` npm org owns the scope. Add team members via
+  `npm org set galeon <user> developer`.
