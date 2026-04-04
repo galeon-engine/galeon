@@ -3,7 +3,8 @@
   "compilerOptions": {
     "composite": true,
     "noEmit": false,
-    "emitDeclarationOnly": true,
+    "declaration": true,
+    "allowImportingTsExtensions": false,
     "rootDir": "src",
     "outDir": "dist",
     "jsx": "preserve"

@@ -1,5 +1,6 @@
-# Publishes the three crates.io packages in dependency order.
+# Publishes Rust crates to crates.io and TS packages to npm.
 # Requires secret: CARGO_REGISTRY_TOKEN (crates.io API token).
+# npm uses trusted publishing (OIDC provenance) — no token needed after initial setup.
 
 name: Release
 
@@ -7,17 +8,27 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Dry-run galeon-engine-macros only (no upload)"
+        description: "Dry-run only (no upload)"
         required: true
         default: "false"
         type: choice
         options:
           - "true"
           - "false"
+      target:
+        description: "What to publish"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - "all"
+          - "crates"
+          - "npm"
 
 jobs:
-  publish:
+  publish-crates:
     name: Publish Rust crates
+    if: inputs.target == 'all' || inputs.target == 'crates'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,4 +52,41 @@ jobs:
             echo "Waiting for crates.io index (dependency for galeon-engine-three-sync)..."
             sleep 45
             cargo publish -p galeon-engine-three-sync
+          fi
+
+  publish-npm:
+    name: Publish npm packages
+    if: inputs.target == 'all' || inputs.target == 'npm'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - run: bun install
+
+      - name: Build packages
+        run: bunx tsc --build
+
+      - name: Publish npm packages (ordered)
+        run: |
+          set -e
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            npm pack --dry-run --workspace=packages/runtime
+            npm pack --dry-run --workspace=packages/engine-ts
+            npm pack --dry-run --workspace=packages/shell
+          else
+            npm publish --workspace=packages/runtime --provenance --access public
+            npm publish --workspace=packages/engine-ts --provenance --access public
+            npm publish --workspace=packages/shell --provenance --access public
           fi

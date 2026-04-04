@@ -38,3 +38,7 @@ jobs:
 
       - run: bun install
       - run: bun run check
+      # Validate npm tarballs for publishable packages.
+      - run: npm pack --dry-run --workspace=packages/runtime
+      - run: npm pack --dry-run --workspace=packages/engine-ts
+      - run: npm pack --dry-run --workspace=packages/shell
