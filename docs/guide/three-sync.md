@@ -158,11 +158,43 @@ impl DemoWasmEngine {
     pub fn extract_frame(&self) -> WasmFramePacket {
         self.inner.extract_frame()
     }
+
+    /// Spawn a renderable entity from JS. Returns [index, generation].
+    pub fn spawn_entity(&mut self, mesh_id: u32, material_id: u32, transform: &[f32]) -> Vec<u32> {
+        self.inner.spawn_entity(mesh_id, material_id, transform)
+    }
+
+    /// Despawn a JS-spawned entity. Returns false for plugin entities or stale handles.
+    pub fn despawn_entity(&mut self, index: u32, generation: u32) -> bool {
+        self.inner.despawn_entity(index, generation)
+    }
 }
 ```
 
 If the app already has an `Engine` builder path, wrap that engine directly with
 `WasmEngine::from_engine(engine)`.
+
+### Dynamic Entity Management
+
+JS can spawn and despawn entities at runtime without modifying the Rust plugin:
+
+```typescript
+// Spawn — returns [index, generation]
+const transform = new Float32Array([0, 1, 0, 0, 0, 0, 1, 1, 1, 1]);
+const [index, gen] = engine.spawn_entity(meshId, materialId, transform);
+
+// Despawn — returns false for plugin entities or stale handles
+engine.despawn_entity(index, gen);
+
+// Bulk cleanup — removes all JS-spawned entities
+engine.despawn_all_js_entities();
+
+// Leak detection
+console.log(`JS entities: ${engine.js_entity_count()}`);
+```
+
+A `JsSpawned` marker component tags entities created via `spawn_entity`. Plugin-spawned
+entities cannot be despawned from JS — `despawn_entity` returns `false` for them.
 
 ## TS Renderer Cache
 
