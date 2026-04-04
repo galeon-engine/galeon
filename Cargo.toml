@@ -4,7 +4,7 @@ members = ["crates/*"]
 
 [workspace.package]
 edition = "2024"
-license = "AGPL-3.0-only OR Commercial"
+license = "AGPL-3.0-only OR LicenseRef-Commercial"
 repository = "https://github.com/galeon-engine/galeon"
 
 [workspace.dependencies]
