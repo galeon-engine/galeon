@@ -9,6 +9,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Consumer-owned WASM bootstrap seam** — `WasmEngine::from_engine(...)`,
+  `WasmEngine::engine()`, and `WasmEngine::engine_mut()` let app-owned wrapper
+  crates seed plugins, resources, and entities before the first extracted
+  frame, without patching the generic bridge crate.
+  ([#109](https://github.com/galeon-engine/galeon/issues/109))
 - **`Mut<T>` smart pointer for lazy change-tick stamping** — mutable queries now yield `Mut<T>`
   instead of `&mut T`. Reading via `Deref` does not stamp `changed_tick`; only writing via
   `DerefMut` does. `query_changed` and `extract_frame_incremental` now see only entities that

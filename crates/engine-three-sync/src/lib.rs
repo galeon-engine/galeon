@@ -34,15 +34,33 @@ pub struct WasmEngine {
     engine: Engine,
 }
 
-#[allow(clippy::new_without_default)]
+impl WasmEngine {
+    /// Wrap an app-configured Rust engine in the generic WASM bridge.
+    pub fn from_engine(engine: Engine) -> Self {
+        Self { engine }
+    }
+
+    /// Borrow the underlying Rust engine for app-owned configuration.
+    pub fn engine(&self) -> &Engine {
+        &self.engine
+    }
+
+    /// Mutably borrow the underlying Rust engine for app-owned bootstrap.
+    pub fn engine_mut(&mut self) -> &mut Engine {
+        &mut self.engine
+    }
+}
+
 #[wasm_bindgen]
 impl WasmEngine {
-    /// Create a new engine instance.
+    /// Create a generic bridge engine with an empty ECS world.
+    ///
+    /// App-owned wrapper crates should configure their own plugins,
+    /// resources, and entities in Rust via [`WasmEngine::engine_mut`] or
+    /// [`WasmEngine::from_engine`] before exposing the handle to JavaScript.
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
-        Self {
-            engine: Engine::new(),
-        }
+        Self::default()
     }
 
     /// Advance the simulation by `elapsed` seconds (fixed-timestep).
@@ -84,6 +102,12 @@ impl WasmEngine {
     /// Returns true if paused.
     pub fn is_paused(&self) -> bool {
         self.engine.is_paused()
+    }
+}
+
+impl Default for WasmEngine {
+    fn default() -> Self {
+        Self::from_engine(Engine::new())
     }
 }
 

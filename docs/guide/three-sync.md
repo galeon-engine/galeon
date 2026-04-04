@@ -106,6 +106,64 @@ clones the backing `Vec`, which wasm-bindgen converts to a JS typed array
 **MVP transport:** copied flat buffers. Future optimisation: direct typed array
 views into WASM linear memory (zero-copy).
 
+### Consumer-Owned Bootstrap
+
+`WasmEngine::new()` intentionally creates an empty ECS world. The generic
+bridge crate does not seed app-specific entities or plugins.
+
+If an app needs a non-empty first `extract_frame()`, own that bootstrap in a
+thin Rust wrapper crate and configure the underlying engine before exposing the
+handle to JavaScript:
+
+```rust
+use galeon_engine::{Engine, MaterialHandle, MeshHandle, Plugin, Transform, Visibility};
+use galeon_engine_three_sync::{WasmEngine, WasmFramePacket};
+use wasm_bindgen::prelude::*;
+
+struct DemoBootstrapPlugin;
+
+impl Plugin for DemoBootstrapPlugin {
+    fn build(&self, engine: &mut Engine) {
+        engine.world_mut().spawn((
+            Transform {
+                position: [0.0, 0.0, 0.0],
+                rotation: [0.0, 0.0, 0.0, 1.0],
+                scale: [2.0, 0.25, 2.0],
+            },
+            Visibility { visible: true },
+            MeshHandle { id: 1 },
+            MaterialHandle { id: 1 },
+        ));
+    }
+}
+
+#[wasm_bindgen]
+pub struct DemoWasmEngine {
+    inner: WasmEngine,
+}
+
+#[wasm_bindgen]
+impl DemoWasmEngine {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        let mut inner = WasmEngine::new();
+        inner.engine_mut().add_plugin(DemoBootstrapPlugin);
+        Self { inner }
+    }
+
+    pub fn tick(&mut self, elapsed: f64) -> u32 {
+        self.inner.tick(elapsed)
+    }
+
+    pub fn extract_frame(&self) -> WasmFramePacket {
+        self.inner.extract_frame()
+    }
+}
+```
+
+If the app already has an `Engine` builder path, wrap that engine directly with
+`WasmEngine::from_engine(engine)`.
+
 ## TS Renderer Cache
 
 `RendererCache` in `@galeon/engine-ts` manages the Three.js side:
