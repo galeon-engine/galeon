@@ -13,7 +13,7 @@ pub use snapshot::{
     DebugSnapshot, EntitySnapshot, TransformSnapshot, extract_debug_snapshot, snapshot_to_json,
 };
 
-use galeon_engine::Engine;
+use galeon_engine::{Engine, Entity, MaterialHandle, MeshHandle, Transform, Visibility};
 use wasm_bindgen::prelude::*;
 
 /// Returns the engine version string to the JS runtime.
@@ -102,6 +102,46 @@ impl WasmEngine {
     /// Returns true if paused.
     pub fn is_paused(&self) -> bool {
         self.engine.is_paused()
+    }
+
+    // -------------------------------------------------------------------------
+    // Dynamic entity spawn / despawn
+    // -------------------------------------------------------------------------
+
+    /// Spawn a new renderable entity from JavaScript.
+    ///
+    /// `transform` is a 10-element `Float32Array`:
+    /// `[pos.x, pos.y, pos.z, rot.x, rot.y, rot.z, rot.w, scale.x, scale.y, scale.z]`
+    /// — the same packing used by [`WasmFramePacket::transforms`].
+    ///
+    /// Returns `[entity_index, entity_generation]` as a 2-element array.
+    /// The entity will appear in the next `extract_frame()` call.
+    pub fn spawn_entity(&mut self, mesh_id: u32, material_id: u32, transform: &[f32]) -> Vec<u32> {
+        assert!(
+            transform.len() >= TRANSFORM_STRIDE,
+            "transform must have at least {TRANSFORM_STRIDE} elements"
+        );
+        let entity = self.engine.world_mut().spawn((
+            Transform {
+                position: [transform[0], transform[1], transform[2]],
+                rotation: [transform[3], transform[4], transform[5], transform[6]],
+                scale: [transform[7], transform[8], transform[9]],
+            },
+            Visibility { visible: true },
+            MeshHandle { id: mesh_id },
+            MaterialHandle { id: material_id },
+        ));
+        vec![entity.index(), entity.generation()]
+    }
+
+    /// Despawn an entity by its index and generation.
+    ///
+    /// Returns `true` if the entity was alive and has been removed.
+    /// Returns `false` if the entity was already dead or the generation
+    /// doesn't match (stale handle).
+    pub fn despawn_entity(&mut self, index: u32, generation: u32) -> bool {
+        let entity = Entity::from_raw(index, generation);
+        self.engine.world_mut().despawn(entity)
     }
 }
 
