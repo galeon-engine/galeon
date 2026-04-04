@@ -14,6 +14,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   crates seed plugins, resources, and entities before the first extracted
   frame, without patching the generic bridge crate.
   ([#109](https://github.com/galeon-engine/galeon/issues/109))
+- **Configurable tick rate with genre presets** — `Engine::set_tick_rate(hz)` builder method
+  sets the fixed-timestep rate. Genre presets: `FixedTimestep::default_rts()` (10 Hz),
+  `::strategy()` (20 Hz), `::action()` (30 Hz), `::fast()` (60 Hz). Defaults to 10 Hz if
+  not configured.
+  ([#98](https://github.com/galeon-engine/galeon/issues/98))
 - **`Mut<T>` smart pointer for lazy change-tick stamping** — mutable queries now yield `Mut<T>`
   instead of `&mut T`. Reading via `Deref` does not stamp `changed_tick`; only writing via
   `DerefMut` does. `query_changed` and `extract_frame_incremental` now see only entities that
@@ -99,7 +104,6 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Queries use typed query specs**: `world.query::<&T>()`, `world.query::<(&A, &B)>()`, and `world.query_mut::<(&mut A, &mut B)>()` now return zero-allocation archetype iterators instead of `Vec`
   ([#29](https://github.com/galeon-engine/galeon/issues/29))
 
-### Added
 
 - `World::insert<C: Component>(entity, value)` — add a component to an existing entity (archetype migration)
   ([#28](https://github.com/galeon-engine/galeon/issues/28))
@@ -210,6 +214,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([#12](https://github.com/galeon-engine/galeon/issues/12))
 
 ### Added
+
 
 - `Engine` struct owning `World` + `Schedule` with a fluent builder API
   (`add_system`, `add_plugin`, `insert_resource`) and `tick`/`run_once`
