@@ -9,6 +9,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Crates.io publishing surface** — crate metadata (`description`, `keywords`, `categories`),
+  `publish = false` on non-registry crates (`galeon-cli`, test crates), and pinned
+  `version = "=0.1.0"` on path dependencies between publishable crates. CI dry-run
+  validation for `galeon-engine-macros`. Release workflow and publishing guide added.
+  ([#112](https://github.com/galeon-engine/galeon/issues/112))
 - **Consumer-owned WASM bootstrap seam** — `WasmEngine::from_engine(...)`,
   `WasmEngine::engine()`, and `WasmEngine::engine_mut()` let app-owned wrapper
   crates seed plugins, resources, and entities before the first extracted
