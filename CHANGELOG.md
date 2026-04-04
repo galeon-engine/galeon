@@ -9,6 +9,15 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Dynamic entity spawn/despawn from JS** — `WasmEngine::spawn_entity(mesh_id, material_id, transform)`
+  creates a renderable entity at runtime and returns `[index, generation]`.
+  `WasmEngine::despawn_entity(index, generation)` removes it. Both take effect on the
+  next `extract_frame()` call. `Entity::from_raw(index, generation)` public constructor
+  enables round-tripping entity IDs across the WASM boundary. A `JsSpawned` marker
+  component guards ownership: `despawn_entity` rejects plugin-spawned entities (returns
+  `false`), and `despawn_all_js_entities` provides bulk cleanup. `js_entity_count`
+  reports the current JS-spawned entity count for leak detection.
+  ([#120](https://github.com/galeon-engine/galeon/issues/120))
 - **Consumer-owned WASM bootstrap seam** — `WasmEngine::from_engine(...)`,
   `WasmEngine::engine()`, and `WasmEngine::engine_mut()` let app-owned wrapper
   crates seed plugins, resources, and entities before the first extracted

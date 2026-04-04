@@ -14,6 +14,16 @@ pub struct Entity {
 }
 
 impl Entity {
+    /// Reconstruct an `Entity` handle from its raw index and generation.
+    ///
+    /// This is intended for the WASM bridge where JS passes back an entity ID
+    /// that was previously returned by `spawn`. The caller is responsible for
+    /// providing a valid (index, generation) pair — passing stale or fabricated
+    /// values is safe but will cause `is_alive` / `get` to return `None`.
+    pub fn from_raw(index: u32, generation: u32) -> Self {
+        Self { index, generation }
+    }
+
     /// Returns the index portion of this entity ID.
     pub fn index(self) -> u32 {
         self.index
