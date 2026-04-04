@@ -9,6 +9,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Crates.io publishing surface** — crate metadata (`description`, `keywords`, `categories`),
+  `publish = false` on non-registry crates (`galeon-cli`, test crates), and pinned
+  `version = "=0.1.0"` on path dependencies between publishable crates. CI dry-run
+  validation for `galeon-engine-macros`. Release workflow and publishing guide added.
+  ([#112](https://github.com/galeon-engine/galeon/issues/112))
 - **Dynamic entity spawn/despawn from JS** — `WasmEngine::spawn_entity(mesh_id, material_id, transform)`
   creates a renderable entity at runtime and returns `[index, generation]`.
   `WasmEngine::despawn_entity(index, generation)` removes it. Both take effect on the
