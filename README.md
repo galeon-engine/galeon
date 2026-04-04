@@ -1,5 +1,10 @@
 # Galeon Engine
 
+[![CI](https://github.com/galeon-engine/galeon/actions/workflows/ci.yml/badge.svg)](https://github.com/galeon-engine/galeon/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/galeon-engine)](https://crates.io/crates/galeon-engine)
+[![npm](https://img.shields.io/npm/v/@galeon/engine-ts)](https://www.npmjs.com/package/@galeon/engine-ts)
+[![license](https://img.shields.io/crates/l/galeon-engine)](https://github.com/galeon-engine/galeon/blob/master/LICENSE-AGPL)
+
 A Rust game engine with a Three.js renderer.
 
 Rust owns all engine logic. TypeScript is only used where browser APIs require it
