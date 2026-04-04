@@ -1,0 +1,44 @@
+# Publishes the three crates.io packages in dependency order.
+# Requires secret: CARGO_REGISTRY_TOKEN (crates.io API token).
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry-run galeon-engine-macros only (no upload)"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+jobs:
+  publish:
+    name: Publish Rust crates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Publish crates (ordered)
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -e
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            cargo publish -p galeon-engine-macros --dry-run
+          else
+            cargo publish -p galeon-engine-macros
+            echo "Waiting for crates.io index (dependency for galeon-engine)..."
+            sleep 45
+            cargo publish -p galeon-engine
+            echo "Waiting for crates.io index (dependency for galeon-engine-three-sync)..."
+            sleep 45
+            cargo publish -p galeon-engine-three-sync
+          fi

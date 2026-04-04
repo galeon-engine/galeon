@@ -23,6 +23,8 @@ jobs:
       - run: cargo clippy --workspace -- -D warnings
       - run: cargo test --workspace
       - run: cargo check --target wasm32-unknown-unknown -p galeon-engine-three-sync
+      # Packaging resolves registry deps; engine/three-sync need prior crates on crates.io.
+      - run: cargo publish -p galeon-engine-macros --dry-run
 
   typescript:
     name: TypeScript
