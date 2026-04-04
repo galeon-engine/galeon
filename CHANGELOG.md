@@ -9,12 +9,16 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Consumer-owned WASM bootstrap seam** — `WasmEngine::from_engine(...)`,
+  `WasmEngine::engine()`, and `WasmEngine::engine_mut()` let app-owned wrapper
+  crates seed plugins, resources, and entities before the first extracted
+  frame, without patching the generic bridge crate.
+  ([#109](https://github.com/galeon-engine/galeon/issues/109))
 - **Configurable tick rate with genre presets** — `Engine::set_tick_rate(hz)` builder method
   sets the fixed-timestep rate. Genre presets: `FixedTimestep::default_rts()` (10 Hz),
   `::strategy()` (20 Hz), `::action()` (30 Hz), `::fast()` (60 Hz). Defaults to 10 Hz if
   not configured.
   ([#98](https://github.com/galeon-engine/galeon/issues/98))
-
 - **`Mut<T>` smart pointer for lazy change-tick stamping** — mutable queries now yield `Mut<T>`
   instead of `&mut T`. Reading via `Deref` does not stamp `changed_tick`; only writing via
   `DerefMut` does. `query_changed` and `extract_frame_incremental` now see only entities that
