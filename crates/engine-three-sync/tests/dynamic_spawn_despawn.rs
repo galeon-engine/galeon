@@ -75,6 +75,18 @@ fn multiple_spawns_all_visible() {
     assert_eq!(frame.entity_count(), 3);
 }
 
+#[test]
+fn js_entity_count_tracks_spawns() {
+    let mut w = WasmEngine::new();
+    assert_eq!(w.js_entity_count(), 0);
+
+    w.spawn_entity(1, 10, &IDENTITY);
+    assert_eq!(w.js_entity_count(), 1);
+
+    w.spawn_entity(2, 20, &IDENTITY);
+    assert_eq!(w.js_entity_count(), 2);
+}
+
 // -------------------------------------------------------------------------
 // despawn_entity
 // -------------------------------------------------------------------------
@@ -88,6 +100,7 @@ fn despawn_entity_removes_from_frame() {
 
     let frame = w.extract_frame();
     assert_eq!(frame.entity_count(), 0);
+    assert_eq!(w.js_entity_count(), 0);
 }
 
 #[test]
@@ -95,7 +108,6 @@ fn despawn_stale_handle_returns_false() {
     let mut w = WasmEngine::new();
     let id = w.spawn_entity(DYNAMIC_MESH, DYNAMIC_MATERIAL, &IDENTITY);
 
-    // Despawn once
     assert!(w.despawn_entity(id[0], id[1]));
     // Stale handle — generation mismatch
     assert!(!w.despawn_entity(id[0], id[1]));
@@ -104,8 +116,65 @@ fn despawn_stale_handle_returns_false() {
 #[test]
 fn despawn_nonexistent_entity_returns_false() {
     let mut w = WasmEngine::new();
-    // No entities exist — fabricated handle
     assert!(!w.despawn_entity(999, 0));
+}
+
+// -------------------------------------------------------------------------
+// Lifecycle guards — JS cannot despawn plugin entities
+// -------------------------------------------------------------------------
+
+#[test]
+fn despawn_rejects_plugin_spawned_entity() {
+    let mut w = wasm_engine_with_seed();
+
+    // The plugin entity is at index 0, generation 0
+    assert!(!w.despawn_entity(0, 0));
+
+    // Plugin entity still present
+    let frame = w.extract_frame();
+    assert_eq!(frame.entity_count(), 1);
+    assert_eq!(frame.mesh_handles(), vec![PLUGIN_MESH]);
+}
+
+#[test]
+fn js_entity_count_excludes_plugin_entities() {
+    let mut w = wasm_engine_with_seed();
+    assert_eq!(w.js_entity_count(), 0);
+
+    w.spawn_entity(DYNAMIC_MESH, DYNAMIC_MATERIAL, &IDENTITY);
+    assert_eq!(w.js_entity_count(), 1);
+
+    // Total entities = 2 (plugin + JS), but js_entity_count = 1
+    let frame = w.extract_frame();
+    assert_eq!(frame.entity_count(), 2);
+}
+
+// -------------------------------------------------------------------------
+// Bulk cleanup
+// -------------------------------------------------------------------------
+
+#[test]
+fn despawn_all_js_entities_cleans_up() {
+    let mut w = wasm_engine_with_seed();
+    w.spawn_entity(1, 10, &IDENTITY);
+    w.spawn_entity(2, 20, &IDENTITY);
+    w.spawn_entity(3, 30, &IDENTITY);
+
+    assert_eq!(w.js_entity_count(), 3);
+    let removed = w.despawn_all_js_entities();
+    assert_eq!(removed, 3);
+    assert_eq!(w.js_entity_count(), 0);
+
+    // Plugin entity survives
+    let frame = w.extract_frame();
+    assert_eq!(frame.entity_count(), 1);
+    assert_eq!(frame.mesh_handles(), vec![PLUGIN_MESH]);
+}
+
+#[test]
+fn despawn_all_js_entities_returns_zero_when_none() {
+    let mut w = wasm_engine_with_seed();
+    assert_eq!(w.despawn_all_js_entities(), 0);
 }
 
 // -------------------------------------------------------------------------
@@ -116,7 +185,6 @@ fn despawn_nonexistent_entity_returns_false() {
 fn plugin_entities_survive_dynamic_spawn_and_despawn() {
     let mut w = wasm_engine_with_seed();
 
-    // Spawn a dynamic entity
     let id = w.spawn_entity(
         DYNAMIC_MESH,
         DYNAMIC_MATERIAL,
@@ -126,12 +194,10 @@ fn plugin_entities_survive_dynamic_spawn_and_despawn() {
     let frame = w.extract_frame();
     assert_eq!(frame.entity_count(), 2);
 
-    // Despawn the dynamic entity
     assert!(w.despawn_entity(id[0], id[1]));
 
     let frame = w.extract_frame();
     assert_eq!(frame.entity_count(), 1);
-    // The surviving entity is the plugin-spawned one
     assert_eq!(frame.mesh_handles(), vec![PLUGIN_MESH]);
     assert_eq!(frame.material_handles(), vec![PLUGIN_MATERIAL]);
 }
@@ -140,13 +206,11 @@ fn plugin_entities_survive_dynamic_spawn_and_despawn() {
 fn dynamic_entity_does_not_corrupt_plugin_entity_data() {
     let mut w = wasm_engine_with_seed();
 
-    // Spawn and immediately despawn several dynamic entities
     for i in 0..5 {
         let id = w.spawn_entity(100 + i, 200 + i, &IDENTITY);
         w.despawn_entity(id[0], id[1]);
     }
 
-    // Plugin entity data must be intact
     let frame = w.extract_frame();
     assert_eq!(frame.entity_count(), 1);
     assert_eq!(frame.mesh_handles(), vec![PLUGIN_MESH]);

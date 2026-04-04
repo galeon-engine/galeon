@@ -13,8 +13,15 @@ pub use snapshot::{
     DebugSnapshot, EntitySnapshot, TransformSnapshot, extract_debug_snapshot, snapshot_to_json,
 };
 
-use galeon_engine::{Engine, Entity, MaterialHandle, MeshHandle, Transform, Visibility};
+use galeon_engine::{Component, Engine, Entity, MaterialHandle, MeshHandle, Transform, Visibility};
 use wasm_bindgen::prelude::*;
+
+/// Marker component for entities spawned from JavaScript via [`WasmEngine::spawn_entity`].
+///
+/// Prevents JS from despawning plugin-spawned entities and enables bulk cleanup
+/// via [`WasmEngine::despawn_all_js_entities`].
+#[derive(Component, Debug, Clone, Copy)]
+pub struct JsSpawned;
 
 /// Returns the engine version string to the JS runtime.
 #[wasm_bindgen]
@@ -130,18 +137,45 @@ impl WasmEngine {
             Visibility { visible: true },
             MeshHandle { id: mesh_id },
             MaterialHandle { id: material_id },
+            JsSpawned,
         ));
         vec![entity.index(), entity.generation()]
     }
 
-    /// Despawn an entity by its index and generation.
+    /// Despawn a JS-spawned entity by its index and generation.
     ///
-    /// Returns `true` if the entity was alive and has been removed.
-    /// Returns `false` if the entity was already dead or the generation
-    /// doesn't match (stale handle).
+    /// Returns `true` if the entity was alive, JS-spawned, and has been removed.
+    /// Returns `false` if the entity was already dead, the generation doesn't
+    /// match (stale handle), or the entity was not spawned from JS.
     pub fn despawn_entity(&mut self, index: u32, generation: u32) -> bool {
         let entity = Entity::from_raw(index, generation);
-        self.engine.world_mut().despawn(entity)
+        let world = self.engine.world_mut();
+        if world.get::<JsSpawned>(entity).is_none() {
+            return false;
+        }
+        world.despawn(entity)
+    }
+
+    /// Despawn all entities that were spawned from JavaScript.
+    ///
+    /// Returns the number of entities removed. Plugin-spawned entities
+    /// are never touched.
+    pub fn despawn_all_js_entities(&mut self) -> u32 {
+        let world = self.engine.world_mut();
+        let js_entities: Vec<Entity> = world
+            .query::<&JsSpawned>()
+            .map(|(entity, _)| entity)
+            .collect();
+        let count = js_entities.len() as u32;
+        for entity in js_entities {
+            world.despawn(entity);
+        }
+        count
+    }
+
+    /// Returns the number of entities currently spawned from JavaScript.
+    pub fn js_entity_count(&self) -> u32 {
+        self.engine.world().query::<&JsSpawned>().count() as u32
     }
 }
 
