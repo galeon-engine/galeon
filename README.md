@@ -53,7 +53,9 @@ the engine itself is shell-agnostic.
 - Change flags for incremental sync (`CHANGED_TRANSFORM`, `CHANGED_VISIBILITY`, etc.)
 
 **WASM Bridge**
-- `WasmEngine` JS-facing handle: `tick()`, `extract_frame()`, `debug_snapshot()`
+- `WasmEngine` JS-facing handle: `tick()`, `extract_frame()`, `debug_snapshot()`,
+  `spawn_entity()`, `despawn_entity()`, `despawn_all_js_entities()`, `js_entity_count()`
+- Dynamic entity spawn/despawn from JS with `JsSpawned` lifecycle guard
 - `@galeon/engine-ts` &mdash; `RendererCache` syncs `FramePacket` to a Three.js scene graph
 - Generational entity safety prevents stale object references
 - Fallback geometry for missing assets

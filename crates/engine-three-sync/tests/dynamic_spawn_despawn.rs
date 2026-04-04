@@ -45,6 +45,22 @@ fn spawn_entity_returns_valid_id() {
 }
 
 #[test]
+fn spawn_entity_rejects_short_transform() {
+    let mut w = WasmEngine::new();
+    // 9 elements — too short, should return empty (not panic)
+    let id = w.spawn_entity(DYNAMIC_MESH, DYNAMIC_MATERIAL, &[0.0; 9]);
+    assert!(id.is_empty());
+    assert_eq!(w.extract_frame().entity_count(), 0);
+}
+
+#[test]
+fn spawn_entity_rejects_empty_transform() {
+    let mut w = WasmEngine::new();
+    let id = w.spawn_entity(DYNAMIC_MESH, DYNAMIC_MATERIAL, &[]);
+    assert!(id.is_empty());
+}
+
+#[test]
 fn spawn_entity_appears_in_extract_frame() {
     let mut w = WasmEngine::new();
     let xform = [1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0];

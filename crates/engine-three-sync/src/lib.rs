@@ -123,11 +123,12 @@ impl WasmEngine {
     ///
     /// Returns `[entity_index, entity_generation]` as a 2-element array.
     /// The entity will appear in the next `extract_frame()` call.
+    ///
+    /// Returns an empty array if `transform` has fewer than 10 elements.
     pub fn spawn_entity(&mut self, mesh_id: u32, material_id: u32, transform: &[f32]) -> Vec<u32> {
-        assert!(
-            transform.len() >= TRANSFORM_STRIDE,
-            "transform must have at least {TRANSFORM_STRIDE} elements"
-        );
+        if transform.len() < TRANSFORM_STRIDE {
+            return Vec::new();
+        }
         let entity = self.engine.world_mut().spawn((
             Transform {
                 position: [transform[0], transform[1], transform[2]],
