@@ -34,6 +34,10 @@ MeshHandle { id: u32 }
 
 // Optional — renderer maps ID to a Three.js Material. 0 = no material.
 MaterialHandle { id: u32 }
+
+// Optional — makes this entity a child of the referenced entity.
+// Absent = child of scene root. Enables transform inheritance.
+ParentEntity(Entity)
 ```
 
 ## Hot Path: FramePacket
@@ -47,6 +51,7 @@ transforms:       [f32; N * 10]   // per entity: pos(3) + rot(4) + scale(3)
 visibility:       [u8;  N]        // 1 = visible, 0 = hidden
 mesh_handles:     [u32; N]
 material_handles: [u32; N]
+parent_ids:       [u32; N]        // parent entity index; u32::MAX = scene root
 change_flags:     [u8;  N]        // empty for full extract; bitmasks for incremental
 ```
 
@@ -220,7 +225,9 @@ const packet = engine.extract_frame();
 cache.applyFrame(packet);
 ```
 
-**Per-frame behaviour:**
+**Per-frame behaviour (two-pass):**
+
+**Pass 1 — Create/Update objects:**
 
 - New entity IDs → create `THREE.Mesh`, add to scene (full row applied).
 - Existing IDs → when `change_flags` is present, update only transform, visibility,
@@ -234,6 +241,17 @@ cache.applyFrame(packet);
   carries channel payloads; incremental Rust extraction currently omits custom
   channels, so this mainly matters for full packets. Skipping redundant channel
   writes when flags exist is a plausible future optimization.
+
+**Pass 2 — Reparent (hierarchy):**
+
+- For each entity with `CHANGED_PARENT` flag (or all entities in full frames),
+  compare the `parent_ids` value against the cached parent assignment.
+- If the parent changed: detach from old parent, attach to new parent object
+  (or scene root if `SCENE_ROOT`).
+- Entities arrive depth-sorted from Rust extraction (parents before children),
+  so a forward pass correctly builds the hierarchy.
+- When a parent entity is removed, its children are reparented to the scene
+  root to prevent orphan objects from becoming invisible.
 
 ## Tooling Path: DebugSnapshot
 
