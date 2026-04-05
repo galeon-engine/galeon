@@ -281,6 +281,19 @@ export class RendererCache {
    * Notifies `onEntityRemoved` so the consumer can dispose resources it owns.
    */
   private removeEntity(id: number, obj: THREE.Mesh): void {
+    // Reparent orphaned children to the scene root before detaching.
+    // Without this, children become invisible (still attached to a
+    // removed parent object that is no longer in the scene graph).
+    for (const [childId, parentId] of this.parentOf) {
+      if (parentId !== id) continue;
+      const childObj = this.objects.get(childId);
+      if (childObj) {
+        obj.remove(childObj);
+        this.scene.add(childObj);
+      }
+      this.parentOf.set(childId, SCENE_ROOT);
+    }
+
     // Detach from whatever parent (scene or another object).
     obj.parent?.remove(obj);
     try {
