@@ -7,6 +7,15 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Public package matrix, versioning policy, and stability docs** &mdash; README now
+  documents all published crates/packages, the pre-1.0 versioning policy, and
+  consumer stability expectations. Publishing guide cross-references the README.
+  ([#138](https://github.com/galeon-engine/galeon/issues/138),
+  [#139](https://github.com/galeon-engine/galeon/issues/139),
+  [#141](https://github.com/galeon-engine/galeon/issues/141))
+
 ## [0.1.1]
 
 ### Added
