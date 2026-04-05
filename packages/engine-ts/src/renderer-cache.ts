@@ -114,6 +114,7 @@ export class RendererCache {
         const geometry = this.geometries.get(meshHandle) ?? this.placeholderGeometry;
         const material = this.materials.get(matHandle) ?? this.placeholderMaterial;
         obj = new THREE.Mesh(geometry, material);
+        obj.matrixAutoUpdate = false;
         this.objects.set(entityId, obj);
         this.generations.set(entityId, generation);
         this.resolvedGeometries.set(entityId, geometry);
@@ -150,6 +151,7 @@ export class RendererCache {
         transforms[off + 6]!,
       );
       obj.scale.set(transforms[off + 7]!, transforms[off + 8]!, transforms[off + 9]!);
+      obj.matrix.compose(obj.position, obj.quaternion, obj.scale);
 
       // Update visibility.
       obj.visible = visibility[i]! === 1;
