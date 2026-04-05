@@ -7,6 +7,16 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **RendererCache no longer stomps consumer material/geometry overrides** —
+  `applyFrame()` now compares handle IDs (integers) instead of resolved Three.js
+  object references. Consumers can safely override `obj.material` or `obj.geometry`
+  (e.g. multi-material arrays for per-face texturing) without the cache resetting
+  them every frame. Missing registry handles now emit a one-shot `console.warn`
+  per entity instead of silently falling back to the magenta wireframe placeholder.
+  ([#124](https://github.com/galeon-engine/galeon/issues/124))
+
 ### Added
 
 - **npm publishing surface** — `@galeon/runtime`, `@galeon/engine-ts`, and `@galeon/shell`
