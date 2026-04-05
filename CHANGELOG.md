@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Version bump script** — `scripts/bump-version.sh X.Y.Z` updates all 6 lockstep
+  version sources (7 edits) atomically. Validates semver, checks current versions are
+  consistent, and verifies all edits after applying. Supports prerelease tags.
+  ([#128](https://github.com/galeon-engine/galeon/issues/128))
+
 ### Changed
 
 - **Tag-triggered release workflow** — `release.yml` now triggers on `v*` tag pushes
