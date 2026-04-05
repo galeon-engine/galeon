@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+use galeon_engine::FrameEvent;
+
 /// Per-channel float data attached to a [`FramePacket`].
 ///
 /// The `data` array is flat: for `n` entities and a stride of `s`, the values
@@ -35,6 +37,8 @@ pub struct FramePacket {
     pub object_types: Vec<u8>,
     /// Named per-entity float channels for game-specific render data.
     pub custom_channels: HashMap<String, ChannelData>,
+    /// One-shot events for audio/VFX triggers (fire-and-forget, not per-entity).
+    pub events: Vec<FrameEvent>,
     /// Per-entity change flags for incremental extraction.
     /// Bit 0: transform, Bit 1: visibility, Bit 2: mesh, Bit 3: material,
     /// Bit 4: object type, Bit 5: parent.
@@ -72,6 +76,7 @@ impl FramePacket {
             parent_ids: Vec::new(),
             object_types: Vec::new(),
             custom_channels: HashMap::new(),
+            events: Vec::new(),
             change_flags: Vec::new(),
             frame_version: 0,
         }
@@ -89,6 +94,7 @@ impl FramePacket {
             parent_ids: Vec::with_capacity(entity_count),
             object_types: Vec::with_capacity(entity_count),
             custom_channels: HashMap::new(),
+            events: Vec::new(),
             change_flags: Vec::with_capacity(entity_count),
             frame_version: 0,
         }
@@ -176,6 +182,11 @@ impl FramePacket {
     /// not exist.
     pub fn channel(&self, name: &str) -> Option<&ChannelData> {
         self.custom_channels.get(name)
+    }
+
+    /// Number of one-shot events in this frame.
+    pub fn event_count(&self) -> usize {
+        self.events.len()
     }
 }
 

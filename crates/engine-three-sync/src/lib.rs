@@ -9,6 +9,8 @@ pub use frame_packet::{
     CHANGED_MATERIAL, CHANGED_MESH, CHANGED_OBJECT_TYPE, CHANGED_PARENT, CHANGED_TRANSFORM,
     CHANGED_VISIBILITY, ChannelData, FramePacket, SCENE_ROOT, TRANSFORM_STRIDE,
 };
+// Re-export FrameEvent from engine for consumers of this crate.
+pub use galeon_engine::FrameEvent;
 pub use snapshot::{
     DebugSnapshot, EntitySnapshot, TransformSnapshot, extract_debug_snapshot, snapshot_to_json,
 };
@@ -340,5 +342,39 @@ impl WasmFramePacket {
             .channel(name)
             .map(|ch| ch.data.clone())
             .unwrap_or_default()
+    }
+
+    // -------------------------------------------------------------------------
+    // One-shot events (audio/VFX triggers)
+    // -------------------------------------------------------------------------
+
+    /// Number of one-shot events in this frame.
+    #[wasm_bindgen(getter)]
+    pub fn event_count(&self) -> u32 {
+        self.inner.event_count() as u32
+    }
+
+    /// Event type IDs (one u32 per event, parallel to other event arrays).
+    #[wasm_bindgen(getter)]
+    pub fn event_kinds(&self) -> Vec<u32> {
+        self.inner.events.iter().map(|e| e.kind).collect()
+    }
+
+    /// Source entity indices (one u32 per event).
+    #[wasm_bindgen(getter)]
+    pub fn event_entities(&self) -> Vec<u32> {
+        self.inner.events.iter().map(|e| e.entity).collect()
+    }
+
+    /// Event positions as a flat Float32Array (3 floats per event: x, y, z).
+    #[wasm_bindgen(getter)]
+    pub fn event_positions(&self) -> Vec<f32> {
+        self.inner.events.iter().flat_map(|e| e.position).collect()
+    }
+
+    /// Event intensities (one f32 per event).
+    #[wasm_bindgen(getter)]
+    pub fn event_intensities(&self) -> Vec<f32> {
+        self.inner.events.iter().map(|e| e.intensity).collect()
     }
 }

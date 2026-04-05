@@ -9,6 +9,16 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Audio/VFX event bridge (`RenderEvent` + `FrameEvent`)** — One-shot ECS events
+  can now flow to the TypeScript layer for triggering audio and visual effects.
+  Games implement `RenderEvent` on their event types and register them with
+  `RenderEventRegistry`. Events are extracted alongside transforms into
+  `FramePacket::events` as fixed-schema `FrameEvent` structs (kind, entity,
+  position, intensity). The WASM bridge exposes struct-of-arrays getters
+  (`event_kinds`, `event_entities`, `event_positions`, `event_intensities`).
+  Both full and incremental extraction paths include events.
+  ([#86](https://github.com/galeon-engine/galeon/issues/86))
+
 - **Entity hierarchy (`ParentEntity` component)** — `ParentEntity(Entity)` attaches
   a child entity to a parent in the render scene graph. FramePacket carries
   `parent_ids` (parallel array, `SCENE_ROOT` sentinel). Extraction depth-sorts

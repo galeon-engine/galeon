@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use galeon_engine::render::{
     MaterialHandle, MeshHandle, ObjectType, ParentEntity, Transform, Visibility,
 };
-use galeon_engine::{Entity, RenderChannelRegistry, World};
+use galeon_engine::{Entity, RenderChannelRegistry, RenderEventRegistry, World};
 
 use crate::frame_packet::{
     CHANGED_MATERIAL, CHANGED_MESH, CHANGED_OBJECT_TYPE, CHANGED_PARENT, CHANGED_TRANSFORM,
@@ -136,6 +136,10 @@ pub fn extract_frame(world: &World) -> FramePacket {
                 },
             );
         }
+    }
+
+    if let Some(registry) = world.try_resource::<RenderEventRegistry>() {
+        packet.events = registry.extract_all(world);
     }
 
     packet
@@ -377,6 +381,11 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
             *object_type,
             flags,
         );
+    }
+
+    // Events are always fully extracted (not incremental — they are ephemeral).
+    if let Some(registry) = world.try_resource::<RenderEventRegistry>() {
+        packet.events = registry.extract_all(world);
     }
 
     packet
@@ -922,5 +931,134 @@ mod tests {
         world.advance_tick();
         let v2 = extract_frame(&world).frame_version;
         assert!(v2 > v1);
+    }
+
+    // -------------------------------------------------------------------------
+    // Render event extraction integration tests
+    // -------------------------------------------------------------------------
+
+    #[derive(Debug)]
+    struct TestImpact {
+        entity_index: u32,
+        pos: [f32; 3],
+        force: f32,
+    }
+
+    impl galeon_engine::RenderEvent for TestImpact {
+        const KIND: u32 = 1;
+        fn entity(&self) -> u32 {
+            self.entity_index
+        }
+        fn position(&self) -> [f32; 3] {
+            self.pos
+        }
+        fn intensity(&self) -> f32 {
+            self.force
+        }
+    }
+
+    #[test]
+    fn extract_no_events_when_registry_absent() {
+        let mut world = World::new();
+        world.spawn((Transform::identity(),));
+        let packet = extract_frame(&world);
+        assert_eq!(packet.event_count(), 0);
+    }
+
+    #[test]
+    fn extract_no_events_when_none_sent() {
+        let mut world = World::new();
+        world.add_event::<TestImpact>();
+        let mut registry = galeon_engine::RenderEventRegistry::new();
+        registry.register::<TestImpact>();
+        world.insert_resource(registry);
+
+        world.spawn((Transform::identity(),));
+        let packet = extract_frame(&world);
+        assert_eq!(packet.event_count(), 0);
+    }
+
+    #[test]
+    fn extract_events_in_full_extraction() {
+        let mut world = World::new();
+        world.add_event::<TestImpact>();
+
+        let mut registry = galeon_engine::RenderEventRegistry::new();
+        registry.register::<TestImpact>();
+        world.insert_resource(registry);
+
+        world
+            .resource_mut::<galeon_engine::Events<TestImpact>>()
+            .send(TestImpact {
+                entity_index: 42,
+                pos: [1.0, 2.0, 3.0],
+                force: 0.75,
+            });
+        world.update_events();
+
+        world.spawn((Transform::identity(),));
+        let packet = extract_frame(&world);
+        assert_eq!(packet.event_count(), 1);
+        assert_eq!(packet.events[0].kind, 1);
+        assert_eq!(packet.events[0].entity, 42);
+        assert_eq!(packet.events[0].position, [1.0, 2.0, 3.0]);
+        assert!((packet.events[0].intensity - 0.75).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn extract_events_in_incremental_extraction() {
+        let mut world = World::new();
+        world.add_event::<TestImpact>();
+
+        let mut registry = galeon_engine::RenderEventRegistry::new();
+        registry.register::<TestImpact>();
+        world.insert_resource(registry);
+
+        world.spawn((Transform::from_position(1.0, 0.0, 0.0),));
+        let since = world.change_tick();
+        world.advance_tick();
+
+        // Send event, advance to make it readable.
+        world
+            .resource_mut::<galeon_engine::Events<TestImpact>>()
+            .send(TestImpact {
+                entity_index: 7,
+                pos: [5.0, 5.0, 5.0],
+                force: 3.0,
+            });
+        world.update_events();
+
+        let packet = extract_frame_incremental(&world, since);
+        // No entity changes, but events should still be present.
+        assert_eq!(packet.event_count(), 1);
+        assert_eq!(packet.events[0].kind, 1);
+        assert_eq!(packet.events[0].entity, 7);
+    }
+
+    #[test]
+    fn extract_multiple_events_same_frame() {
+        let mut world = World::new();
+        world.add_event::<TestImpact>();
+
+        let mut registry = galeon_engine::RenderEventRegistry::new();
+        registry.register::<TestImpact>();
+        world.insert_resource(registry);
+
+        let events = world.resource_mut::<galeon_engine::Events<TestImpact>>();
+        events.send(TestImpact {
+            entity_index: 1,
+            pos: [0.0; 3],
+            force: 1.0,
+        });
+        events.send(TestImpact {
+            entity_index: 2,
+            pos: [10.0; 3],
+            force: 0.5,
+        });
+        world.update_events();
+
+        world.spawn((Transform::identity(),));
+        let packet = extract_frame(&world);
+        assert_eq!(packet.event_count(), 2);
     }
 }

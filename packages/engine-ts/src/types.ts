@@ -42,6 +42,18 @@ export interface FramePacketView {
   custom_channel_name_at(index: number): string;
   custom_channel_stride(name: string): number;
   custom_channel_data(name: string): Float32Array;
+
+  // -- One-shot events (audio/VFX triggers) --
+  /** Number of one-shot events in this frame. */
+  readonly event_count: number;
+  /** Event type IDs (one u32 per event, parallel to other event arrays). */
+  readonly event_kinds: Uint32Array;
+  /** Source entity indices (one u32 per event). */
+  readonly event_entities: Uint32Array;
+  /** Event positions (3 floats per event: x, y, z). */
+  readonly event_positions: Float32Array;
+  /** Event intensities (one f32 per event). */
+  readonly event_intensities: Float32Array;
 }
 
 /** Number of f32 values per entity in the transforms array. */
