@@ -36,6 +36,8 @@ export interface FramePacketView {
   readonly change_flags?: Uint8Array;
   /** Object type per entity (0=Mesh, 1=PointLight, 2=DirectionalLight, 3=LineSegments, 4=Group). */
   readonly object_types?: Uint8Array;
+  /** Monotonic frame version — skip applyFrame() when unchanged. Omit for always-apply backward compat. */
+  readonly frame_version?: bigint;
   readonly custom_channel_count: number;
   custom_channel_name_at(index: number): string;
   custom_channel_stride(name: string): number;

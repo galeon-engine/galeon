@@ -1172,3 +1172,96 @@ describe("RendererCache Object3D type diversity", () => {
     expect(removed[0]).toBeInstanceOf(THREE.PointLight);
   });
 });
+
+// ---------------------------------------------------------------------------
+// #137: Demand rendering — skip applyFrame when frame_version unchanged
+// ---------------------------------------------------------------------------
+
+describe("RendererCache demand rendering (frame_version)", () => {
+  test("same frame_version twice — second call is no-op, needsRender is false", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    const packet = makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      mesh_handles: new Uint32Array([1]),
+      material_handles: new Uint32Array([1]),
+      frame_version: 5n,
+    });
+
+    cache.applyFrame(packet);
+    expect(cache.needsRender).toBe(true);
+    expect(cache.objectCount).toBe(1);
+
+    // Second call with same version — early-out
+    cache.applyFrame(packet);
+    expect(cache.needsRender).toBe(false);
+    // Objects must still be there (not cleared)
+    expect(cache.objectCount).toBe(1);
+  });
+
+  test("different frame_version — processes normally, needsRender is true", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    cache.applyFrame(makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      frame_version: 1n,
+    }));
+    expect(cache.needsRender).toBe(true);
+
+    cache.applyFrame(makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      frame_version: 2n,
+    }));
+    expect(cache.needsRender).toBe(true);
+  });
+
+  test("undefined frame_version — always processes (backward compatible)", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    // No frame_version field
+    const packet = makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+    });
+
+    cache.applyFrame(packet);
+    expect(cache.needsRender).toBe(true);
+
+    // Second call without frame_version — still processes
+    cache.applyFrame(packet);
+    expect(cache.needsRender).toBe(true);
+  });
+
+  test("after clear(), next frame with same version still applies", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    const packet = makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      frame_version: 10n,
+    });
+
+    cache.applyFrame(packet);
+    expect(cache.objectCount).toBe(1);
+
+    cache.clear();
+    expect(cache.objectCount).toBe(0);
+
+    // Same version as before clear — must still apply since cache was reset
+    cache.applyFrame(packet);
+    expect(cache.objectCount).toBe(1);
+    expect(cache.needsRender).toBe(true);
+  });
+});

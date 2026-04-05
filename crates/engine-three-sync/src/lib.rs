@@ -287,6 +287,12 @@ impl WasmFramePacket {
         self.inner.object_types.clone()
     }
 
+    /// Monotonic frame version — consumers can skip processing when unchanged.
+    #[wasm_bindgen(getter)]
+    pub fn frame_version(&self) -> u64 {
+        self.inner.frame_version
+    }
+
     /// Number of custom data channels in this frame.
     #[wasm_bindgen(getter)]
     pub fn custom_channel_count(&self) -> u32 {

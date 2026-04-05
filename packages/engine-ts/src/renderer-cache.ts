@@ -55,6 +55,11 @@ export class RendererCache {
   /** Last applied `ObjectType` discriminant per entity (matches packet `object_types` / Rust repr). */
   private readonly objectKinds = new Map<number, number>();
 
+  /** Frame version from the last applied packet (demand rendering). */
+  private lastFrameVersion: bigint = 0n;
+  /** Whether the last `applyFrame()` made any scene changes. */
+  private _dirty = false;
+
   /** Fallback geometry used when a mesh handle has no registered geometry. */
   private readonly placeholderGeometry = new THREE.BoxGeometry(1, 1, 1);
   /** Fallback material used when a material handle has no registered material. */
@@ -101,6 +106,15 @@ export class RendererCache {
    * Call once per render frame after `WasmEngine.extract_frame()`.
    */
   applyFrame(packet: FramePacketView): void {
+    if (packet.frame_version != null && packet.frame_version === this.lastFrameVersion) {
+      this._dirty = false;
+      return;
+    }
+    if (packet.frame_version != null) {
+      this.lastFrameVersion = packet.frame_version;
+    }
+    this._dirty = true;
+
     const activeIds = new Set<number>();
     const customChannels = Array.from({ length: packet.custom_channel_count }, (_, index) => {
       const name = packet.custom_channel_name_at(index);
@@ -276,6 +290,11 @@ export class RendererCache {
   // Queries
   // ---------------------------------------------------------------------------
 
+  /** Whether the last `applyFrame()` made any scene changes. */
+  get needsRender(): boolean {
+    return this._dirty;
+  }
+
   /** Number of active Three.js objects managed by this cache. */
   get objectCount(): number {
     return this.objects.size;
@@ -300,6 +319,7 @@ export class RendererCache {
     for (const [id, obj] of this.objects) {
       this.removeEntity(id, obj);
     }
+    this.lastFrameVersion = 0n;
   }
 
   /** Dispose of placeholder resources. Call when the cache is no longer needed. */
