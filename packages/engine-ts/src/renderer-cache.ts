@@ -54,6 +54,16 @@ export class RendererCache {
     wireframe: true,
   });
 
+  /**
+   * Called when an entity is about to be removed from the cache (despawn,
+   * stale-generation eviction, or `clear()`). The mesh has already been
+   * removed from the scene but not yet deleted from internal maps.
+   *
+   * Use this to dispose consumer-owned GPU resources (geometry, material)
+   * that the cache cannot safely auto-dispose because it does not own them.
+   */
+  onEntityRemoved?: (entityId: number, generation: number, obj: THREE.Mesh) => void;
+
   constructor(scene: THREE.Scene) {
     this.scene = scene;
   }
@@ -115,12 +125,7 @@ export class RendererCache {
       // so we create a fresh one below. This prevents the stale-entity bug
       // that generational IDs are designed to catch.
       if (obj && this.generations.get(entityId) !== generation) {
-        this.scene.remove(obj);
-        this.objects.delete(entityId);
-        this.resolvedGeometries.delete(entityId);
-        this.resolvedMaterials.delete(entityId);
-        this.warnedMeshes.delete(entityId);
-        this.warnedMaterials.delete(entityId);
+        this.removeEntity(entityId, obj);
         obj = undefined;
       }
 
@@ -187,13 +192,7 @@ export class RendererCache {
     // Remove objects for entities that disappeared this frame.
     for (const [id, obj] of this.objects) {
       if (!activeIds.has(id)) {
-        this.scene.remove(obj);
-        this.objects.delete(id);
-        this.generations.delete(id);
-        this.resolvedGeometries.delete(id);
-        this.resolvedMaterials.delete(id);
-        this.warnedMeshes.delete(id);
-        this.warnedMaterials.delete(id);
+        this.removeEntity(id, obj);
       }
     }
   }
@@ -221,17 +220,11 @@ export class RendererCache {
   // Cleanup
   // ---------------------------------------------------------------------------
 
-  /** Remove all objects from the scene and clear the cache. */
+  /** Remove all objects from the scene, notify via `onEntityRemoved`, and clear the cache. */
   clear(): void {
-    for (const obj of this.objects.values()) {
-      this.scene.remove(obj);
+    for (const [id, obj] of this.objects) {
+      this.removeEntity(id, obj);
     }
-    this.objects.clear();
-    this.generations.clear();
-    this.resolvedGeometries.clear();
-    this.resolvedMaterials.clear();
-    this.warnedMeshes.clear();
-    this.warnedMaterials.clear();
   }
 
   /** Dispose of placeholder resources. Call when the cache is no longer needed. */
@@ -244,6 +237,21 @@ export class RendererCache {
   // ---------------------------------------------------------------------------
   // Internal
   // ---------------------------------------------------------------------------
+
+  /**
+   * Remove an entity's mesh from the scene and clean up internal tracking.
+   * Notifies `onEntityRemoved` so the consumer can dispose resources it owns.
+   */
+  private removeEntity(id: number, obj: THREE.Mesh): void {
+    this.scene.remove(obj);
+    this.onEntityRemoved?.(id, this.generations.get(id)!, obj);
+    this.objects.delete(id);
+    this.generations.delete(id);
+    this.resolvedGeometries.delete(id);
+    this.resolvedMaterials.delete(id);
+    this.warnedMeshes.delete(id);
+    this.warnedMaterials.delete(id);
+  }
 
   private applyTransform(obj: THREE.Mesh, i: number, transforms: Float32Array): void {
     const off = i * TRANSFORM_STRIDE;

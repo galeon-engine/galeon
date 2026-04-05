@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
-import { describe, expect, test, spyOn } from "bun:test";
+import { describe, expect, test, spyOn, mock } from "bun:test";
 import * as THREE from "three";
 import { RendererCache, GALEON_ENTITY_KEY } from "../src/renderer-cache.js";
 import {
@@ -675,5 +675,176 @@ describe("RendererCache userData[GALEON_ENTITY_KEY] back-pointer", () => {
     const emptyPacket = makePacket({ entity_count: 0 });
     cache.applyFrame(emptyPacket);
     expect(cache.objectCount).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #131: onEntityRemoved callback for explicit resource lifecycle
+// ---------------------------------------------------------------------------
+
+describe("RendererCache onEntityRemoved callback", () => {
+  test("fires on entity disappearance with correct entityId, generation, and mesh", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    const calls: { entityId: number; generation: number; obj: THREE.Mesh }[] = [];
+    cache.onEntityRemoved = (entityId, generation, obj) => {
+      calls.push({ entityId, generation, obj });
+    };
+
+    const packet = makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([42]),
+      entity_generations: new Uint32Array([3]),
+      mesh_handles: new Uint32Array([1]),
+      material_handles: new Uint32Array([1]),
+    });
+
+    cache.applyFrame(packet);
+    const obj = cache.getObject(42, 3)!;
+    expect(calls).toHaveLength(0);
+
+    cache.applyFrame(makePacket({ entity_count: 0 }));
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.entityId).toBe(42);
+    expect(calls[0]!.generation).toBe(3);
+    expect(calls[0]!.obj).toBe(obj);
+  });
+
+  test("fires on stale-generation eviction", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    const calls: { entityId: number; generation: number }[] = [];
+    cache.onEntityRemoved = (entityId, generation) => {
+      calls.push({ entityId, generation });
+    };
+
+    cache.applyFrame(makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([5]),
+      entity_generations: new Uint32Array([0]),
+      mesh_handles: new Uint32Array([1]),
+      material_handles: new Uint32Array([1]),
+    }));
+
+    // Same slot, new generation — stale eviction
+    cache.applyFrame(makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([5]),
+      entity_generations: new Uint32Array([1]),
+      mesh_handles: new Uint32Array([1]),
+      material_handles: new Uint32Array([1]),
+    }));
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.entityId).toBe(5);
+    expect(calls[0]!.generation).toBe(0);
+  });
+
+  test("fires for every entity during clear()", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    const removedIds: number[] = [];
+    cache.onEntityRemoved = (entityId) => {
+      removedIds.push(entityId);
+    };
+
+    cache.applyFrame(makePacket({
+      entity_count: 3,
+      entity_ids: new Uint32Array([1, 2, 3]),
+      entity_generations: new Uint32Array([0, 0, 0]),
+      mesh_handles: new Uint32Array([1, 1, 1]),
+      material_handles: new Uint32Array([1, 1, 1]),
+    }));
+
+    cache.clear();
+    expect(removedIds.sort()).toEqual([1, 2, 3]);
+    expect(cache.objectCount).toBe(0);
+  });
+
+  test("consumer can dispose resources via the callback", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    cache.applyFrame(makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      mesh_handles: new Uint32Array([10]),
+      material_handles: new Uint32Array([20]),
+    }));
+
+    const obj = cache.getObject(1, 0)!;
+    const customGeo = new THREE.ConeGeometry(1, 2);
+    const customMat = new THREE.MeshStandardMaterial({ color: 0x0000ff });
+    obj.geometry = customGeo;
+    obj.material = customMat;
+
+    const geoDispose = mock(() => {});
+    const matDispose = mock(() => {});
+    customGeo.dispose = geoDispose;
+    customMat.dispose = matDispose;
+
+    cache.onEntityRemoved = (_id, _gen, mesh) => {
+      mesh.geometry.dispose();
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const m of mats) (m as THREE.Material).dispose();
+    };
+
+    cache.applyFrame(makePacket({ entity_count: 0 }));
+    expect(geoDispose).toHaveBeenCalledTimes(1);
+    expect(matDispose).toHaveBeenCalledTimes(1);
+  });
+
+  test("no auto-disposal happens without the callback", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    cache.applyFrame(makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      mesh_handles: new Uint32Array([10]),
+      material_handles: new Uint32Array([20]),
+    }));
+
+    const obj = cache.getObject(1, 0)!;
+    const customMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    obj.material = customMat;
+
+    const matDispose = mock(() => {});
+    customMat.dispose = matDispose;
+
+    // No callback set — removal should NOT auto-dispose
+    cache.applyFrame(makePacket({ entity_count: 0 }));
+    expect(matDispose).not.toHaveBeenCalled();
+  });
+
+  test("shared external resource survives removal of managed entity", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    cache.applyFrame(makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      mesh_handles: new Uint32Array([10]),
+      material_handles: new Uint32Array([20]),
+    }));
+
+    const obj = cache.getObject(1, 0)!;
+    const sharedMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    obj.material = sharedMat;
+
+    // External mesh also uses the same material
+    const externalMesh = new THREE.Mesh(new THREE.BoxGeometry(), sharedMat);
+    scene.add(externalMesh);
+
+    const sharedDispose = mock(() => {});
+    sharedMat.dispose = sharedDispose;
+
+    // Remove managed entity — material must NOT be disposed (external mesh still uses it)
+    cache.applyFrame(makePacket({ entity_count: 0 }));
+    expect(sharedDispose).not.toHaveBeenCalled();
+    expect(externalMesh.material).toBe(sharedMat);
   });
 });
