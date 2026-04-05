@@ -1268,6 +1268,40 @@ describe("RendererCache demand rendering (frame_version)", () => {
     expect(cache.objectCount).toBe(0);
   });
 
+  test("late registerGeometry invalidates frame version so reapply resolves assets", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+
+    const packet = makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      mesh_handles: new Uint32Array([99]),
+      material_handles: new Uint32Array([99]),
+      frame_version: 5n,
+    });
+
+    // First apply — entity gets placeholder assets
+    cache.applyFrame(packet);
+    const obj = cache.getObject(1, 0)! as THREE.Mesh;
+    expect(cache.needsRender).toBe(true);
+
+    // Register real assets — this must invalidate the cached version
+    const realGeo = new THREE.SphereGeometry(2);
+    const realMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+    cache.registerGeometry(99, realGeo);
+    cache.registerMaterial(99, realMat);
+
+    // Reapply same packet — must NOT early-out, must re-resolve handles
+    cache.applyFrame(packet);
+    expect(cache.needsRender).toBe(true);
+    expect(obj.geometry).toBe(realGeo);
+    expect(obj.material).toBe(realMat);
+
+    warnSpy.mockRestore();
+  });
+
   test("after clear(), next frame with same version still applies", () => {
     const scene = new THREE.Scene();
     const cache = new RendererCache(scene);

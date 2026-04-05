@@ -86,14 +86,16 @@ export class RendererCache {
   // Asset registration
   // ---------------------------------------------------------------------------
 
-  /** Register a geometry for a mesh handle ID. */
+  /** Register a geometry for a mesh handle ID. Invalidates cached frame version so the next `applyFrame()` re-resolves handles. */
   registerGeometry(id: number, geometry: THREE.BufferGeometry): void {
     this.geometries.set(id, geometry);
+    this.lastFrameVersion = 0n;
   }
 
-  /** Register a material for a material handle ID. */
+  /** Register a material for a material handle ID. Invalidates cached frame version so the next `applyFrame()` re-resolves handles. */
   registerMaterial(id: number, material: THREE.Material): void {
     this.materials.set(id, material);
+    this.lastFrameVersion = 0n;
   }
 
   // ---------------------------------------------------------------------------
