@@ -28,10 +28,13 @@ pub struct FramePacket {
     pub visibility: Vec<u8>,
     pub mesh_handles: Vec<u32>,
     pub material_handles: Vec<u32>,
+    /// Parent entity index for scene-graph hierarchy (one u32 per entity).
+    /// [`SCENE_ROOT`] means the entity is a child of the scene root.
+    pub parent_ids: Vec<u32>,
     /// Named per-entity float channels for game-specific render data.
     pub custom_channels: HashMap<String, ChannelData>,
     /// Per-entity change flags for incremental extraction.
-    /// Bit 0: transform, Bit 1: visibility, Bit 2: mesh, Bit 3: material.
+    /// Bit 0: transform, Bit 1: visibility, Bit 2: mesh, Bit 3: material, Bit 4: parent.
     /// Empty for full extractions.
     pub change_flags: Vec<u8>,
 }
@@ -41,6 +44,10 @@ pub const CHANGED_TRANSFORM: u8 = 1 << 0;
 pub const CHANGED_VISIBILITY: u8 = 1 << 1;
 pub const CHANGED_MESH: u8 = 1 << 2;
 pub const CHANGED_MATERIAL: u8 = 1 << 3;
+pub const CHANGED_PARENT: u8 = 1 << 4;
+
+/// Sentinel value in `parent_ids` meaning "child of scene root" (no parent entity).
+pub const SCENE_ROOT: u32 = u32::MAX;
 
 /// Number of f32 values per entity in the transforms array.
 pub const TRANSFORM_STRIDE: usize = 10;
@@ -55,6 +62,7 @@ impl FramePacket {
             visibility: Vec::new(),
             mesh_handles: Vec::new(),
             material_handles: Vec::new(),
+            parent_ids: Vec::new(),
             custom_channels: HashMap::new(),
             change_flags: Vec::new(),
         }
@@ -69,6 +77,7 @@ impl FramePacket {
             visibility: Vec::with_capacity(entity_count),
             mesh_handles: Vec::with_capacity(entity_count),
             material_handles: Vec::with_capacity(entity_count),
+            parent_ids: Vec::with_capacity(entity_count),
             custom_channels: HashMap::new(),
             change_flags: Vec::with_capacity(entity_count),
         }
@@ -86,6 +95,7 @@ impl FramePacket {
         visible: bool,
         mesh_id: u32,
         material_id: u32,
+        parent_id: u32,
     ) {
         self.entity_ids.push(entity_id);
         self.entity_generations.push(entity_generation);
@@ -95,6 +105,7 @@ impl FramePacket {
         self.visibility.push(visible as u8);
         self.mesh_handles.push(mesh_id);
         self.material_handles.push(material_id);
+        self.parent_ids.push(parent_id);
     }
 
     /// Push render data with change flags (incremental extraction).
@@ -109,6 +120,7 @@ impl FramePacket {
         visible: bool,
         mesh_id: u32,
         material_id: u32,
+        parent_id: u32,
         flags: u8,
     ) {
         self.push(
@@ -120,6 +132,7 @@ impl FramePacket {
             visible,
             mesh_id,
             material_id,
+            parent_id,
         );
         self.change_flags.push(flags);
     }
@@ -225,6 +238,7 @@ mod tests {
             true,
             10,
             20,
+            SCENE_ROOT,
         );
         assert_eq!(p.entity_count(), 1);
         assert_eq!(p.entity_ids[0], 42);
@@ -235,6 +249,7 @@ mod tests {
         assert_eq!(p.visibility[0], 1);
         assert_eq!(p.mesh_handles[0], 10);
         assert_eq!(p.material_handles[0], 20);
+        assert_eq!(p.parent_ids[0], SCENE_ROOT);
     }
 
     #[test]
@@ -249,6 +264,7 @@ mod tests {
             true,
             1,
             1,
+            SCENE_ROOT,
         );
         p.push(
             1,
@@ -259,9 +275,12 @@ mod tests {
             false,
             2,
             3,
+            0, // child of entity 0
         );
         assert_eq!(p.entity_count(), 2);
         assert_eq!(p.transforms.len(), TRANSFORM_STRIDE * 2);
         assert_eq!(p.visibility[1], 0);
+        assert_eq!(p.parent_ids[0], SCENE_ROOT);
+        assert_eq!(p.parent_ids[1], 0);
     }
 }

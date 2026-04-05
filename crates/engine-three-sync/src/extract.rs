@@ -1,18 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
-use galeon_engine::render::{MaterialHandle, MeshHandle, Transform, Visibility};
+use galeon_engine::render::{MaterialHandle, MeshHandle, ParentEntity, Transform, Visibility};
 use galeon_engine::{Entity, RenderChannelRegistry, World};
 
 use crate::frame_packet::{
-    CHANGED_MATERIAL, CHANGED_MESH, CHANGED_TRANSFORM, CHANGED_VISIBILITY, ChannelData, FramePacket,
+    CHANGED_MATERIAL, CHANGED_MESH, CHANGED_PARENT, CHANGED_TRANSFORM, CHANGED_VISIBILITY,
+    ChannelData, FramePacket, SCENE_ROOT,
 };
 
 /// Extract render-facing data from the ECS world into a packed frame packet.
 ///
 /// Single-pass query using optional components: iterates all entities with a
 /// `Transform` component (the implicit "renderable" marker) and packs their
-/// transform, visibility, mesh, and material data into flat arrays suitable
-/// for WASM transport.
+/// transform, visibility, mesh, material, and parent data into flat arrays
+/// suitable for WASM transport.
+///
+/// Entities are depth-sorted so parents appear before their children. This
+/// guarantees the JS-side scene graph can be built in a single forward pass.
 ///
 /// If a [`RenderChannelRegistry`] resource is present, also extracts all
 /// registered custom channels into `FramePacket::custom_channels`.
@@ -21,8 +25,25 @@ use crate::frame_packet::{
 /// - `Visibility`: defaults to visible (`true`)
 /// - `MeshHandle`: defaults to `0` (no mesh)
 /// - `MaterialHandle`: defaults to `0` (no material)
+/// - `ParentEntity`: defaults to scene root ([`SCENE_ROOT`])
 /// - Custom channels: defaults to `0.0` for all floats
 type Renderable = (Entity, [f32; 3], [f32; 4], [f32; 3]);
+
+/// Compute hierarchy depth for an entity by walking its parent chain.
+/// Returns 0 for root entities, 1 for direct children, etc.
+/// Caps at `max_depth` to guard against cycles.
+fn hierarchy_depth(world: &World, entity: Entity, max_depth: u32) -> u32 {
+    let mut depth = 0u32;
+    let mut current = entity;
+    while let Some(parent) = world.get::<ParentEntity>(current) {
+        depth += 1;
+        if depth >= max_depth {
+            break;
+        }
+        current = parent.0;
+    }
+    depth
+}
 
 pub fn extract_frame(world: &World) -> FramePacket {
     let query = world.query::<(
@@ -32,22 +53,55 @@ pub fn extract_frame(world: &World) -> FramePacket {
         Option<&MaterialHandle>,
     )>();
 
-    let mut packet = FramePacket::with_capacity(query.len());
-    let mut entities = Vec::with_capacity(query.len());
+    // Collect into intermediate vec for depth sorting.
+    struct Row {
+        entity: Entity,
+        transform: Transform,
+        visible: bool,
+        mesh_id: u32,
+        material_id: u32,
+        parent_id: u32,
+        depth: u32,
+    }
 
-    for (entity, (transform, vis, mesh, mat)) in query {
+    let mut rows: Vec<Row> = query
+        .map(|(entity, (transform, vis, mesh, mat))| {
+            let parent_id = world
+                .get::<ParentEntity>(entity)
+                .map(|p| p.0.index())
+                .unwrap_or(SCENE_ROOT);
+            Row {
+                entity,
+                transform: *transform,
+                visible: vis.map(|v| v.visible).unwrap_or(true),
+                mesh_id: mesh.map(|m| m.id).unwrap_or(0),
+                material_id: mat.map(|m| m.id).unwrap_or(0),
+                parent_id,
+                depth: hierarchy_depth(world, entity, 64),
+            }
+        })
+        .collect();
+
+    // Depth-sort: parents before children.
+    rows.sort_by_key(|r| r.depth);
+
+    let mut packet = FramePacket::with_capacity(rows.len());
+    let mut entities = Vec::with_capacity(rows.len());
+
+    for row in &rows {
         packet.push(
-            entity.index(),
-            entity.generation(),
-            &transform.position,
-            &transform.rotation,
-            &transform.scale,
-            vis.map(|v| v.visible).unwrap_or(true),
-            mesh.map(|m| m.id).unwrap_or(0),
-            mat.map(|m| m.id).unwrap_or(0),
+            row.entity.index(),
+            row.entity.generation(),
+            &row.transform.position,
+            &row.transform.rotation,
+            &row.transform.scale,
+            row.visible,
+            row.mesh_id,
+            row.material_id,
+            row.parent_id,
         );
 
-        entities.push(entity);
+        entities.push(row.entity);
     }
 
     // Extract registered custom channels.
@@ -76,8 +130,8 @@ pub fn extract_frame(world: &World) -> FramePacket {
 /// which fields changed.
 ///
 /// Entities whose Transform was added or changed are always included.
-/// The change flags further indicate if Visibility, MeshHandle, or
-/// MaterialHandle changed on those entities.
+/// The change flags further indicate if Visibility, MeshHandle,
+/// MaterialHandle, or ParentEntity changed on those entities.
 ///
 /// # Change detection precision
 ///
@@ -110,6 +164,11 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
             .map(|m| m.id)
             .unwrap_or(0);
 
+        let parent_id = world
+            .get::<ParentEntity>(*entity)
+            .map(|p| p.0.index())
+            .unwrap_or(SCENE_ROOT);
+
         // Check optional component change flags via entity location.
         // SAFETY: `world` is borrowed immutably for this entire function, so no
         // archetype migration can occur. The row from `entity_location` is the
@@ -135,6 +194,12 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
             {
                 flags |= CHANGED_MATERIAL;
             }
+            if arch
+                .column::<ParentEntity>()
+                .is_some_and(|c| c.changed_tick(row) > since_tick)
+            {
+                flags |= CHANGED_PARENT;
+            }
         }
 
         packet.push_incremental(
@@ -146,6 +211,7 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
             visible,
             mesh_id,
             material_id,
+            parent_id,
             flags,
         );
     }
@@ -427,5 +493,86 @@ mod tests {
         let packet = extract_frame_incremental(&world, since);
         assert_eq!(packet.entity_count(), 1);
         assert_eq!(packet.transforms[0], 5.0);
+    }
+
+    // ---- Hierarchy tests ----
+
+    #[test]
+    fn extract_parent_id_defaults_to_scene_root() {
+        let mut world = World::new();
+        world.spawn((Transform::identity(),));
+
+        let packet = extract_frame(&world);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.parent_ids[0], SCENE_ROOT);
+    }
+
+    #[test]
+    fn extract_parent_id_set_for_child() {
+        let mut world = World::new();
+        let parent = world.spawn((Transform::identity(),));
+        world.spawn((Transform::from_position(1.0, 0.0, 0.0), ParentEntity(parent)));
+
+        let packet = extract_frame(&world);
+        assert_eq!(packet.entity_count(), 2);
+
+        // Find the child in the packet.
+        let child_idx = if packet.parent_ids[0] == SCENE_ROOT { 1 } else { 0 };
+        assert_eq!(packet.parent_ids[child_idx], parent.index());
+    }
+
+    #[test]
+    fn extract_depth_sorted_parent_before_child() {
+        let mut world = World::new();
+        // Spawn child first, then parent — extraction should still order parent first.
+        let parent = world.spawn((Transform::identity(),));
+        let _child = world.spawn((Transform::from_position(1.0, 0.0, 0.0), ParentEntity(parent)));
+
+        let packet = extract_frame(&world);
+        assert_eq!(packet.entity_count(), 2);
+
+        // Parent (depth 0) should appear at index 0.
+        assert_eq!(packet.parent_ids[0], SCENE_ROOT);
+        assert_eq!(packet.entity_ids[0], parent.index());
+
+        // Child (depth 1) should appear at index 1.
+        assert_eq!(packet.parent_ids[1], parent.index());
+    }
+
+    #[test]
+    fn extract_deep_hierarchy_ordering() {
+        let mut world = World::new();
+        let grandparent = world.spawn((Transform::identity(),));
+        let parent = world.spawn((Transform::identity(), ParentEntity(grandparent)));
+        let child = world.spawn((Transform::identity(), ParentEntity(parent)));
+
+        let packet = extract_frame(&world);
+        assert_eq!(packet.entity_count(), 3);
+
+        // Verify depth ordering: grandparent, parent, child.
+        assert_eq!(packet.entity_ids[0], grandparent.index());
+        assert_eq!(packet.entity_ids[1], parent.index());
+        assert_eq!(packet.entity_ids[2], child.index());
+
+        assert_eq!(packet.parent_ids[0], SCENE_ROOT);
+        assert_eq!(packet.parent_ids[1], grandparent.index());
+        assert_eq!(packet.parent_ids[2], parent.index());
+    }
+
+    #[test]
+    fn incremental_extract_includes_parent_id() {
+        let mut world = World::new();
+        let parent = world.spawn((Transform::identity(),));
+        let child = world.spawn((Transform::identity(), ParentEntity(parent)));
+        let since = world.change_tick();
+        world.advance_tick();
+
+        // Mutate the child's transform to trigger inclusion.
+        world.get_mut::<Transform>(child).unwrap().position = [5.0, 0.0, 0.0];
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.entity_ids[0], child.index());
+        assert_eq!(packet.parent_ids[0], parent.index());
     }
 }

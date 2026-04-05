@@ -8,6 +8,11 @@ export const CHANGED_VISIBILITY = 1 << 1;
 export const CHANGED_MESH = 1 << 2;
 /** Material handle changed — matches Rust `CHANGED_MATERIAL`. */
 export const CHANGED_MATERIAL = 1 << 3;
+/** Parent entity changed — matches Rust `CHANGED_PARENT`. */
+export const CHANGED_PARENT = 1 << 4;
+
+/** Sentinel value meaning "child of scene root" (no parent entity). Matches Rust `SCENE_ROOT`. */
+export const SCENE_ROOT = 0xffff_ffff;
 
 /**
  * Shape of the WASM-exported frame packet.
@@ -23,6 +28,8 @@ export interface FramePacketView {
   readonly visibility: Uint8Array;
   readonly mesh_handles: Uint32Array;
   readonly material_handles: Uint32Array;
+  /** Parent entity indices. `SCENE_ROOT` (0xFFFFFFFF) = child of scene root. */
+  readonly parent_ids: Uint32Array;
   /** Set for incremental extraction; omit or empty for full frames (all fields apply). */
   readonly change_flags?: Uint8Array;
   readonly custom_channel_count: number;

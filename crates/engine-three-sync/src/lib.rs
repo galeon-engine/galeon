@@ -6,8 +6,8 @@ mod snapshot;
 
 pub use extract::{extract_frame, extract_frame_incremental};
 pub use frame_packet::{
-    CHANGED_MATERIAL, CHANGED_MESH, CHANGED_TRANSFORM, CHANGED_VISIBILITY, ChannelData,
-    FramePacket, TRANSFORM_STRIDE,
+    CHANGED_MATERIAL, CHANGED_MESH, CHANGED_PARENT, CHANGED_TRANSFORM, CHANGED_VISIBILITY,
+    ChannelData, FramePacket, SCENE_ROOT, TRANSFORM_STRIDE,
 };
 pub use snapshot::{
     DebugSnapshot, EntitySnapshot, TransformSnapshot, extract_debug_snapshot, snapshot_to_json,
@@ -244,6 +244,13 @@ impl WasmFramePacket {
     #[wasm_bindgen(getter)]
     pub fn material_handles(&self) -> Vec<u32> {
         self.inner.material_handles.clone()
+    }
+
+    /// Parent entity indices (one u32 per entity).
+    /// `u32::MAX` ([`SCENE_ROOT`]) means the entity is a child of the scene root.
+    #[wasm_bindgen(getter)]
+    pub fn parent_ids(&self) -> Vec<u32> {
+        self.inner.parent_ids.clone()
     }
 
     /// Per-entity change bitmasks for incremental extraction (parallel to other

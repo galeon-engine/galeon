@@ -13,8 +13,10 @@ export { RendererCache, GALEON_ENTITY_KEY } from "./renderer-cache.js";
 export {
   CHANGED_MATERIAL,
   CHANGED_MESH,
+  CHANGED_PARENT,
   CHANGED_TRANSFORM,
   CHANGED_VISIBILITY,
   type FramePacketView,
+  SCENE_ROOT,
   TRANSFORM_STRIDE,
 } from "./types.js";

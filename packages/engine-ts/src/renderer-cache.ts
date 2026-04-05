@@ -4,9 +4,11 @@ import * as THREE from "three";
 import {
   CHANGED_MATERIAL,
   CHANGED_MESH,
+  CHANGED_PARENT,
   CHANGED_TRANSFORM,
   CHANGED_VISIBILITY,
   type FramePacketView,
+  SCENE_ROOT,
   TRANSFORM_STRIDE,
 } from "./types.js";
 
@@ -40,6 +42,9 @@ export class RendererCache {
   private readonly resolvedGeometries = new Map<number, THREE.BufferGeometry>();
   /** Last registry-resolved material per entity (not obj.material — that may be consumer-overridden). */
   private readonly resolvedMaterials = new Map<number, THREE.Material>();
+
+  /** Current parent entity index per entity (`SCENE_ROOT` = scene root). */
+  private readonly parentOf = new Map<number, number>();
 
   /** Entities already warned about missing mesh handles (cleared when handle becomes registered). */
   private readonly warnedMeshes = new Set<number>();
@@ -108,10 +113,12 @@ export class RendererCache {
       visibility,
       mesh_handles,
       material_handles,
+      parent_ids,
     } = packet;
     const changeFlags = packet.change_flags;
     const hasChangeFlags = changeFlags !== undefined && changeFlags.length > 0;
 
+    // ----- Pass 1: create/update objects -----
     for (let i = 0; i < packet.entity_count; i++) {
       // Typed arrays are bounds-controlled by entity_count; non-null asserts are safe here.
       const entityId = entity_ids[i]!;
@@ -142,6 +149,7 @@ export class RendererCache {
         this.resolvedMaterials.set(entityId, material);
         this.warnMissingHandles(entityId, meshHandle, matHandle);
         (obj.userData as Record<PropertyKey, unknown>)[GALEON_ENTITY_KEY] = { entityId, generation };
+        // Temporarily add to scene; Pass 2 will reparent if needed.
         this.scene.add(obj);
         this.applyTransform(obj, i, transforms);
         obj.visible = visibility[i]! === 1;
@@ -187,6 +195,36 @@ export class RendererCache {
           obj.userData[name] = data.slice(off, off + stride);
         }
       }
+    }
+
+    // ----- Pass 2: reparent objects based on parent_ids -----
+    // Entities arrive depth-sorted (parent before child) from the Rust
+    // extraction, so a forward pass correctly builds the hierarchy.
+    for (let i = 0; i < packet.entity_count; i++) {
+      const entityId = entity_ids[i]!;
+      const flag = hasChangeFlags ? changeFlags[i]! : 0xff;
+      if ((flag & CHANGED_PARENT) === 0) continue;
+
+      const parentId = parent_ids[i]!;
+      const prevParent = this.parentOf.get(entityId);
+      if (prevParent === parentId) continue;
+
+      const obj = this.objects.get(entityId);
+      if (!obj) continue;
+
+      if (parentId === SCENE_ROOT) {
+        if (obj.parent !== this.scene) {
+          obj.parent?.remove(obj);
+          this.scene.add(obj);
+        }
+      } else {
+        const parentObj = this.objects.get(parentId);
+        if (parentObj && obj.parent !== parentObj) {
+          obj.parent?.remove(obj);
+          parentObj.add(obj);
+        }
+      }
+      this.parentOf.set(entityId, parentId);
     }
 
     // Remove objects for entities that disappeared this frame.
@@ -243,7 +281,8 @@ export class RendererCache {
    * Notifies `onEntityRemoved` so the consumer can dispose resources it owns.
    */
   private removeEntity(id: number, obj: THREE.Mesh): void {
-    this.scene.remove(obj);
+    // Detach from whatever parent (scene or another object).
+    obj.parent?.remove(obj);
     try {
       this.onEntityRemoved?.(id, this.generations.get(id)!, obj);
     } finally {
@@ -251,6 +290,7 @@ export class RendererCache {
       this.generations.delete(id);
       this.resolvedGeometries.delete(id);
       this.resolvedMaterials.delete(id);
+      this.parentOf.delete(id);
       this.warnedMeshes.delete(id);
       this.warnedMaterials.delete(id);
     }
