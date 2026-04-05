@@ -320,6 +320,7 @@ export class RendererCache {
       this.removeEntity(id, obj);
     }
     this.lastFrameVersion = 0n;
+    this._dirty = true;
   }
 
   /** Dispose of placeholder resources. Call when the cache is no longer needed. */

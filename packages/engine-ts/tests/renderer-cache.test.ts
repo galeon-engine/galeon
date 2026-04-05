@@ -1242,6 +1242,32 @@ describe("RendererCache demand rendering (frame_version)", () => {
     expect(cache.needsRender).toBe(true);
   });
 
+  test("clear() after no-op frame marks cache dirty (regression)", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    const packet = makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      frame_version: 5n,
+    });
+
+    // First apply — processes normally
+    cache.applyFrame(packet);
+    expect(cache.needsRender).toBe(true);
+
+    // Second apply with same version — no-op, _dirty becomes false
+    cache.applyFrame(packet);
+    expect(cache.needsRender).toBe(false);
+
+    // clear() empties scene — needsRender must be true so demand-render
+    // loops don't skip the frame that visibly removes objects
+    cache.clear();
+    expect(cache.needsRender).toBe(true);
+    expect(cache.objectCount).toBe(0);
+  });
+
   test("after clear(), next frame with same version still applies", () => {
     const scene = new THREE.Scene();
     const cache = new RendererCache(scene);
