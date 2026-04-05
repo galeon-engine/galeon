@@ -28,13 +28,23 @@ packages** to npm. Everything else in the workspace is internal.
 
 ## Versioning
 
-All Rust crates and all TypeScript packages move in **lockstep**. Internal
-dependencies use exact pins (`=0.1.0`) to enforce this.
+All Rust crates and all TypeScript packages move in **lockstep**. The Rust
+workspace version lives in `Cargo.toml` → `[workspace.package] version` and is
+inherited by publishable crates via `version.workspace = true`. npm package
+versions are kept in sync manually. Internal dependencies use exact pins
+(`=X.Y.Z`) to enforce lockstep.
 
-When bumping versions:
-1. Update `version` in all three `crates/*/Cargo.toml` and the workspace root.
-2. Update `version` in all three `packages/*/package.json`.
-3. Update dependency version pins between packages.
+### Version bump checklist
+
+When bumping from `X.Y.Z` to `A.B.C`:
+
+1. `Cargo.toml` → `[workspace.package] version = "A.B.C"`
+2. `crates/engine/Cargo.toml` → `galeon-engine-macros = { …, version = "=A.B.C" }`
+3. `crates/engine-three-sync/Cargo.toml` → `galeon-engine = { …, version = "=A.B.C" }`
+4. `packages/runtime/package.json` → `"version": "A.B.C"`
+5. `packages/engine-ts/package.json` → `"version": "A.B.C"` **and** `"@galeon/runtime": "=A.B.C"`
+6. `packages/shell/package.json` → `"version": "A.B.C"`
+7. `CHANGELOG.md` → move `## Unreleased` items under `## [A.B.C]`
 
 ## Path dependencies and versions (Rust)
 
@@ -68,11 +78,21 @@ npm pack --dry-run --workspace=packages/shell
 
 ## Release procedure
 
-1. Bump versions in all `Cargo.toml` and `package.json` files (keep pins in sync).
-2. Commit and tag (e.g. `v0.2.0`).
-3. Run the **Release** GitHub workflow (`.github/workflows/release.yml`):
-   - Choose target: `all`, `crates`, or `npm`.
-   - Use `dry_run: true` first to validate.
+1. Follow the **version bump checklist** above.
+2. Commit: `git commit -am "release: vA.B.C"`
+3. Tag: `git tag vA.B.C && git push origin master vA.B.C`
+4. The **Release** workflow triggers automatically:
+   - CI runs first (reused via `workflow_call`)
+   - Crates publish in order with `cargo search` propagation polling
+   - npm packages publish with skip-if-exists guards
+   - Post-publish verification installs from registries
+   - Evidence bundle uploaded as workflow artifact
+
+### Verify-only (manual dispatch)
+
+Use `workflow_dispatch` with an explicit version input to re-verify an
+already-published version without re-publishing. Installs from registries
+and checks the artifacts work.
 
 ### Manual publish (first time or fallback)
 
@@ -80,9 +100,8 @@ npm pack --dry-run --workspace=packages/shell
 
 ```bash
 cargo publish -p galeon-engine-macros
-# wait ~45s for crates.io index
+# wait for crates.io index (CI uses cargo search polling)
 cargo publish -p galeon-engine
-# wait ~45s
 cargo publish -p galeon-engine-three-sync
 ```
 
