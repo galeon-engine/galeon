@@ -339,4 +339,82 @@ describe("RendererCache handle-based tracking", () => {
 
     warnSpy.mockRestore();
   });
+
+  // ---------------------------------------------------------------------------
+  // T3-G: Late registration upgrades placeholder to real asset
+  // ---------------------------------------------------------------------------
+
+  test("late registration upgrades entity from placeholder to real asset", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+
+    // Frame 1: handle 99 not yet registered — gets placeholder
+    const packet = makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      mesh_handles: new Uint32Array([99]),
+      material_handles: new Uint32Array([99]),
+    });
+
+    cache.applyFrame(packet);
+    const obj = cache.getObject(1, 0)!;
+    expect(warnSpy).toHaveBeenCalledTimes(2);
+
+    // Register the assets after rendering started
+    const lateGeo = new THREE.SphereGeometry(2);
+    const lateMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+    cache.registerGeometry(99, lateGeo);
+    cache.registerMaterial(99, lateMat);
+
+    // Frame 2: same handle 99 — should upgrade from placeholder to real asset
+    cache.applyFrame(packet);
+    expect(obj.geometry).toBe(lateGeo);
+    expect(obj.material).toBe(lateMat);
+
+    // Frame 3: stable — no further assignment
+    obj.material = new THREE.MeshBasicMaterial({ color: 0xff0000 }); // consumer override
+    cache.applyFrame(packet);
+    expect(obj.material).not.toBe(lateMat); // consumer override survives now
+
+    warnSpy.mockRestore();
+  });
+
+  // ---------------------------------------------------------------------------
+  // T3-H: Same-handle rebind updates entity to new asset
+  // ---------------------------------------------------------------------------
+
+  test("rebinding a registry entry under the same handle updates entities", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    const matA = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    const matB = new THREE.MeshBasicMaterial({ color: 0x0000ff });
+    const geoA = new THREE.BoxGeometry();
+    const geoB = new THREE.SphereGeometry(1);
+    cache.registerGeometry(1, geoA);
+    cache.registerMaterial(1, matA);
+
+    const packet = makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([10]),
+      entity_generations: new Uint32Array([0]),
+      mesh_handles: new Uint32Array([1]),
+      material_handles: new Uint32Array([1]),
+    });
+
+    cache.applyFrame(packet);
+    const obj = cache.getObject(10, 0)!;
+    expect(obj.geometry).toBe(geoA);
+    expect(obj.material).toBe(matA);
+
+    // Rebind handle 1 to new assets
+    cache.registerGeometry(1, geoB);
+    cache.registerMaterial(1, matB);
+
+    // Frame 2: same handle, but registry entry changed — should update
+    cache.applyFrame(packet);
+    expect(obj.geometry).toBe(geoB);
+    expect(obj.material).toBe(matB);
+  });
 });

@@ -23,14 +23,14 @@ export class RendererCache {
   private readonly geometries = new Map<number, THREE.BufferGeometry>();
   private readonly materials = new Map<number, THREE.Material>();
 
-  /** Last-applied mesh handle per entity — compared instead of object refs. */
-  private readonly meshHandles = new Map<number, number>();
-  /** Last-applied material handle per entity — compared instead of object refs. */
-  private readonly materialHandles = new Map<number, number>();
+  /** Last registry-resolved geometry per entity (not obj.geometry — that may be consumer-overridden). */
+  private readonly resolvedGeometries = new Map<number, THREE.BufferGeometry>();
+  /** Last registry-resolved material per entity (not obj.material — that may be consumer-overridden). */
+  private readonly resolvedMaterials = new Map<number, THREE.Material>();
 
-  /** Entities already warned about missing mesh handles (one-shot). */
+  /** Entities already warned about missing mesh handles (cleared when handle becomes registered). */
   private readonly warnedMeshes = new Set<number>();
-  /** Entities already warned about missing material handles (one-shot). */
+  /** Entities already warned about missing material handles (cleared when handle becomes registered). */
   private readonly warnedMaterials = new Set<number>();
 
   /** Fallback geometry used when a mesh handle has no registered geometry. */
@@ -101,8 +101,8 @@ export class RendererCache {
       if (obj && this.generations.get(entityId) !== generation) {
         this.scene.remove(obj);
         this.objects.delete(entityId);
-        this.meshHandles.delete(entityId);
-        this.materialHandles.delete(entityId);
+        this.resolvedGeometries.delete(entityId);
+        this.resolvedMaterials.delete(entityId);
         this.warnedMeshes.delete(entityId);
         this.warnedMaterials.delete(entityId);
         obj = undefined;
@@ -111,26 +111,31 @@ export class RendererCache {
       if (!obj) {
         const meshHandle = mesh_handles[i]!;
         const matHandle = material_handles[i]!;
-        obj = this.createObject(meshHandle, matHandle);
+        const geometry = this.geometries.get(meshHandle) ?? this.placeholderGeometry;
+        const material = this.materials.get(matHandle) ?? this.placeholderMaterial;
+        obj = new THREE.Mesh(geometry, material);
         this.objects.set(entityId, obj);
         this.generations.set(entityId, generation);
-        this.meshHandles.set(entityId, meshHandle);
-        this.materialHandles.set(entityId, matHandle);
+        this.resolvedGeometries.set(entityId, geometry);
+        this.resolvedMaterials.set(entityId, material);
         this.warnMissingHandles(entityId, meshHandle, matHandle);
         this.scene.add(obj);
       } else {
-        // Update geometry/material only if the *handle* changed — comparing
-        // handles (integers) instead of resolved objects lets consumers safely
-        // override obj.material / obj.geometry without the cache stomping it.
+        // Compare the registry resolution against what we last resolved — NOT
+        // against obj.geometry/obj.material (which may be consumer-overridden).
+        // This lets consumer overrides survive while still picking up late
+        // registrations and same-handle rebinds.
         const meshHandle = mesh_handles[i]!;
         const matHandle = material_handles[i]!;
-        if (this.meshHandles.get(entityId) !== meshHandle) {
-          obj.geometry = this.geometries.get(meshHandle) ?? this.placeholderGeometry;
-          this.meshHandles.set(entityId, meshHandle);
+        const geometry = this.geometries.get(meshHandle) ?? this.placeholderGeometry;
+        const material = this.materials.get(matHandle) ?? this.placeholderMaterial;
+        if (this.resolvedGeometries.get(entityId) !== geometry) {
+          obj.geometry = geometry;
+          this.resolvedGeometries.set(entityId, geometry);
         }
-        if (this.materialHandles.get(entityId) !== matHandle) {
-          obj.material = this.materials.get(matHandle) ?? this.placeholderMaterial;
-          this.materialHandles.set(entityId, matHandle);
+        if (this.resolvedMaterials.get(entityId) !== material) {
+          obj.material = material;
+          this.resolvedMaterials.set(entityId, material);
         }
         this.warnMissingHandles(entityId, meshHandle, matHandle);
       }
@@ -167,8 +172,8 @@ export class RendererCache {
         this.scene.remove(obj);
         this.objects.delete(id);
         this.generations.delete(id);
-        this.meshHandles.delete(id);
-        this.materialHandles.delete(id);
+        this.resolvedGeometries.delete(id);
+        this.resolvedMaterials.delete(id);
         this.warnedMeshes.delete(id);
         this.warnedMaterials.delete(id);
       }
@@ -205,8 +210,8 @@ export class RendererCache {
     }
     this.objects.clear();
     this.generations.clear();
-    this.meshHandles.clear();
-    this.materialHandles.clear();
+    this.resolvedGeometries.clear();
+    this.resolvedMaterials.clear();
     this.warnedMeshes.clear();
     this.warnedMaterials.clear();
   }
@@ -223,19 +228,21 @@ export class RendererCache {
   // ---------------------------------------------------------------------------
 
   private warnMissingHandles(entityId: number, meshHandle: number, matHandle: number): void {
-    if (!this.geometries.has(meshHandle) && !this.warnedMeshes.has(entityId)) {
-      console.warn(`[RendererCache] No geometry registered for mesh handle ${meshHandle} (entity ${entityId})`);
-      this.warnedMeshes.add(entityId);
+    if (!this.geometries.has(meshHandle)) {
+      if (!this.warnedMeshes.has(entityId)) {
+        console.warn(`[RendererCache] No geometry registered for mesh handle ${meshHandle} (entity ${entityId})`);
+        this.warnedMeshes.add(entityId);
+      }
+    } else {
+      this.warnedMeshes.delete(entityId);
     }
-    if (!this.materials.has(matHandle) && !this.warnedMaterials.has(entityId)) {
-      console.warn(`[RendererCache] No material registered for handle ${matHandle} (entity ${entityId})`);
-      this.warnedMaterials.add(entityId);
+    if (!this.materials.has(matHandle)) {
+      if (!this.warnedMaterials.has(entityId)) {
+        console.warn(`[RendererCache] No material registered for handle ${matHandle} (entity ${entityId})`);
+        this.warnedMaterials.add(entityId);
+      }
+    } else {
+      this.warnedMaterials.delete(entityId);
     }
-  }
-
-  private createObject(meshId: number, materialId: number): THREE.Mesh {
-    const geometry = this.geometries.get(meshId) ?? this.placeholderGeometry;
-    const material = this.materials.get(materialId) ?? this.placeholderMaterial;
-    return new THREE.Mesh(geometry, material);
   }
 }
