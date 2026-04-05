@@ -119,6 +119,7 @@ export class RendererCache {
         this.resolvedGeometries.set(entityId, geometry);
         this.resolvedMaterials.set(entityId, material);
         this.warnMissingHandles(entityId, meshHandle, matHandle);
+        obj.userData.__galeon = { entityId, generation };
         this.scene.add(obj);
       } else {
         // Compare the registry resolution against what we last resolved — NOT
