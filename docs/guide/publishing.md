@@ -39,7 +39,7 @@ versions are kept in sync manually. Internal dependencies use exact pins
 Run the bump script from the repo root:
 
 ```bash
-scripts/bump-version.sh A.B.C
+bash scripts/bump-version.sh A.B.C
 ```
 
 This updates all 6 files (7 edits) atomically after verifying the current
@@ -90,7 +90,7 @@ npm pack --dry-run --workspace=packages/shell
 
 ## Release procedure
 
-1. Run `scripts/bump-version.sh A.B.C` (see version bump checklist above).
+1. Run `bash scripts/bump-version.sh A.B.C` (see version bump checklist above).
 2. Update `CHANGELOG.md`, then commit: `git commit -am "release: vA.B.C"`
 3. Tag: `git tag vA.B.C && git push origin master vA.B.C`
 4. The **Release** workflow triggers automatically:

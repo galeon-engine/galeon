@@ -13,8 +13,9 @@ set -euo pipefail
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
-die() { printf 'error: %s\n' "$1" >&2; exit 1; }
-ok()  { printf '  ✓ %s\n' "$1"; }
+die()    { printf 'error: %s\n' "$1" >&2; exit 1; }
+ok()     { printf '  ✓ %s\n' "$1"; }
+strip_cr() { tr -d '\r'; }  # neutralise CRLF on Windows checkouts
 
 # ── Args ─────────────────────────────────────────────────────────────
 
@@ -28,7 +29,7 @@ if [[ -z "$NEW_VERSION" ]]; then
 fi
 
 # Validate semver (with optional prerelease/build metadata)
-if ! [[ "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?(\+[a-zA-Z0-9.]+)?$ ]]; then
+if ! [[ "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9._-]+)?(\+[a-zA-Z0-9._-]+)?$ ]]; then
   die "Invalid semver: '$NEW_VERSION' (expected X.Y.Z[-prerelease][+build])"
 fi
 
@@ -68,23 +69,23 @@ echo ""
 echo "Reading current versions..."
 
 # 1. Workspace version
-CURRENT=$(sed -n '/\[workspace\.package\]/,/^\[/{s/^version *= *"\(.*\)"/\1/p}' "$WORKSPACE_CARGO")
+CURRENT=$(sed -n '/\[workspace\.package\]/,/^\[/{s/^version *= *"\(.*\)"/\1/p}' "$WORKSPACE_CARGO" | strip_cr)
 [[ -n "$CURRENT" ]] || die "Cannot read workspace version from $WORKSPACE_CARGO"
 ok "$WORKSPACE_CARGO  workspace.package.version = $CURRENT"
 
 # 2. engine dep on macros
-V_ENGINE_MACROS=$(sed -n 's/^galeon-engine-macros.*version *= *"=\([^"]*\)".*/\1/p' "$ENGINE_CARGO")
+V_ENGINE_MACROS=$(sed -n 's/^galeon-engine-macros.*version *= *"=\([^"]*\)".*/\1/p' "$ENGINE_CARGO" | strip_cr)
 [[ -n "$V_ENGINE_MACROS" ]] || die "Cannot read galeon-engine-macros pin from $ENGINE_CARGO"
 ok "$ENGINE_CARGO  galeon-engine-macros = =$V_ENGINE_MACROS"
 
 # 3. three-sync dep on engine
-V_THREE_ENGINE=$(sed -n 's/^galeon-engine.*version *= *"=\([^"]*\)".*/\1/p' "$THREE_SYNC_CARGO")
+V_THREE_ENGINE=$(sed -n 's/^galeon-engine.*version *= *"=\([^"]*\)".*/\1/p' "$THREE_SYNC_CARGO" | strip_cr)
 [[ -n "$V_THREE_ENGINE" ]] || die "Cannot read galeon-engine pin from $THREE_SYNC_CARGO"
 ok "$THREE_SYNC_CARGO  galeon-engine = =$V_THREE_ENGINE"
 
 # 4-6. package.json versions (using grep to extract)
 read_pkg_version() {
-  sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$1" | head -1
+  sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$1" | head -1 | strip_cr
 }
 
 V_RUNTIME=$(read_pkg_version "$RUNTIME_PKG")
@@ -96,7 +97,7 @@ V_ENGINE_TS=$(read_pkg_version "$ENGINE_TS_PKG")
 ok "$ENGINE_TS_PKG  version = $V_ENGINE_TS"
 
 # 5b. engine-ts dep on runtime
-V_ENGINE_TS_RUNTIME=$(sed -n 's/.*"@galeon\/runtime": *"=\([^"]*\)".*/\1/p' "$ENGINE_TS_PKG")
+V_ENGINE_TS_RUNTIME=$(sed -n 's/.*"@galeon\/runtime": *"=\([^"]*\)".*/\1/p' "$ENGINE_TS_PKG" | strip_cr)
 [[ -n "$V_ENGINE_TS_RUNTIME" ]] || die "Cannot read @galeon/runtime pin from $ENGINE_TS_PKG"
 ok "$ENGINE_TS_PKG  @galeon/runtime = =$V_ENGINE_TS_RUNTIME"
 
