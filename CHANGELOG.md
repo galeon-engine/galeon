@@ -7,6 +7,22 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Tag-triggered release workflow** — `release.yml` now triggers on `v*` tag pushes
+  instead of manual `workflow_dispatch`. CI runs as a gate via `workflow_call` before
+  any publish step. Crates.io propagation uses `cargo search` polling (30 x 10s)
+  instead of `sleep 45`. npm publish guards skip already-published versions.
+  Prerelease tags (`v0.2.0-alpha.1`) map to the correct npm dist-tag (`alpha`, `beta`,
+  `rc`). Post-publish verification installs from registries. Evidence bundle uploaded
+  as workflow artifact. `workflow_dispatch` retained as verify-only escape hatch.
+  ([#126](https://github.com/galeon-engine/galeon/issues/126))
+- **Workspace version inheritance** — Publishable crate versions now inherit from
+  `[workspace.package] version` in the root `Cargo.toml` instead of each crate
+  declaring its own `version`. Publishing guide updated with explicit version bump
+  checklist listing all pin locations.
+  ([#126](https://github.com/galeon-engine/galeon/issues/126))
+
 ### Fixed
 
 - **RendererCache no longer stomps consumer material/geometry overrides** —
