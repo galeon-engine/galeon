@@ -57,13 +57,51 @@ jobs:
           # Prerelease detection and npm dist-tag
           if [[ "$VERSION" == *-* ]]; then
             echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
-            # Extract prerelease identifier: alpha, beta, rc, etc.
-            PRE_ID=$(echo "$VERSION" | sed 's/.*-\([a-zA-Z]*\).*/\1/')
-            echo "npm_tag=$PRE_ID" >> "$GITHUB_OUTPUT"
+            # Extract first prerelease segment: 0.2.0-alpha.1 → alpha,
+            # 0.2.0-alpha-canary.1 → alpha, 0.2.0-0.1 → pre (fallback)
+            PRE_PART="${VERSION#*-}"          # alpha.1, alpha-canary.1, 0.1
+            PRE_SEG="${PRE_PART%%[.-]*}"      # alpha, alpha, 0
+            if [[ "$PRE_SEG" =~ ^[a-zA-Z] ]]; then
+              echo "npm_tag=$PRE_SEG" >> "$GITHUB_OUTPUT"
+            else
+              echo "npm_tag=pre" >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
             echo "npm_tag=latest" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Validate lockstep dependency pins
+        run: |
+          set -e
+          VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)"/\1/')
+          ERRORS=0
+
+          # Rust internal dependency pins
+          MACROS_PIN=$(grep 'galeon-engine-macros' crates/engine/Cargo.toml | grep -o '"=[^"]*"' | tr -d '"')
+          if [ "$MACROS_PIN" != "=$VERSION" ]; then
+            echo "::error::crates/engine/Cargo.toml pins galeon-engine-macros at $MACROS_PIN, expected =$VERSION"
+            ERRORS=$((ERRORS + 1))
+          fi
+
+          ENGINE_PIN=$(grep 'galeon-engine ' crates/engine-three-sync/Cargo.toml | grep -o '"=[^"]*"' | tr -d '"')
+          if [ "$ENGINE_PIN" != "=$VERSION" ]; then
+            echo "::error::crates/engine-three-sync/Cargo.toml pins galeon-engine at $ENGINE_PIN, expected =$VERSION"
+            ERRORS=$((ERRORS + 1))
+          fi
+
+          # npm internal dependency pin
+          RUNTIME_PIN=$(node -e "import{readFileSync}from'fs';const p=JSON.parse(readFileSync('./packages/engine-ts/package.json','utf8'));console.log(p.dependencies['@galeon/runtime']||'')" --input-type=module)
+          if [ "$RUNTIME_PIN" != "=$VERSION" ]; then
+            echo "::error::packages/engine-ts/package.json pins @galeon/runtime at $RUNTIME_PIN, expected =$VERSION"
+            ERRORS=$((ERRORS + 1))
+          fi
+
+          if [ "$ERRORS" -gt 0 ]; then
+            echo "::error::$ERRORS lockstep pin(s) do not match version $VERSION"
+            exit 1
+          fi
+          echo "All lockstep pins match $VERSION"
 
   # ── Publish Rust crates ────────────────────────────────────────────
   publish-crates:
@@ -240,7 +278,7 @@ jobs:
   # ── Release evidence bundle ────────────────────────────────────────
   release-evidence:
     name: Release evidence
-    needs: [resolve-version, publish-crates, publish-npm, verify-publish]
+    needs: [ci, resolve-version, publish-crates, publish-npm, verify-publish]
     if: always() && needs.resolve-version.result == 'success'
     runs-on: ubuntu-latest
     env:
