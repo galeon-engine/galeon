@@ -352,10 +352,11 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
                 flags |= CHANGED_OBJECT_TYPE;
             }
             if parent_removed.contains(entity)
-                || arch
-                    .column::<ParentEntity>()
-                    .is_some_and(|column| column.changed_tick(row) > since_tick)
-                || *parent_id == SCENE_ROOT
+                || arch.column::<ParentEntity>().is_some_and(|column| {
+                    column.changed_tick(row) > since_tick || *parent_id == SCENE_ROOT
+                })
+                || (arch.column::<ParentEntity>().is_none()
+                    && parents_with_new_transform.contains(entity))
             {
                 flags |= CHANGED_PARENT;
             }
@@ -860,5 +861,33 @@ mod tests {
         let flags = packet.change_flags[0];
         assert!(flags & CHANGED_PARENT != 0);
         assert!(flags & CHANGED_TRANSFORM == 0);
+    }
+
+    #[test]
+    fn incremental_extract_no_parent_flag_for_existing_root_entity() {
+        let mut world = World::new();
+        let entity = world.spawn((Transform::from_position(1.0, 0.0, 0.0),));
+        let since = world.change_tick();
+        world.advance_tick();
+
+        world.get_mut::<Transform>(entity).unwrap().position = [99.0, 0.0, 0.0];
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.entity_count(), 1);
+        assert!(packet.change_flags[0] & CHANGED_TRANSFORM != 0);
+        assert!(packet.change_flags[0] & CHANGED_PARENT == 0);
+    }
+
+    #[test]
+    fn incremental_extract_newly_spawned_root_gets_parent_flag() {
+        let mut world = World::new();
+        let since = world.change_tick();
+        world.advance_tick();
+
+        world.spawn((Transform::from_position(5.0, 0.0, 0.0),));
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.entity_count(), 1);
+        assert!(packet.change_flags[0] & CHANGED_PARENT != 0);
     }
 }

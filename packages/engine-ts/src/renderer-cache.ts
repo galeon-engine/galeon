@@ -177,6 +177,7 @@ export class RendererCache {
         (obj.userData as Record<PropertyKey, unknown>)[GALEON_ENTITY_KEY] = { entityId, generation };
         // Temporarily add to scene; Pass 2 will reparent if needed.
         this.scene.add(obj);
+        this.parentOf.set(entityId, SCENE_ROOT);
         this.objectKinds.set(entityId, packet.object_types?.[i] ?? ObjectType.Mesh);
         if (childrenToReattach !== undefined) {
           for (const childId of childrenToReattach) {
