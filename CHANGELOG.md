@@ -9,6 +9,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`RendererCache.onEntityRemoved` callback** — Notifies consumers when an entity
+  is removed (despawn, stale-generation eviction, or `clear()`), allowing explicit
+  disposal of consumer-owned GPU resources. The cache no longer auto-disposes
+  consumer-provided geometry or materials — ownership is explicit, not inferred.
+  ([#131](https://github.com/galeon-engine/galeon/issues/131))
+
 - **`WasmFramePacket.change_flags` and `RendererCache` incremental gating** —
   WASM exposes per-entity change bitmasks; `@galeon/engine-ts` applies transform,
   visibility, and mesh/material updates only when the corresponding flags are set
