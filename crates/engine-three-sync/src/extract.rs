@@ -987,6 +987,7 @@ mod tests {
         registry.register::<TestImpact>();
         world.insert_resource(registry);
 
+        // Events in `current` — extraction reads current directly.
         world
             .resource_mut::<galeon_engine::Events<TestImpact>>()
             .send(TestImpact {
@@ -994,7 +995,6 @@ mod tests {
                 pos: [1.0, 2.0, 3.0],
                 force: 0.75,
             });
-        world.update_events();
 
         world.spawn((Transform::identity(),));
         let packet = extract_frame(&world);
@@ -1018,7 +1018,7 @@ mod tests {
         let since = world.change_tick();
         world.advance_tick();
 
-        // Send event, advance to make it readable.
+        // Send event — stays in `current`, extracted directly.
         world
             .resource_mut::<galeon_engine::Events<TestImpact>>()
             .send(TestImpact {
@@ -1026,7 +1026,6 @@ mod tests {
                 pos: [5.0, 5.0, 5.0],
                 force: 3.0,
             });
-        world.update_events();
 
         let packet = extract_frame_incremental(&world, since);
         // No entity changes, but events should still be present.
@@ -1055,7 +1054,6 @@ mod tests {
             pos: [10.0; 3],
             force: 0.5,
         });
-        world.update_events();
 
         world.spawn((Transform::identity(),));
         let packet = extract_frame(&world);
