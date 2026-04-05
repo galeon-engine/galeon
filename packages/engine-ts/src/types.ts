@@ -1,12 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
-/**
- * Shape of the WASM-exported frame packet.
- *
- * wasm-bindgen returns Vec<f32> as Float32Array, Vec<u32> as Uint32Array, etc.
- * This interface matches the Rust `WasmFramePacket` getter API.
- */
-/** Transform (position / rotation / scale) changed — matches Rust `CHANGED_TRANSFORM`. */
+/** Bitmasks for incremental frame rows; values match Rust `galeon_engine_three_sync::frame_packet`. */
 export const CHANGED_TRANSFORM = 1 << 0;
 /** Visibility changed — matches Rust `CHANGED_VISIBILITY`. */
 export const CHANGED_VISIBILITY = 1 << 1;
@@ -15,6 +9,12 @@ export const CHANGED_MESH = 1 << 2;
 /** Material handle changed — matches Rust `CHANGED_MATERIAL`. */
 export const CHANGED_MATERIAL = 1 << 3;
 
+/**
+ * Shape of the WASM-exported frame packet.
+ *
+ * wasm-bindgen returns Vec<f32> as Float32Array, Vec<u32> as Uint32Array, etc.
+ * This interface matches the Rust `WasmFramePacket` getter API.
+ */
 export interface FramePacketView {
   readonly entity_count: number;
   readonly entity_ids: Uint32Array;

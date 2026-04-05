@@ -24,6 +24,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **RendererCache regression in #149** — Restored `GALEON_ENTITY_KEY`, per-mesh
+  `userData` back-pointer stamping, `matrixAutoUpdate = false`, and
+  `updateMatrix()` after transform writes (required when auto-update is off).
+  The first #149 diff had dropped these relative to `master`.
+  ([#149](https://github.com/galeon-engine/galeon/pull/149))
+
 - **CLI scaffold uses published crate** — `galeon new` templates now reference
   `galeon-engine = "0.1.1"` (crates.io) instead of a git dependency, so generated
   projects resolve against the published release rather than the live `master` branch.

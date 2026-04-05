@@ -23,6 +23,12 @@ import {
  * Geometry and material are resolved via user-provided registries. If no
  * registry entry exists for a handle, a placeholder is used.
  */
+/**
+ * Symbol key for the entity back-pointer stamped on every managed Three.js object's `userData`.
+ * Using a Symbol avoids namespace collisions with string-keyed custom render channels.
+ */
+export const GALEON_ENTITY_KEY: unique symbol = Symbol.for("galeon.entity");
+
 export class RendererCache {
   private readonly scene: THREE.Scene;
   private readonly objects = new Map<number, THREE.Mesh>();
@@ -124,11 +130,13 @@ export class RendererCache {
         const geometry = this.geometries.get(meshHandle) ?? this.placeholderGeometry;
         const material = this.materials.get(matHandle) ?? this.placeholderMaterial;
         obj = new THREE.Mesh(geometry, material);
+        obj.matrixAutoUpdate = false;
         this.objects.set(entityId, obj);
         this.generations.set(entityId, generation);
         this.resolvedGeometries.set(entityId, geometry);
         this.resolvedMaterials.set(entityId, material);
         this.warnMissingHandles(entityId, meshHandle, matHandle);
+        (obj.userData as Record<PropertyKey, unknown>)[GALEON_ENTITY_KEY] = { entityId, generation };
         this.scene.add(obj);
         this.applyTransform(obj, i, transforms);
         obj.visible = visibility[i]! === 1;
@@ -244,6 +252,7 @@ export class RendererCache {
       transforms[off + 6]!,
     );
     obj.scale.set(transforms[off + 7]!, transforms[off + 8]!, transforms[off + 9]!);
+    obj.updateMatrix();
   }
 
   private warnMissingHandles(entityId: number, meshHandle: number, matHandle: number): void {

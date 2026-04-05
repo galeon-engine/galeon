@@ -9,7 +9,7 @@ export function runtimeVersion(): string {
 }
 
 // Renderer cache — Three.js sync consumer.
-export { RendererCache } from "./renderer-cache.js";
+export { RendererCache, GALEON_ENTITY_KEY } from "./renderer-cache.js";
 export {
   CHANGED_MATERIAL,
   CHANGED_MESH,
