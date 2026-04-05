@@ -182,3 +182,30 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod template_dep_tests {
+    use crate::templates;
+
+    #[test]
+    fn scaffolded_deps_use_published_crate() {
+        let protocol = templates::protocol_cargo_toml("testgame");
+        let domain = templates::domain_cargo_toml("testgame");
+        let server = templates::server_cargo_toml("testgame");
+
+        for (label, content) in [
+            ("protocol", &protocol),
+            ("domain", &domain),
+            ("server", &server),
+        ] {
+            assert!(
+                content.contains(r#"galeon-engine = "0.1.1""#),
+                "{label} template missing published crate dependency"
+            );
+            assert!(
+                !content.contains("galeon-engine/galeon.git"),
+                "{label} template still references git URL"
+            );
+        }
+    }
+}
