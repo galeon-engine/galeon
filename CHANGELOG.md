@@ -9,6 +9,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`WasmFramePacket.change_flags` and `RendererCache` incremental gating** —
+  WASM exposes per-entity change bitmasks; `@galeon/engine-ts` applies transform,
+  visibility, and mesh/material updates only when the corresponding flags are set
+  (full frames omit flags and behave as before).
+  ([#132](https://github.com/galeon-engine/galeon/issues/132))
+
 - **Public package matrix, versioning policy, and stability docs** &mdash; README now
   documents all published crates/packages, the pre-1.0 versioning policy, and
   consumer stability expectations. Publishing guide cross-references the README.
@@ -17,6 +23,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   [#141](https://github.com/galeon-engine/galeon/issues/141))
 
 ### Fixed
+
+- **RendererCache regression in #149** — Restored `GALEON_ENTITY_KEY`, per-mesh
+  `userData` back-pointer stamping, `matrixAutoUpdate = false`, and
+  `updateMatrix()` after transform writes (required when auto-update is off).
+  The first #149 diff had dropped these relative to `master`.
+  ([#149](https://github.com/galeon-engine/galeon/pull/149))
 
 - **CLI scaffold uses published crate** — `galeon new` templates now reference
   `galeon-engine = "0.1.1"` (crates.io) instead of a git dependency, so generated

@@ -1,5 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
+/** Bitmasks for incremental frame rows; values match Rust `galeon_engine_three_sync::frame_packet`. */
+export const CHANGED_TRANSFORM = 1 << 0;
+/** Visibility changed — matches Rust `CHANGED_VISIBILITY`. */
+export const CHANGED_VISIBILITY = 1 << 1;
+/** Mesh handle changed — matches Rust `CHANGED_MESH`. */
+export const CHANGED_MESH = 1 << 2;
+/** Material handle changed — matches Rust `CHANGED_MATERIAL`. */
+export const CHANGED_MATERIAL = 1 << 3;
+
 /**
  * Shape of the WASM-exported frame packet.
  *
@@ -14,6 +23,8 @@ export interface FramePacketView {
   readonly visibility: Uint8Array;
   readonly mesh_handles: Uint32Array;
   readonly material_handles: Uint32Array;
+  /** Set for incremental extraction; omit or empty for full frames (all fields apply). */
+  readonly change_flags?: Uint8Array;
   readonly custom_channel_count: number;
   custom_channel_name_at(index: number): string;
   custom_channel_stride(name: string): number;
