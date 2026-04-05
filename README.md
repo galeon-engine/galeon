@@ -144,6 +144,91 @@ bun install
 bun run check    # Type-check all packages (tsc --build)
 ```
 
+## Public Packages
+
+Galeon publishes **three Rust crates** to [crates.io](https://crates.io) and
+**three TypeScript packages** to [npm](https://www.npmjs.com).
+
+### Rust crates
+
+| Crate | crates.io | Description |
+|-------|-----------|-------------|
+| `galeon-engine-macros` | [![crates.io](https://img.shields.io/crates/v/galeon-engine-macros)](https://crates.io/crates/galeon-engine-macros) | Proc macros (`#[derive(Component)]`, `#[command]`, etc.) |
+| `galeon-engine` | [![crates.io](https://img.shields.io/crates/v/galeon-engine)](https://crates.io/crates/galeon-engine) | Core ECS, scheduler, protocol, data loading |
+| `galeon-engine-three-sync` | [![crates.io](https://img.shields.io/crates/v/galeon-engine-three-sync)](https://crates.io/crates/galeon-engine-three-sync) | WASM bridge (ECS snapshots &rarr; Three.js) |
+
+### TypeScript packages
+
+| Package | npm | Description |
+|---------|-----|-------------|
+| `@galeon/runtime` | [![npm](https://img.shields.io/npm/v/@galeon/runtime)](https://www.npmjs.com/package/@galeon/runtime) | JS &harr; WASM glue |
+| `@galeon/engine-ts` | [![npm](https://img.shields.io/npm/v/@galeon/engine-ts)](https://www.npmjs.com/package/@galeon/engine-ts) | Three.js RendererCache |
+| `@galeon/shell` | [![npm](https://img.shields.io/npm/v/@galeon/shell)](https://www.npmjs.com/package/@galeon/shell) | Editor UI (Solid.js, planned) |
+
+### Not published
+
+The following workspace members are internal and not published to any registry:
+
+- `galeon-cli` &mdash; CLI binary (deferred)
+- `galeon-protocol-rename-test`, `galeon-protocol-consumer-test` &mdash; integration test crates
+
+## Versioning
+
+All Rust crates and TypeScript packages move in **lockstep** &mdash; every release
+bumps all six packages to the same version number.
+
+### Pre-1.0 policy
+
+Galeon follows [Semantic Versioning 2.0.0](https://semver.org/). During the
+pre-1.0 phase:
+
+- **Minor bumps** (`0.1 &rarr; 0.2`) may contain breaking API changes.
+- **Patch bumps** (`0.1.0 &rarr; 0.1.1`) are backward-compatible bug fixes and
+  additions.
+- **Prerelease tags** (`0.2.0-alpha.1`, `0.2.0-beta.1`, `0.2.0-rc.1`) are
+  published to crates.io and npm under the `alpha` dist-tag. Use these
+  preview upcoming releases.
+
+### How to depend on Galeon
+
+```toml
+# In your Cargo.toml — matches any 0.1.x release
+galeon-engine = "0.1"
+```
+
+```json
+// In your package.json — matches any 0.1.x release
+"@galeon/engine-ts": "^0.1.0"
+```
+
+See [docs/guide/publishing.md](docs/guide/publishing.md) for the full release
+procedure and version bump checklist.
+
+## Stability
+
+Galeon is **pre-1.0 software** under active development. Here is what that
+means for adopters:
+
+**What you can rely on today:**
+- The core engine crates (`galeon-engine`, `galeon-engine-macros`) are published,
+  tested (350+ tests), and intended for evaluation and early adoption.
+- The ECS, scheduler, protocol layer, and WASM bridge are functional and
+  cover real use cases.
+- Lockstep versioning means all packages stay in sync &mdash; no version matrix to
+  manage.
+
+**What may still change:**
+- Public API signatures may change between minor versions (`0.x &rarr; 0.y`).
+- The editor shell (`@galeon/shell`) is scaffolded but not feature-complete.
+- CLI commands and codegen output formats are still evolving.
+
+**How to upgrade safely:**
+- Pin to a specific minor range (e.g., `"0.1"` in Cargo, `"^0.1.0"` in npm).
+- Read the [changelog](CHANGELOG.md) before upgrading &mdash; breaking changes are
+  always documented.
+- Prerelease tags (`alpha`, `beta`, `rc`) let you test upcoming versions before
+  they go stable.
+
 ## System Parameters
 
 | Parameter | Access | Description |

@@ -1,5 +1,9 @@
 # Publishing Galeon packages
 
+> **Consumer quick start:** see the [README](../../README.md) for which packages
+> to install and what stability to expect. This guide covers the release
+> procedure for maintainers.
+
 Galeon publishes **three Rust crates** to crates.io and **three TypeScript
 packages** to npm. Everything else in the workspace is internal.
 
@@ -147,3 +151,15 @@ OIDC provenance from GitHub Actions — no token needed.
 - **Local (first publish only):** `npm login` with your npm account.
 - **Scope:** The `@galeon` npm org owns the scope. Add team members via
   `npm org set galeon <user> developer`.
+
+## Consumer guidance
+
+Galeon is pre-1.0. All six packages move in lockstep &mdash; pick a minor version
+and pin to it. Read the [changelog](../../CHANGELOG.md) on each upgrade.
+
+- Core engine crates are published and intended for evaluation and early use.
+- `@galeon/shell` is published but experimental &mdash; expect churn.
+- Prerelease tags (`alpha`, `beta`, `rc`) are published to both registries
+  under the `alpha` npm dist-tag.
+
+For the full stability statement, see the [README](../../README.md#stability).
