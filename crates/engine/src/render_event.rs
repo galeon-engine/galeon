@@ -121,23 +121,28 @@ impl RenderEventRegistry {
 
     /// Register an ECS event type for render extraction.
     ///
-    /// During frame extraction, all readable events of type `T` (from the
-    /// previous tick) will be converted to [`FrameEvent`]s via the
-    /// [`RenderEvent`] trait and appended to the frame packet.
+    /// During frame extraction, all events of type `T` — both from the
+    /// previous tick (`read()`) and the current tick (`read_current()`) —
+    /// are converted to [`FrameEvent`]s via the [`RenderEvent`] trait.
+    /// Reading both buffers eliminates the extra tick of latency that
+    /// reading only `previous` would impose, since extraction runs after
+    /// the tick completes.
     pub fn register<T: RenderEvent>(&mut self) {
         self.extractors.push(Box::new(|world: &World| {
             let Some(events) = world.try_resource::<Events<T>>() else {
                 return Vec::new();
             };
+            let to_frame_event = |e: &T| FrameEvent {
+                kind: T::KIND,
+                entity: e.entity(),
+                position: e.position(),
+                intensity: e.intensity(),
+                data: e.data(),
+            };
             events
                 .read()
-                .map(|e| FrameEvent {
-                    kind: T::KIND,
-                    entity: e.entity(),
-                    position: e.position(),
-                    intensity: e.intensity(),
-                    data: e.data(),
-                })
+                .chain(events.read_current())
+                .map(to_frame_event)
                 .collect()
         }));
     }
@@ -351,7 +356,7 @@ mod tests {
     }
 
     #[test]
-    fn events_not_readable_until_update() {
+    fn current_buffer_events_readable_without_update() {
         let mut world = World::new();
         world.add_event::<ImpactEvent>();
 
@@ -363,12 +368,49 @@ mod tests {
                 force: 1.0,
             });
 
-        // No update_events() — events are still in `current`, not `previous`.
+        // No update_events() — events are in `current`. Extraction reads
+        // both buffers to eliminate the extra-tick latency penalty.
         let mut registry = RenderEventRegistry::new();
         registry.register::<ImpactEvent>();
 
         let events = registry.extract_all(&world);
-        assert!(events.is_empty());
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].entity, 1);
+    }
+
+    #[test]
+    fn both_buffers_extracted_no_duplicates_after_update() {
+        let mut world = World::new();
+        world.add_event::<ImpactEvent>();
+
+        // Tick N: send event A.
+        world
+            .resource_mut::<Events<ImpactEvent>>()
+            .send(ImpactEvent {
+                entity_index: 1,
+                pos: [0.0; 3],
+                force: 1.0,
+            });
+        // Swap: event A moves to `previous`.
+        world.update_events();
+
+        // Tick N+1: send event B (goes to `current`).
+        world
+            .resource_mut::<Events<ImpactEvent>>()
+            .send(ImpactEvent {
+                entity_index: 2,
+                pos: [5.0; 3],
+                force: 0.5,
+            });
+
+        // Extract reads both buffers: A from previous, B from current.
+        let mut registry = RenderEventRegistry::new();
+        registry.register::<ImpactEvent>();
+
+        let events = registry.extract_all(&world);
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].entity, 1);
+        assert_eq!(events[1].entity, 2);
     }
 
     #[test]
