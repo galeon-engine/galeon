@@ -9,6 +9,14 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Entity hierarchy (`ParentEntity` component)** — `ParentEntity(Entity)` attaches
+  a child entity to a parent in the render scene graph. FramePacket carries
+  `parent_ids` (parallel array, `SCENE_ROOT` sentinel). Extraction depth-sorts
+  entities so parents precede children. RendererCache applies a two-pass strategy:
+  create/update objects, then reparent via Three.js `add`/`remove`. Orphaned
+  children are reparented to the scene root on parent removal.
+  ([#135](https://github.com/galeon-engine/galeon/issues/135))
+
 - **`ObjectType` component and Object3D type diversity in RendererCache** —
   Entities can now specify their Three.js representation via an `ObjectType`
   component (Mesh, PointLight, DirectionalLight, LineSegments, Group). The

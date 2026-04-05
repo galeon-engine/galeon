@@ -1242,10 +1242,12 @@ mod tests {
 
         let rem: Vec<_> = world.component_removals_since::<Vel>(since).collect();
         assert_eq!(rem, vec![e]);
-        assert!(world
-            .component_removals_since::<Vel>(world.change_tick())
-            .next()
-            .is_none());
+        assert!(
+            world
+                .component_removals_since::<Vel>(world.change_tick())
+                .next()
+                .is_none()
+        );
     }
 
     #[test]

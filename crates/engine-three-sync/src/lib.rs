@@ -6,14 +6,16 @@ mod snapshot;
 
 pub use extract::{extract_frame, extract_frame_incremental};
 pub use frame_packet::{
-    CHANGED_MATERIAL, CHANGED_MESH, CHANGED_OBJECT_TYPE, CHANGED_TRANSFORM,
-    CHANGED_VISIBILITY, ChannelData, FramePacket, TRANSFORM_STRIDE,
+    CHANGED_MATERIAL, CHANGED_MESH, CHANGED_OBJECT_TYPE, CHANGED_PARENT, CHANGED_TRANSFORM,
+    CHANGED_VISIBILITY, ChannelData, FramePacket, SCENE_ROOT, TRANSFORM_STRIDE,
 };
 pub use snapshot::{
     DebugSnapshot, EntitySnapshot, TransformSnapshot, extract_debug_snapshot, snapshot_to_json,
 };
 
-use galeon_engine::{Component, Engine, Entity, MaterialHandle, MeshHandle, ObjectType, Transform, Visibility};
+use galeon_engine::{
+    Component, Engine, Entity, MaterialHandle, MeshHandle, ObjectType, Transform, Visibility,
+};
 use wasm_bindgen::prelude::*;
 
 /// Marker component for entities spawned from JavaScript via [`WasmEngine::spawn_entity`].
@@ -128,7 +130,13 @@ impl WasmEngine {
     /// The entity will appear in the next `extract_frame()` call.
     ///
     /// Returns an empty array if `transform` has fewer than 10 elements.
-    pub fn spawn_entity(&mut self, mesh_id: u32, material_id: u32, transform: &[f32], object_type: u8) -> Vec<u32> {
+    pub fn spawn_entity(
+        &mut self,
+        mesh_id: u32,
+        material_id: u32,
+        transform: &[f32],
+        object_type: u8,
+    ) -> Vec<u32> {
         if transform.len() < TRANSFORM_STRIDE {
             return Vec::new();
         }
@@ -257,6 +265,13 @@ impl WasmFramePacket {
         self.inner.material_handles.clone()
     }
 
+    /// Parent entity indices (one u32 per entity).
+    /// `u32::MAX` ([`SCENE_ROOT`]) means the entity is a child of the scene root.
+    #[wasm_bindgen(getter)]
+    pub fn parent_ids(&self) -> Vec<u32> {
+        self.inner.parent_ids.clone()
+    }
+
     /// Per-entity change bitmasks for incremental extraction (parallel to other
     /// entity arrays). Empty for full `extract_frame` packets; consumers should
     /// treat that as "update all fields" (e.g. flag `0xFF` per entity).
@@ -265,7 +280,8 @@ impl WasmFramePacket {
         self.inner.change_flags.clone()
     }
 
-    /// Object type discriminants (one u8 per entity: 0=Mesh, 1=PointLight, 2=DirectionalLight, 3=LineSegments, 4=Group).
+    /// Object type discriminants (one u8 per entity:
+    /// 0=Mesh, 1=PointLight, 2=DirectionalLight, 3=LineSegments, 4=Group).
     #[wasm_bindgen(getter)]
     pub fn object_types(&self) -> Vec<u8> {
         self.inner.object_types.clone()

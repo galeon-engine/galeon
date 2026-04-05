@@ -21,7 +21,7 @@ Defined in `galeon-engine::render`. Any entity with a `Transform` is
 considered renderable by the extraction system.
 
 ```rust
-use galeon_engine::{Transform, Visibility, MeshHandle, MaterialHandle};
+use galeon_engine::{MaterialHandle, MeshHandle, ObjectType, ParentEntity, Transform, Visibility};
 
 // Required — makes the entity renderable.
 Transform { position: [f32; 3], rotation: [f32; 4], scale: [f32; 3] }
@@ -34,6 +34,13 @@ MeshHandle { id: u32 }
 
 // Optional — renderer maps ID to a Three.js Material. 0 = no material.
 MaterialHandle { id: u32 }
+
+// Optional — makes this entity a child of the referenced entity.
+// Absent = child of scene root. Enables transform inheritance.
+ParentEntity(Entity)
+
+// Optional — selects the Three.js object class. Absent = Mesh.
+ObjectType::Mesh | PointLight | DirectionalLight | LineSegments | Group
 ```
 
 ## Hot Path: FramePacket
@@ -47,6 +54,8 @@ transforms:       [f32; N * 10]   // per entity: pos(3) + rot(4) + scale(3)
 visibility:       [u8;  N]        // 1 = visible, 0 = hidden
 mesh_handles:     [u32; N]
 material_handles: [u32; N]
+parent_ids:       [u32; N]        // parent entity index; u32::MAX = scene root
+object_types:     [u8;  N]        // 0=Mesh, 1=PointLight, 2=DirectionalLight, 3=LineSegments, 4=Group
 change_flags:     [u8;  N]        // empty for full extract; bitmasks for incremental
 ```
 
@@ -166,8 +175,14 @@ impl DemoWasmEngine {
     }
 
     /// Spawn a renderable entity from JS. Returns [index, generation].
-    pub fn spawn_entity(&mut self, mesh_id: u32, material_id: u32, transform: &[f32]) -> Vec<u32> {
-        self.inner.spawn_entity(mesh_id, material_id, transform)
+    pub fn spawn_entity(
+        &mut self,
+        mesh_id: u32,
+        material_id: u32,
+        transform: &[f32],
+        object_type: u8,
+    ) -> Vec<u32> {
+        self.inner.spawn_entity(mesh_id, material_id, transform, object_type)
     }
 
     /// Despawn a JS-spawned entity. Returns false for plugin entities or stale handles.
@@ -187,7 +202,7 @@ JS can spawn and despawn entities at runtime without modifying the Rust plugin:
 ```typescript
 // Spawn — returns [index, generation]
 const transform = new Float32Array([0, 1, 0, 0, 0, 0, 1, 1, 1, 1]);
-const [index, gen] = engine.spawn_entity(meshId, materialId, transform);
+const [index, gen] = engine.spawn_entity(meshId, materialId, transform, 0);
 
 // Despawn — returns false for plugin entities or stale handles
 engine.despawn_entity(index, gen);
@@ -220,12 +235,16 @@ const packet = engine.extract_frame();
 cache.applyFrame(packet);
 ```
 
-**Per-frame behaviour:**
+**Per-frame behaviour (two-pass):**
 
-- New entity IDs → create `THREE.Mesh`, add to scene (full row applied).
+**Pass 1 — Create/Update objects:**
+
+- New entity IDs → create the requested `THREE.Object3D` type, add to scene (full row applied).
 - Existing IDs → when `change_flags` is present, update only transform, visibility,
   and mesh/material resolution for bits set in the flag; when absent or empty,
   behave as a full update (same end state as before).
+- `ObjectType` changes recreate the managed Three.js object while preserving
+  the entity slot and hierarchy attachment.
 - Missing IDs (were present last frame) → remove from scene.
 - Unknown mesh/material handles → placeholder (magenta wireframe box).
 - **Custom channels** (`custom_channel_*`) → copied into `userData` for every entity
@@ -234,6 +253,17 @@ cache.applyFrame(packet);
   carries channel payloads; incremental Rust extraction currently omits custom
   channels, so this mainly matters for full packets. Skipping redundant channel
   writes when flags exist is a plausible future optimization.
+
+**Pass 2 — Reparent (hierarchy):**
+
+- For each entity with `CHANGED_PARENT` flag (or all entities in full frames),
+  compare the `parent_ids` value against the cached parent assignment.
+- If the parent changed: detach from old parent, attach to new parent object
+  (or scene root if `SCENE_ROOT`).
+- Entities arrive depth-sorted from Rust extraction (parents before children),
+  so a forward pass correctly builds the hierarchy.
+- When a parent entity is removed, its children are reparented to the scene
+  root to prevent orphan objects from becoming invisible.
 
 ## Tooling Path: DebugSnapshot
 

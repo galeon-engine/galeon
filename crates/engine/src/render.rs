@@ -2,6 +2,8 @@
 
 use galeon_engine_macros::Component;
 
+use crate::entity::Entity;
+
 /// 3D transform: position, rotation (quaternion), scale.
 ///
 /// Flat array layout for efficient extraction into typed buffers.
@@ -61,6 +63,16 @@ pub struct MaterialHandle {
     pub id: u32,
 }
 
+/// Parent entity for scene-graph hierarchy.
+///
+/// Attaching this component to an entity makes it a child of the referenced
+/// entity in the render scene graph. The renderer uses this to build
+/// Three.js parent-child relationships so transforms inherit correctly.
+///
+/// Entities without this component are children of the scene root.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ParentEntity(pub Entity);
+
 /// What kind of Three.js object to create for this entity.
 ///
 /// Extracted as a `u8` in the FramePacket. The TS renderer uses this
@@ -103,6 +115,13 @@ mod tests {
     #[test]
     fn visibility_default_is_visible() {
         assert!(Visibility::default().visible);
+    }
+
+    #[test]
+    fn parent_entity_stores_entity() {
+        let entity = crate::entity::Entity::from_raw(42, 0);
+        let parent = ParentEntity(entity);
+        assert_eq!(parent.0, entity);
     }
 
     #[test]

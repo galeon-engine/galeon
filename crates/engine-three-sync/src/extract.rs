@@ -2,20 +2,25 @@
 
 use std::collections::HashSet;
 
-use galeon_engine::render::{MaterialHandle, MeshHandle, ObjectType, Transform, Visibility};
+use galeon_engine::render::{
+    MaterialHandle, MeshHandle, ObjectType, ParentEntity, Transform, Visibility,
+};
 use galeon_engine::{Entity, RenderChannelRegistry, World};
 
 use crate::frame_packet::{
-    CHANGED_MATERIAL, CHANGED_MESH, CHANGED_OBJECT_TYPE, CHANGED_TRANSFORM, CHANGED_VISIBILITY,
-    ChannelData, FramePacket,
+    CHANGED_MATERIAL, CHANGED_MESH, CHANGED_OBJECT_TYPE, CHANGED_PARENT, CHANGED_TRANSFORM,
+    CHANGED_VISIBILITY, ChannelData, FramePacket, SCENE_ROOT,
 };
 
 /// Extract render-facing data from the ECS world into a packed frame packet.
 ///
 /// Single-pass query using optional components: iterates all entities with a
 /// `Transform` component (the implicit "renderable" marker) and packs their
-/// transform, visibility, mesh, and material data into flat arrays suitable
-/// for WASM transport.
+/// transform, visibility, mesh, material, parent, and object-type data into
+/// flat arrays suitable for WASM transport.
+///
+/// Entities are depth-sorted so parents appear before their children. This
+/// guarantees the JS-side scene graph can be built in a single forward pass.
 ///
 /// If a [`RenderChannelRegistry`] resource is present, also extracts all
 /// registered custom channels into `FramePacket::custom_channels`.
@@ -24,8 +29,40 @@ use crate::frame_packet::{
 /// - `Visibility`: defaults to visible (`true`)
 /// - `MeshHandle`: defaults to `0` (no mesh)
 /// - `MaterialHandle`: defaults to `0` (no material)
+/// - `ParentEntity`: defaults to scene root ([`SCENE_ROOT`])
+/// - `ObjectType`: defaults to mesh (`0`)
 /// - Custom channels: defaults to `0.0` for all floats
-type Renderable = (Entity, [f32; 3], [f32; 4], [f32; 3], u8);
+type Renderable = (Entity, [f32; 3], [f32; 4], [f32; 3], u32, u8);
+
+fn resolved_parent(world: &World, entity: Entity) -> Option<Entity> {
+    let parent = world.get::<ParentEntity>(entity)?.0;
+    if !world.is_alive(parent) || world.get::<Transform>(parent).is_none() {
+        return None;
+    }
+    Some(parent)
+}
+
+fn resolved_parent_id(world: &World, entity: Entity) -> u32 {
+    resolved_parent(world, entity)
+        .map(|parent| parent.index())
+        .unwrap_or(SCENE_ROOT)
+}
+
+/// Compute hierarchy depth for an entity by walking its parent chain.
+/// Returns 0 for root entities, 1 for direct children, etc.
+/// Caps at `max_depth` to guard against cycles.
+fn hierarchy_depth(world: &World, entity: Entity, max_depth: u32) -> u32 {
+    let mut depth = 0u32;
+    let mut current = entity;
+    while let Some(parent) = resolved_parent(world, current) {
+        depth += 1;
+        if depth >= max_depth {
+            break;
+        }
+        current = parent;
+    }
+    depth
+}
 
 pub fn extract_frame(world: &World) -> FramePacket {
     let query = world.query::<(
@@ -35,27 +72,54 @@ pub fn extract_frame(world: &World) -> FramePacket {
         Option<&MaterialHandle>,
     )>();
 
-    let mut packet = FramePacket::with_capacity(query.len());
-    let mut entities = Vec::with_capacity(query.len());
-
-    for (entity, (transform, vis, mesh, mat)) in query {
-        let obj_type = world.get::<ObjectType>(entity).map(|t| *t as u8).unwrap_or(0);
-        packet.push(
-            entity.index(),
-            entity.generation(),
-            &transform.position,
-            &transform.rotation,
-            &transform.scale,
-            vis.map(|v| v.visible).unwrap_or(true),
-            mesh.map(|m| m.id).unwrap_or(0),
-            mat.map(|m| m.id).unwrap_or(0),
-            obj_type,
-        );
-
-        entities.push(entity);
+    struct Row {
+        entity: Entity,
+        transform: Transform,
+        visible: bool,
+        mesh_id: u32,
+        material_id: u32,
+        parent_id: u32,
+        object_type: u8,
+        depth: u32,
     }
 
-    // Extract registered custom channels.
+    let mut rows: Vec<Row> = query
+        .map(|(entity, (transform, vis, mesh, mat))| Row {
+            entity,
+            transform: *transform,
+            visible: vis.map(|v| v.visible).unwrap_or(true),
+            mesh_id: mesh.map(|m| m.id).unwrap_or(0),
+            material_id: mat.map(|m| m.id).unwrap_or(0),
+            parent_id: resolved_parent_id(world, entity),
+            object_type: world
+                .get::<ObjectType>(entity)
+                .map(|t| *t as u8)
+                .unwrap_or(0),
+            depth: hierarchy_depth(world, entity, 64),
+        })
+        .collect();
+
+    rows.sort_by_key(|row| row.depth);
+
+    let mut packet = FramePacket::with_capacity(rows.len());
+    let mut entities = Vec::with_capacity(rows.len());
+
+    for row in &rows {
+        packet.push(
+            row.entity.index(),
+            row.entity.generation(),
+            &row.transform.position,
+            &row.transform.rotation,
+            &row.transform.scale,
+            row.visible,
+            row.mesh_id,
+            row.material_id,
+            row.parent_id,
+            row.object_type,
+        );
+        entities.push(row.entity);
+    }
+
     if let Some(registry) = world.try_resource::<RenderChannelRegistry>() {
         for channel in &registry.channels {
             let mut data = vec![0.0f32; entities.len() * channel.stride];
@@ -80,13 +144,11 @@ pub fn extract_frame(world: &World) -> FramePacket {
 /// since `since_tick`. Each entity gets a `change_flags` bitmask indicating
 /// which fields changed.
 ///
-/// Entities are included when their `Transform` changed, when `ObjectType`
-/// changed (even if the transform did not), when `ObjectType` was **removed**
-/// (effective type falls back to mesh / `0`), or when several of these happen
-/// in the same tick. Change flags are derived from per-column `changed_tick`
-/// values where the column still exists; removals use
-/// [`World::component_removals_since`], so a row may carry only
-/// `CHANGED_OBJECT_TYPE` without `CHANGED_TRANSFORM`.
+/// Entities are included when their `Transform` changed, when `ObjectType` or
+/// `ParentEntity` changed (even if the transform did not), or when either
+/// optional component was removed. Child entities whose configured parent is no
+/// longer renderable are also emitted so the TS side can reparent them to the
+/// scene root on the next frame.
 ///
 /// # Change detection precision
 ///
@@ -98,99 +160,205 @@ pub fn extract_frame(world: &World) -> FramePacket {
 pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket {
     let mut seen: HashSet<Entity> = HashSet::new();
     let mut object_type_removed: HashSet<Entity> = HashSet::new();
+    let mut parent_removed: HashSet<Entity> = HashSet::new();
+    let mut parents_with_new_transform: HashSet<Entity> = HashSet::new();
     let mut renderables: Vec<Renderable> = Vec::new();
 
-    // Transform changes (including newly spawned renderables).
-    for (e, t) in world.query_changed::<Transform>(since_tick) {
-        let obj_type = world.get::<ObjectType>(e).map(|o| *o as u8).unwrap_or(0);
-        renderables.push((e, t.position, t.rotation, t.scale, obj_type));
-        seen.insert(e);
+    for (entity, _) in world.query_added::<Transform>(since_tick) {
+        parents_with_new_transform.insert(entity);
     }
 
-    // ObjectType-only changes still need a frame row, but do not appear in
-    // `query_changed::<Transform>` when the transform was untouched.
-    for (e, _) in world.query_changed::<ObjectType>(since_tick) {
-        if seen.contains(&e) {
-            continue;
-        }
-        let Some(t) = world.get::<Transform>(e) else {
-            continue;
-        };
-        let obj_type = world.get::<ObjectType>(e).map(|o| *o as u8).unwrap_or(0);
-        renderables.push((e, t.position, t.rotation, t.scale, obj_type));
-        seen.insert(e);
+    for (entity, transform) in world.query_changed::<Transform>(since_tick) {
+        let object_type = world
+            .get::<ObjectType>(entity)
+            .map(|o| *o as u8)
+            .unwrap_or(0);
+        renderables.push((
+            entity,
+            transform.position,
+            transform.rotation,
+            transform.scale,
+            resolved_parent_id(world, entity),
+            object_type,
+        ));
+        seen.insert(entity);
     }
 
-    // `ObjectType` removal migrates the entity out of archetypes that contain
-    // that column, so `query_changed::<ObjectType>` never sees the entity.
-    // `World::component_removals_since` closes that gap.
-    for e in world.component_removals_since::<ObjectType>(since_tick) {
-        object_type_removed.insert(e);
-        if seen.contains(&e) {
+    for (entity, _) in world.query_changed::<ObjectType>(since_tick) {
+        if seen.contains(&entity) {
             continue;
         }
-        let Some(t) = world.get::<Transform>(e) else {
+        let Some(transform) = world.get::<Transform>(entity) else {
             continue;
         };
-        let obj_type = world.get::<ObjectType>(e).map(|o| *o as u8).unwrap_or(0);
-        renderables.push((e, t.position, t.rotation, t.scale, obj_type));
-        seen.insert(e);
+        let object_type = world
+            .get::<ObjectType>(entity)
+            .map(|o| *o as u8)
+            .unwrap_or(0);
+        renderables.push((
+            entity,
+            transform.position,
+            transform.rotation,
+            transform.scale,
+            resolved_parent_id(world, entity),
+            object_type,
+        ));
+        seen.insert(entity);
     }
+
+    for entity in world.component_removals_since::<ObjectType>(since_tick) {
+        object_type_removed.insert(entity);
+        if seen.contains(&entity) {
+            continue;
+        }
+        let Some(transform) = world.get::<Transform>(entity) else {
+            continue;
+        };
+        let object_type = world
+            .get::<ObjectType>(entity)
+            .map(|o| *o as u8)
+            .unwrap_or(0);
+        renderables.push((
+            entity,
+            transform.position,
+            transform.rotation,
+            transform.scale,
+            resolved_parent_id(world, entity),
+            object_type,
+        ));
+        seen.insert(entity);
+    }
+
+    for (entity, _) in world.query_changed::<ParentEntity>(since_tick) {
+        if seen.contains(&entity) {
+            continue;
+        }
+        let Some(transform) = world.get::<Transform>(entity) else {
+            continue;
+        };
+        let object_type = world
+            .get::<ObjectType>(entity)
+            .map(|o| *o as u8)
+            .unwrap_or(0);
+        renderables.push((
+            entity,
+            transform.position,
+            transform.rotation,
+            transform.scale,
+            resolved_parent_id(world, entity),
+            object_type,
+        ));
+        seen.insert(entity);
+    }
+
+    for entity in world.component_removals_since::<ParentEntity>(since_tick) {
+        parent_removed.insert(entity);
+        if seen.contains(&entity) {
+            continue;
+        }
+        let Some(transform) = world.get::<Transform>(entity) else {
+            continue;
+        };
+        let object_type = world
+            .get::<ObjectType>(entity)
+            .map(|o| *o as u8)
+            .unwrap_or(0);
+        renderables.push((
+            entity,
+            transform.position,
+            transform.rotation,
+            transform.scale,
+            resolved_parent_id(world, entity),
+            object_type,
+        ));
+        seen.insert(entity);
+    }
+
+    for (entity, (transform, parent)) in world.query::<(&Transform, &ParentEntity)>() {
+        if seen.contains(&entity) {
+            continue;
+        }
+        let parent_entity = parent.0;
+        let parent_missing =
+            !world.is_alive(parent_entity) || world.get::<Transform>(parent_entity).is_none();
+        let parent_became_renderable = parents_with_new_transform.contains(&parent_entity);
+        if !parent_missing && !parent_became_renderable {
+            continue;
+        }
+        let object_type = world
+            .get::<ObjectType>(entity)
+            .map(|o| *o as u8)
+            .unwrap_or(0);
+        renderables.push((
+            entity,
+            transform.position,
+            transform.rotation,
+            transform.scale,
+            resolved_parent_id(world, entity),
+            object_type,
+        ));
+        seen.insert(entity);
+    }
+
+    renderables.sort_by_key(|(entity, ..)| hierarchy_depth(world, *entity, 64));
 
     let mut packet = FramePacket::with_capacity(renderables.len());
 
-    for (entity, position, rotation, scale, object_type) in &renderables {
+    for (entity, position, rotation, scale, parent_id, object_type) in &renderables {
         let mut flags: u8 = 0;
 
         let visible = world
             .get::<Visibility>(*entity)
             .map(|v| v.visible)
             .unwrap_or(true);
-
         let mesh_id = world.get::<MeshHandle>(*entity).map(|m| m.id).unwrap_or(0);
-
         let material_id = world
             .get::<MaterialHandle>(*entity)
             .map(|m| m.id)
             .unwrap_or(0);
 
-        // Derive change flags from per-component change ticks (not from which
-        // iterator produced this row).
-        // SAFETY: `world` is borrowed immutably for this entire function, so no
-        // archetype migration can occur.
         if let Some(loc) = world.entity_location(*entity) {
             let arch = world.archetypes().get(loc.archetype_id);
             let row = loc.row as usize;
             if arch
                 .column::<Transform>()
-                .is_some_and(|c| c.changed_tick(row) > since_tick)
+                .is_some_and(|column| column.changed_tick(row) > since_tick)
             {
                 flags |= CHANGED_TRANSFORM;
             }
             if arch
                 .column::<Visibility>()
-                .is_some_and(|c| c.changed_tick(row) > since_tick)
+                .is_some_and(|column| column.changed_tick(row) > since_tick)
             {
                 flags |= CHANGED_VISIBILITY;
             }
             if arch
                 .column::<MeshHandle>()
-                .is_some_and(|c| c.changed_tick(row) > since_tick)
+                .is_some_and(|column| column.changed_tick(row) > since_tick)
             {
                 flags |= CHANGED_MESH;
             }
             if arch
                 .column::<MaterialHandle>()
-                .is_some_and(|c| c.changed_tick(row) > since_tick)
+                .is_some_and(|column| column.changed_tick(row) > since_tick)
             {
                 flags |= CHANGED_MATERIAL;
             }
             if object_type_removed.contains(entity)
                 || arch
                     .column::<ObjectType>()
-                    .is_some_and(|c| c.changed_tick(row) > since_tick)
+                    .is_some_and(|column| column.changed_tick(row) > since_tick)
             {
                 flags |= CHANGED_OBJECT_TYPE;
+            }
+            if parent_removed.contains(entity)
+                || arch.column::<ParentEntity>().is_some_and(|column| {
+                    column.changed_tick(row) > since_tick || *parent_id == SCENE_ROOT
+                })
+                || (arch.column::<ParentEntity>().is_none()
+                    && parents_with_new_transform.contains(entity))
+            {
+                flags |= CHANGED_PARENT;
             }
         }
 
@@ -203,6 +371,7 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
             visible,
             mesh_id,
             material_id,
+            *parent_id,
             *object_type,
             flags,
         );
@@ -214,7 +383,9 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use galeon_engine::render::{MaterialHandle, MeshHandle, ObjectType, Transform, Visibility};
+    use galeon_engine::render::{
+        MaterialHandle, MeshHandle, ObjectType, ParentEntity, Transform, Visibility,
+    };
 
     #[test]
     fn extract_empty_world() {
@@ -253,6 +424,8 @@ mod tests {
         assert_eq!(packet.visibility[0], 1);
         assert_eq!(packet.mesh_handles[0], 0);
         assert_eq!(packet.material_handles[0], 0);
+        assert_eq!(packet.parent_ids[0], SCENE_ROOT);
+        assert_eq!(packet.object_types[0], 0);
     }
 
     #[test]
@@ -279,11 +452,11 @@ mod tests {
     #[test]
     fn extract_includes_entity_generation() {
         let mut world = World::new();
-        let e = world.spawn((Transform::identity(),));
+        let entity = world.spawn((Transform::identity(),));
         let packet = extract_frame(&world);
         assert_eq!(packet.entity_generations[0], 0);
 
-        world.despawn(e);
+        world.despawn(entity);
         world.spawn((Transform::identity(),));
         let packet = extract_frame(&world);
         assert_eq!(packet.entity_ids[0], 0);
@@ -338,9 +511,9 @@ mod tests {
     #[test]
     fn extract_custom_channel_for_all_entities() {
         let mut world = World::new();
-        let mut reg = galeon_engine::RenderChannelRegistry::new();
-        reg.register::<WearState>("wear");
-        world.insert_resource(reg);
+        let mut registry = galeon_engine::RenderChannelRegistry::new();
+        registry.register::<WearState>("wear");
+        world.insert_resource(registry);
 
         world.spawn((
             Transform::identity(),
@@ -361,21 +534,21 @@ mod tests {
         assert_eq!(packet.entity_count(), 2);
         assert_eq!(packet.channel_count(), 1);
 
-        let ch = packet.channel("wear").unwrap();
-        assert_eq!(ch.stride, 2);
-        assert_eq!(ch.data.len(), 4);
-        assert!((ch.data[0] - 0.5).abs() < f32::EPSILON);
-        assert!((ch.data[1] - 0.3).abs() < f32::EPSILON);
-        assert!((ch.data[2] - 0.8).abs() < f32::EPSILON);
-        assert!((ch.data[3] - 0.1).abs() < f32::EPSILON);
+        let channel = packet.channel("wear").unwrap();
+        assert_eq!(channel.stride, 2);
+        assert_eq!(channel.data.len(), 4);
+        assert!((channel.data[0] - 0.5).abs() < f32::EPSILON);
+        assert!((channel.data[1] - 0.3).abs() < f32::EPSILON);
+        assert!((channel.data[2] - 0.8).abs() < f32::EPSILON);
+        assert!((channel.data[3] - 0.1).abs() < f32::EPSILON);
     }
 
     #[test]
     fn extract_channel_zeroes_when_component_absent() {
         let mut world = World::new();
-        let mut reg = galeon_engine::RenderChannelRegistry::new();
-        reg.register::<WearState>("wear");
-        world.insert_resource(reg);
+        let mut registry = galeon_engine::RenderChannelRegistry::new();
+        registry.register::<WearState>("wear");
+        world.insert_resource(registry);
 
         world.spawn((
             Transform::identity(),
@@ -389,24 +562,24 @@ mod tests {
         let packet = extract_frame(&world);
         assert_eq!(packet.entity_count(), 2);
 
-        let ch = packet.channel("wear").unwrap();
-        assert!((ch.data[0] - 0.5).abs() < f32::EPSILON);
-        assert!((ch.data[1] - 0.3).abs() < f32::EPSILON);
-        assert!(ch.data[2].abs() < f32::EPSILON);
-        assert!(ch.data[3].abs() < f32::EPSILON);
+        let channel = packet.channel("wear").unwrap();
+        assert!((channel.data[0] - 0.5).abs() < f32::EPSILON);
+        assert!((channel.data[1] - 0.3).abs() < f32::EPSILON);
+        assert!(channel.data[2].abs() < f32::EPSILON);
+        assert!(channel.data[3].abs() < f32::EPSILON);
     }
 
     #[test]
     fn extract_empty_channel_when_no_entities() {
         let mut world = World::new();
-        let mut reg = galeon_engine::RenderChannelRegistry::new();
-        reg.register::<WearState>("wear");
-        world.insert_resource(reg);
+        let mut registry = galeon_engine::RenderChannelRegistry::new();
+        registry.register::<WearState>("wear");
+        world.insert_resource(registry);
 
         let packet = extract_frame(&world);
         assert_eq!(packet.entity_count(), 0);
-        let ch = packet.channel("wear").unwrap();
-        assert!(ch.data.is_empty());
+        let channel = packet.channel("wear").unwrap();
+        assert!(channel.data.is_empty());
     }
 
     #[test]
@@ -424,11 +597,11 @@ mod tests {
     #[test]
     fn incremental_extract_includes_changed_transform() {
         let mut world = World::new();
-        let e = world.spawn((Transform::from_position(1.0, 0.0, 0.0),));
+        let entity = world.spawn((Transform::from_position(1.0, 0.0, 0.0),));
         let since = world.change_tick();
         world.advance_tick();
 
-        world.get_mut::<Transform>(e).unwrap().position = [99.0, 0.0, 0.0];
+        world.get_mut::<Transform>(entity).unwrap().position = [99.0, 0.0, 0.0];
 
         let packet = extract_frame_incremental(&world, since);
         assert_eq!(packet.entity_count(), 1);
@@ -439,22 +612,22 @@ mod tests {
     #[test]
     fn incremental_extract_skips_unchanged_entities() {
         let mut world = World::new();
-        let e1 = world.spawn((Transform::from_position(1.0, 0.0, 0.0),));
-        let _e2 = world.spawn((Transform::from_position(2.0, 0.0, 0.0),));
+        let changed = world.spawn((Transform::from_position(1.0, 0.0, 0.0),));
+        let _unchanged = world.spawn((Transform::from_position(2.0, 0.0, 0.0),));
         let since = world.change_tick();
         world.advance_tick();
 
-        world.get_mut::<Transform>(e1).unwrap().position[0] = 10.0;
+        world.get_mut::<Transform>(changed).unwrap().position[0] = 10.0;
 
         let packet = extract_frame_incremental(&world, since);
         assert_eq!(packet.entity_count(), 1);
-        assert_eq!(packet.entity_ids[0], e1.index());
+        assert_eq!(packet.entity_ids[0], changed.index());
     }
 
     #[test]
     fn incremental_extract_flags_multiple_changes() {
         let mut world = World::new();
-        let e = world.spawn((
+        let entity = world.spawn((
             Transform::from_position(1.0, 0.0, 0.0),
             Visibility { visible: true },
             MaterialHandle { id: 1 },
@@ -462,9 +635,9 @@ mod tests {
         let since = world.change_tick();
         world.advance_tick();
 
-        world.get_mut::<Transform>(e).unwrap().position[0] = 10.0;
-        world.get_mut::<Visibility>(e).unwrap().visible = false;
-        world.get_mut::<MaterialHandle>(e).unwrap().id = 99;
+        world.get_mut::<Transform>(entity).unwrap().position[0] = 10.0;
+        world.get_mut::<Visibility>(entity).unwrap().visible = false;
+        world.get_mut::<MaterialHandle>(entity).unwrap().id = 99;
 
         let packet = extract_frame_incremental(&world, since);
         assert_eq!(packet.entity_count(), 1);
@@ -490,18 +663,15 @@ mod tests {
     #[test]
     fn incremental_extract_includes_object_type_change_without_transform() {
         let mut world = World::new();
-        let e = world.spawn((
-            Transform::from_position(1.0, 0.0, 0.0),
-            ObjectType::Mesh,
-        ));
+        let entity = world.spawn((Transform::from_position(1.0, 0.0, 0.0), ObjectType::Mesh));
         let since = world.change_tick();
         world.advance_tick();
 
-        *world.get_mut::<ObjectType>(e).unwrap() = ObjectType::PointLight;
+        *world.get_mut::<ObjectType>(entity).unwrap() = ObjectType::PointLight;
 
         let packet = extract_frame_incremental(&world, since);
         assert_eq!(packet.entity_count(), 1);
-        assert_eq!(packet.entity_ids[0], e.index());
+        assert_eq!(packet.entity_ids[0], entity.index());
         assert_eq!(packet.object_types[0], ObjectType::PointLight as u8);
         let flags = packet.change_flags[0];
         assert!(flags & CHANGED_OBJECT_TYPE != 0);
@@ -511,18 +681,18 @@ mod tests {
     #[test]
     fn incremental_extract_includes_object_type_removal_without_transform() {
         let mut world = World::new();
-        let e = world.spawn((
+        let entity = world.spawn((
             Transform::from_position(1.0, 0.0, 0.0),
             ObjectType::PointLight,
         ));
         let since = world.change_tick();
         world.advance_tick();
 
-        world.remove::<ObjectType>(e);
+        world.remove::<ObjectType>(entity);
 
         let packet = extract_frame_incremental(&world, since);
         assert_eq!(packet.entity_count(), 1);
-        assert_eq!(packet.entity_ids[0], e.index());
+        assert_eq!(packet.entity_ids[0], entity.index());
         assert_eq!(packet.object_types[0], ObjectType::Mesh as u8);
         let flags = packet.change_flags[0];
         assert!(flags & CHANGED_OBJECT_TYPE != 0);
@@ -536,22 +706,18 @@ mod tests {
             Transform::from_position(1.0, 0.0, 0.0),
             ObjectType::PointLight,
         ));
-        world.spawn((
-            Transform::from_position(2.0, 0.0, 0.0),
-            ObjectType::Mesh,
-        ));
+        world.spawn((Transform::from_position(2.0, 0.0, 0.0), ObjectType::Mesh));
         world.spawn((Transform::from_position(3.0, 0.0, 0.0),));
 
         let packet = extract_frame(&world);
         assert_eq!(packet.entity_count(), 3);
 
-        // Find each entity by position (order not guaranteed)
         for i in 0..3 {
             let pos_x = packet.transforms[i * 10];
             match pos_x as u32 {
                 1 => assert_eq!(packet.object_types[i], ObjectType::PointLight as u8),
                 2 => assert_eq!(packet.object_types[i], ObjectType::Mesh as u8),
-                3 => assert_eq!(packet.object_types[i], 0), // default
+                3 => assert_eq!(packet.object_types[i], 0),
                 _ => panic!("unexpected position"),
             }
         }
@@ -564,5 +730,164 @@ mod tests {
 
         let packet = extract_frame(&world);
         assert_eq!(packet.object_types[0], 0);
+    }
+
+    #[test]
+    fn extract_parent_id_defaults_to_scene_root() {
+        let mut world = World::new();
+        world.spawn((Transform::identity(),));
+
+        let packet = extract_frame(&world);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.parent_ids[0], SCENE_ROOT);
+    }
+
+    #[test]
+    fn extract_parent_id_set_for_child() {
+        let mut world = World::new();
+        let parent = world.spawn((Transform::identity(),));
+        world.spawn((
+            Transform::from_position(1.0, 0.0, 0.0),
+            ParentEntity(parent),
+        ));
+
+        let packet = extract_frame(&world);
+        assert_eq!(packet.entity_count(), 2);
+
+        let child_index = if packet.parent_ids[0] == SCENE_ROOT {
+            1
+        } else {
+            0
+        };
+        assert_eq!(packet.parent_ids[child_index], parent.index());
+    }
+
+    #[test]
+    fn extract_depth_sorted_parent_before_child() {
+        let mut world = World::new();
+        let parent = world.spawn((Transform::identity(),));
+        let _child = world.spawn((
+            Transform::from_position(1.0, 0.0, 0.0),
+            ParentEntity(parent),
+        ));
+
+        let packet = extract_frame(&world);
+        assert_eq!(packet.entity_count(), 2);
+        assert_eq!(packet.parent_ids[0], SCENE_ROOT);
+        assert_eq!(packet.entity_ids[0], parent.index());
+        assert_eq!(packet.parent_ids[1], parent.index());
+    }
+
+    #[test]
+    fn extract_deep_hierarchy_ordering() {
+        let mut world = World::new();
+        let grandparent = world.spawn((Transform::identity(),));
+        let parent = world.spawn((Transform::identity(), ParentEntity(grandparent)));
+        let child = world.spawn((Transform::identity(), ParentEntity(parent)));
+
+        let packet = extract_frame(&world);
+        assert_eq!(packet.entity_count(), 3);
+        assert_eq!(packet.entity_ids[0], grandparent.index());
+        assert_eq!(packet.entity_ids[1], parent.index());
+        assert_eq!(packet.entity_ids[2], child.index());
+        assert_eq!(packet.parent_ids[0], SCENE_ROOT);
+        assert_eq!(packet.parent_ids[1], grandparent.index());
+        assert_eq!(packet.parent_ids[2], parent.index());
+    }
+
+    #[test]
+    fn extract_dead_parent_defaults_child_to_scene_root() {
+        let mut world = World::new();
+        let parent = world.spawn((Transform::identity(),));
+        let child = world.spawn((Transform::identity(), ParentEntity(parent)));
+        world.despawn(parent);
+
+        let packet = extract_frame(&world);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.entity_ids[0], child.index());
+        assert_eq!(packet.parent_ids[0], SCENE_ROOT);
+    }
+
+    #[test]
+    fn incremental_extract_includes_parent_id_when_transform_changes() {
+        let mut world = World::new();
+        let parent = world.spawn((Transform::identity(),));
+        let child = world.spawn((Transform::identity(), ParentEntity(parent)));
+        let since = world.change_tick();
+        world.advance_tick();
+
+        world.get_mut::<Transform>(child).unwrap().position = [5.0, 0.0, 0.0];
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.entity_ids[0], child.index());
+        assert_eq!(packet.parent_ids[0], parent.index());
+    }
+
+    #[test]
+    fn incremental_extract_includes_parent_change_without_transform() {
+        let mut world = World::new();
+        let parent_a = world.spawn((Transform::identity(),));
+        let parent_b = world.spawn((Transform::from_position(2.0, 0.0, 0.0),));
+        let child = world.spawn((Transform::identity(), ParentEntity(parent_a)));
+        let since = world.change_tick();
+        world.advance_tick();
+
+        *world.get_mut::<ParentEntity>(child).unwrap() = ParentEntity(parent_b);
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.entity_ids[0], child.index());
+        assert_eq!(packet.parent_ids[0], parent_b.index());
+        let flags = packet.change_flags[0];
+        assert!(flags & CHANGED_PARENT != 0);
+        assert!(flags & CHANGED_TRANSFORM == 0);
+    }
+
+    #[test]
+    fn incremental_extract_includes_parent_removal_without_transform() {
+        let mut world = World::new();
+        let parent = world.spawn((Transform::identity(),));
+        let child = world.spawn((Transform::identity(), ParentEntity(parent)));
+        let since = world.change_tick();
+        world.advance_tick();
+
+        world.remove::<ParentEntity>(child);
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.entity_ids[0], child.index());
+        assert_eq!(packet.parent_ids[0], SCENE_ROOT);
+        let flags = packet.change_flags[0];
+        assert!(flags & CHANGED_PARENT != 0);
+        assert!(flags & CHANGED_TRANSFORM == 0);
+    }
+
+    #[test]
+    fn incremental_extract_no_parent_flag_for_existing_root_entity() {
+        let mut world = World::new();
+        let entity = world.spawn((Transform::from_position(1.0, 0.0, 0.0),));
+        let since = world.change_tick();
+        world.advance_tick();
+
+        world.get_mut::<Transform>(entity).unwrap().position = [99.0, 0.0, 0.0];
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.entity_count(), 1);
+        assert!(packet.change_flags[0] & CHANGED_TRANSFORM != 0);
+        assert!(packet.change_flags[0] & CHANGED_PARENT == 0);
+    }
+
+    #[test]
+    fn incremental_extract_newly_spawned_root_gets_parent_flag() {
+        let mut world = World::new();
+        let since = world.change_tick();
+        world.advance_tick();
+
+        world.spawn((Transform::from_position(5.0, 0.0, 0.0),));
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.entity_count(), 1);
+        assert!(packet.change_flags[0] & CHANGED_PARENT != 0);
     }
 }

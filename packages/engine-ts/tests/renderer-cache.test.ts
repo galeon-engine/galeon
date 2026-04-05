@@ -5,8 +5,11 @@ import * as THREE from "three";
 import { RendererCache, GALEON_ENTITY_KEY } from "../src/renderer-cache.js";
 import {
   CHANGED_OBJECT_TYPE,
+  CHANGED_PARENT,
   CHANGED_TRANSFORM,
   CHANGED_VISIBILITY,
+  ObjectType,
+  SCENE_ROOT,
   TRANSFORM_STRIDE,
   type FramePacketView,
 } from "../src/types.js";
@@ -39,6 +42,7 @@ describe("RendererCache custom channels", () => {
       visibility: new Uint8Array([1, 1]),
       mesh_handles: new Uint32Array([10, 10]),
       material_handles: new Uint32Array([20, 20]),
+      parent_ids: new Uint32Array([SCENE_ROOT, SCENE_ROOT]),
       custom_channel_count: 2,
       custom_channel_name_at(index: number): string {
         nameCalls += 1;
@@ -86,6 +90,7 @@ function makePacket(overrides: Partial<FramePacketView> & { entity_count: number
     visibility: new Uint8Array(n).fill(1),
     mesh_handles: new Uint32Array(n),
     material_handles: new Uint32Array(n),
+    parent_ids: new Uint32Array(n).fill(SCENE_ROOT),
     custom_channel_count: 0,
     custom_channel_name_at: () => "",
     custom_channel_stride: () => 0,
@@ -175,6 +180,102 @@ describe("RendererCache change_flags", () => {
 
     expect(obj.material).toBe(matA);
     expect(obj.geometry).toBe(geoA);
+  });
+});
+
+describe("RendererCache hierarchy", () => {
+  test("parents a child object under its parent on full frames", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    cache.applyFrame(makePacket({
+      entity_count: 2,
+      entity_ids: new Uint32Array([1, 2]),
+      entity_generations: new Uint32Array([0, 0]),
+      object_types: new Uint8Array([ObjectType.Group, ObjectType.Mesh]),
+      parent_ids: new Uint32Array([SCENE_ROOT, 1]),
+    }));
+
+    const parent = cache.getObject(1, 0)!;
+    const child = cache.getObject(2, 0)!;
+    expect(child.parent).toBe(parent);
+  });
+
+  test("CHANGED_PARENT reparents an existing child", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    cache.applyFrame(makePacket({
+      entity_count: 3,
+      entity_ids: new Uint32Array([1, 2, 3]),
+      entity_generations: new Uint32Array([0, 0, 0]),
+      object_types: new Uint8Array([ObjectType.Group, ObjectType.Group, ObjectType.Mesh]),
+      parent_ids: new Uint32Array([SCENE_ROOT, SCENE_ROOT, 1]),
+    }));
+
+    cache.applyFrame(makePacket({
+      entity_count: 3,
+      entity_ids: new Uint32Array([1, 2, 3]),
+      entity_generations: new Uint32Array([0, 0, 0]),
+      object_types: new Uint8Array([ObjectType.Group, ObjectType.Group, ObjectType.Mesh]),
+      parent_ids: new Uint32Array([SCENE_ROOT, SCENE_ROOT, 2]),
+      change_flags: new Uint8Array([0, 0, CHANGED_PARENT]),
+    }));
+
+    const newParent = cache.getObject(2, 0)!;
+    const child = cache.getObject(3, 0)!;
+    expect(child.parent).toBe(newParent);
+  });
+
+  test("removing a parent reparents its children to the scene root", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    cache.applyFrame(makePacket({
+      entity_count: 2,
+      entity_ids: new Uint32Array([1, 2]),
+      entity_generations: new Uint32Array([0, 0]),
+      object_types: new Uint8Array([ObjectType.Group, ObjectType.Mesh]),
+      parent_ids: new Uint32Array([SCENE_ROOT, 1]),
+    }));
+
+    cache.applyFrame(makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([2]),
+      entity_generations: new Uint32Array([0]),
+      object_types: new Uint8Array([ObjectType.Mesh]),
+      parent_ids: new Uint32Array([SCENE_ROOT]),
+    }));
+
+    const child = cache.getObject(2, 0)!;
+    expect(child.parent).toBe(scene);
+  });
+
+  test("object-type replacement keeps children attached when parent id is unchanged", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    cache.applyFrame(makePacket({
+      entity_count: 2,
+      entity_ids: new Uint32Array([1, 2]),
+      entity_generations: new Uint32Array([0, 0]),
+      object_types: new Uint8Array([ObjectType.Group, ObjectType.Mesh]),
+      parent_ids: new Uint32Array([SCENE_ROOT, 1]),
+    }));
+
+    cache.applyFrame(makePacket({
+      entity_count: 2,
+      entity_ids: new Uint32Array([1, 2]),
+      entity_generations: new Uint32Array([0, 0]),
+      object_types: new Uint8Array([ObjectType.PointLight, ObjectType.Mesh]),
+      parent_ids: new Uint32Array([SCENE_ROOT, 1]),
+      change_flags: new Uint8Array([CHANGED_OBJECT_TYPE, 0]),
+    }));
+
+    const parent = cache.getObject(1, 0)!;
+    const child = cache.getObject(2, 0)!;
+    expect(parent).toBeInstanceOf(THREE.PointLight);
+    expect(child.parent).toBe(parent);
   });
 });
 
@@ -646,6 +747,7 @@ describe("RendererCache userData[GALEON_ENTITY_KEY] back-pointer", () => {
       visibility: new Uint8Array([1]),
       mesh_handles: new Uint32Array([1]),
       material_handles: new Uint32Array([1]),
+      parent_ids: new Uint32Array([SCENE_ROOT]),
       custom_channel_count: 1,
       custom_channel_name_at: () => "__galeon",
       custom_channel_stride: () => 1,

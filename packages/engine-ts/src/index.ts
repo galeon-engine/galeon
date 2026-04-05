@@ -14,9 +14,11 @@ export {
   CHANGED_MATERIAL,
   CHANGED_MESH,
   CHANGED_OBJECT_TYPE,
+  CHANGED_PARENT,
   CHANGED_TRANSFORM,
   CHANGED_VISIBILITY,
   type FramePacketView,
   ObjectType,
+  SCENE_ROOT,
   TRANSFORM_STRIDE,
 } from "./types.js";

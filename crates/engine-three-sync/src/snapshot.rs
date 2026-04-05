@@ -99,8 +99,8 @@ pub fn snapshot_to_json(snapshot: &DebugSnapshot) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use galeon_engine::render::{MaterialHandle, MeshHandle, Transform, Visibility};
     use galeon_engine::ObjectType;
+    use galeon_engine::render::{MaterialHandle, MeshHandle, Transform, Visibility};
 
     #[test]
     fn empty_world_snapshot() {
