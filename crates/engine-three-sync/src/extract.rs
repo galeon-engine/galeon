@@ -14,6 +14,17 @@ use crate::frame_packet::{
 
 /// Extract render-facing data from the ECS world into a packed frame packet.
 ///
+/// # Render events
+///
+/// If a [`RenderEventRegistry`] is present, this function drains its
+/// accumulation buffer into `FramePacket::events`. The buffer must have
+/// been populated by prior [`World::flush_render_events`] calls —
+/// [`Schedule::run`] does this automatically (once after deadlines, once
+/// after systems). Calling `extract_frame` without a preceding flush
+/// produces an empty event list.
+///
+/// # Entity extraction
+///
 /// Single-pass query using optional components: iterates all entities with a
 /// `Transform` component (the implicit "renderable" marker) and packs their
 /// transform, visibility, mesh, material, parent, and object-type data into

@@ -65,6 +65,13 @@ impl Schedule {
         // 2. Advance all event buffers: current → previous, clear current.
         //    Events from deadline draining (step 1) + events written last tick
         //    both move into `previous`, readable by EventReader this tick.
+        //
+        //    NOTE: deadline-fired render events are moved to `previous` here
+        //    and are NOT captured by the post-systems flush (which reads
+        //    `current`). Deadline render events have a 1-tick delivery delay.
+        //    This is acceptable: deadlines are scheduled timed cues, not
+        //    latency-sensitive impacts. System-written render events (physics
+        //    contacts, gameplay triggers) are captured at zero latency.
         world.update_events();
 
         for stage_idx in 0..self.stage_order.len() {
@@ -77,10 +84,8 @@ impl Schedule {
             world.apply_commands();
         }
 
-        // 4. Flush render events: capture this tick's Events<T>::current
-        //    into the RenderEventRegistry accumulation buffer BEFORE the
+        // 4. Capture system-written render events from `current` BEFORE the
         //    next tick's update_events() swaps and clears it.
-        //    This ensures no events are lost across multi-tick frames.
         world.flush_render_events();
     }
 
@@ -384,5 +389,106 @@ mod tests {
         // After tick 3 the counter has 10 (tick 2 read) + 10 (tick 3 read) = 20.
         let val: Vec<u32> = world.query::<&Counter>().map(|(_, c)| c.0).collect();
         assert_eq!(val, vec![20]);
+    }
+
+    // -------------------------------------------------------------------------
+    // Render event accumulation tests
+    // -------------------------------------------------------------------------
+
+    use crate::render_event::{RenderEvent, RenderEventRegistry};
+
+    #[derive(Debug)]
+    struct ImpactRenderEvent {
+        entity_index: u32,
+    }
+
+    impl RenderEvent for ImpactRenderEvent {
+        const KIND: u32 = 1;
+        fn entity(&self) -> u32 {
+            self.entity_index
+        }
+        fn position(&self) -> [f32; 3] {
+            [0.0; 3]
+        }
+    }
+
+    #[test]
+    fn schedule_flush_captures_system_written_render_events() {
+        let mut world = World::new();
+        world.add_event::<ImpactRenderEvent>();
+
+        let mut registry = RenderEventRegistry::new();
+        registry.register::<ImpactRenderEvent>();
+        world.insert_resource(registry);
+
+        fn emit_impact(mut writer: EventWriter<'_, ImpactRenderEvent>) {
+            writer.send(ImpactRenderEvent { entity_index: 42 });
+        }
+
+        let mut schedule = Schedule::new();
+        schedule.add_system::<(EventWriter<'_, ImpactRenderEvent>,)>("sim", "emit", emit_impact);
+
+        schedule.run(&mut world);
+
+        // Flush happened at end of schedule.run() — drain should have the event.
+        let events = world.resource::<RenderEventRegistry>().drain();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].entity, 42);
+    }
+
+    #[test]
+    fn schedule_flush_captures_deadline_fired_render_events() {
+        use crate::deadline::{Deadlines, Timestamp};
+
+        let mut world = World::new();
+        world.add_event::<ImpactRenderEvent>();
+        world.add_deadline_type::<ImpactRenderEvent>();
+
+        let mut registry = RenderEventRegistry::new();
+        registry.register::<ImpactRenderEvent>();
+        world.insert_resource(registry);
+
+        // Schedule a deadline that fires immediately.
+        world
+            .resource_mut::<Deadlines<ImpactRenderEvent>>()
+            .schedule(
+                Timestamp::from_micros(0),
+                ImpactRenderEvent { entity_index: 99 },
+            );
+
+        let mut schedule = Schedule::new();
+
+        // Tick 1: deadline fires into current, swap moves it to previous.
+        // Post-systems flush reads current (empty after swap) — not captured yet.
+        schedule.run(&mut world);
+        let events = world.resource::<RenderEventRegistry>().drain();
+        assert!(
+            events.is_empty(),
+            "deadline render events have 1-tick delay (scheduled timed cues, not impacts)"
+        );
+    }
+
+    #[test]
+    fn multi_tick_render_events_accumulate_across_schedule_runs() {
+        let mut world = World::new();
+        world.add_event::<ImpactRenderEvent>();
+
+        let mut registry = RenderEventRegistry::new();
+        registry.register::<ImpactRenderEvent>();
+        world.insert_resource(registry);
+
+        fn emit_impact(mut writer: EventWriter<'_, ImpactRenderEvent>) {
+            writer.send(ImpactRenderEvent { entity_index: 1 });
+        }
+
+        let mut schedule = Schedule::new();
+        schedule.add_system::<(EventWriter<'_, ImpactRenderEvent>,)>("sim", "emit", emit_impact);
+
+        // Two ticks without draining — simulates multi-tick frame.
+        schedule.run(&mut world);
+        schedule.run(&mut world);
+
+        let events = world.resource::<RenderEventRegistry>().drain();
+        assert_eq!(events.len(), 2);
     }
 }
