@@ -186,8 +186,8 @@ pre-1.0 phase:
 - **Patch bumps** (`0.1.0 &rarr; 0.1.1`) are backward-compatible bug fixes and
   additions.
 - **Prerelease tags** (`0.2.0-alpha.1`, `0.2.0-beta.1`, `0.2.0-rc.1`) are
-  published to crates.io and npm with the corresponding dist-tag. Use these
-  to preview upcoming releases.
+  published to crates.io and npm under the `alpha` dist-tag. Use these
+  preview upcoming releases.
 
 ### How to depend on Galeon
 

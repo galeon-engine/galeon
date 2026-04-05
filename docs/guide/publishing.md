@@ -160,6 +160,6 @@ and pin to it. Read the [changelog](../../CHANGELOG.md) on each upgrade.
 - Core engine crates are published and intended for evaluation and early use.
 - `@galeon/shell` is published but experimental &mdash; expect churn.
 - Prerelease tags (`alpha`, `beta`, `rc`) are published to both registries
-  with appropriate dist-tags.
+  under the `alpha` npm dist-tag.
 
 For the full stability statement, see the [README](../../README.md#stability).
