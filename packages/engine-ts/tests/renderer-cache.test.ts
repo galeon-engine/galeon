@@ -420,6 +420,83 @@ describe("RendererCache handle-based tracking", () => {
 });
 
 // ---------------------------------------------------------------------------
+// #133: matrixAutoUpdate disabled, matrix.compose() called explicitly
+// ---------------------------------------------------------------------------
+
+describe("RendererCache matrix management", () => {
+  test("matrixAutoUpdate is false on created objects", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(1, new THREE.BoxGeometry());
+    cache.registerMaterial(1, new THREE.MeshBasicMaterial());
+
+    const packet = makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      mesh_handles: new Uint32Array([1]),
+      material_handles: new Uint32Array([1]),
+    });
+
+    cache.applyFrame(packet);
+    const obj = cache.getObject(1, 0)!;
+    expect(obj.matrixAutoUpdate).toBe(false);
+  });
+
+  test("matrixWorldNeedsUpdate is true after applyFrame", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(1, new THREE.BoxGeometry());
+    cache.registerMaterial(1, new THREE.MeshBasicMaterial());
+
+    const packet = makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      mesh_handles: new Uint32Array([1]),
+      material_handles: new Uint32Array([1]),
+    });
+
+    cache.applyFrame(packet);
+    const obj = cache.getObject(1, 0)!;
+    expect(obj.matrixWorldNeedsUpdate).toBe(true);
+  });
+
+  test("matrix elements match compose() output after applyFrame with known transform", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(1, new THREE.BoxGeometry());
+    cache.registerMaterial(1, new THREE.MeshBasicMaterial());
+
+    const transforms = new Float32Array(TRANSFORM_STRIDE);
+    transforms[0] = 2; transforms[1] = 3; transforms[2] = 4;
+    transforms[3] = 0; transforms[4] = 0; transforms[5] = 0; transforms[6] = 1;
+    transforms[7] = 1; transforms[8] = 2; transforms[9] = 0.5;
+
+    const packet = makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([2]),
+      entity_generations: new Uint32Array([0]),
+      mesh_handles: new Uint32Array([1]),
+      material_handles: new Uint32Array([1]),
+      transforms,
+    });
+
+    cache.applyFrame(packet);
+    const obj = cache.getObject(2, 0)!;
+
+    const expected = new THREE.Matrix4();
+    expected.compose(
+      new THREE.Vector3(2, 3, 4),
+      new THREE.Quaternion(0, 0, 0, 1),
+      new THREE.Vector3(1, 2, 0.5),
+    );
+
+    expect(obj.matrix.elements).toEqual(expected.elements);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // #136: userData[GALEON_ENTITY_KEY] back-pointer metadata
 // ---------------------------------------------------------------------------
 
@@ -487,9 +564,7 @@ describe("RendererCache userData[GALEON_ENTITY_KEY] back-pointer", () => {
 
     cache.applyFrame(packet);
     const obj = cache.getObject(1, 0)!;
-    // String-keyed channel writes to userData["__galeon"]
     expect(obj.userData["__galeon"]).toBe(999);
-    // Symbol-keyed back-pointer is untouched
     expect(obj.userData[GALEON_ENTITY_KEY]).toEqual({ entityId: 1, generation: 0 });
   });
 
