@@ -281,9 +281,13 @@ export class RendererCache {
     }
 
     // Remove objects for entities that disappeared this frame.
-    for (const [id, obj] of this.objects) {
-      if (!activeIds.has(id)) {
-        this.removeEntity(id, obj);
+    // Skip for incremental packets — they only include changed entities,
+    // so absence does NOT mean despawned.
+    if (!hasChangeFlags) {
+      for (const [id, obj] of this.objects) {
+        if (!activeIds.has(id)) {
+          this.removeEntity(id, obj);
+        }
       }
     }
   }

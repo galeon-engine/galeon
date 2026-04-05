@@ -58,13 +58,16 @@ impl Schedule {
     ///    events from the previous tick. Commands applied between stages.
     pub fn run(&mut self, world: &mut World) {
         // 1. Drain all overdue deadlines → writes to Events<T> current buffer.
-        //    Runs BEFORE update_events so that fired events land in `current`,
-        //    then the swap makes them immediately readable this tick.
         world.drain_all_deadlines();
 
-        // 2. Advance all event buffers: current → previous, clear current.
-        //    Events from deadline draining (step 1) + events written last tick
-        //    both move into `previous`, readable by EventReader this tick.
+        // 2. Capture deadline-fired render events from `current` BEFORE the
+        //    swap clears it. Each extractor tracks an offset into current so
+        //    it only reads events added since the last flush — no duplicates.
+        world.flush_render_events();
+
+        // 3. Advance all event buffers: current → previous, clear current.
+        //    Deadline + last-tick events move into `previous`, readable by
+        //    EventReader. Extractor offsets auto-reset when current shrinks.
         world.update_events();
 
         for stage_idx in 0..self.stage_order.len() {
@@ -76,6 +79,9 @@ impl Schedule {
             }
             world.apply_commands();
         }
+
+        // 4. Capture system-written render events from `current`.
+        world.flush_render_events();
     }
 
     /// Returns the number of registered systems.
@@ -378,5 +384,107 @@ mod tests {
         // After tick 3 the counter has 10 (tick 2 read) + 10 (tick 3 read) = 20.
         let val: Vec<u32> = world.query::<&Counter>().map(|(_, c)| c.0).collect();
         assert_eq!(val, vec![20]);
+    }
+
+    // -------------------------------------------------------------------------
+    // Render event accumulation tests
+    // -------------------------------------------------------------------------
+
+    use crate::render_event::{RenderEvent, RenderEventRegistry};
+
+    #[derive(Debug)]
+    struct ImpactRenderEvent {
+        entity_index: u32,
+    }
+
+    impl RenderEvent for ImpactRenderEvent {
+        const KIND: u32 = 1;
+        fn entity(&self) -> u32 {
+            self.entity_index
+        }
+        fn position(&self) -> [f32; 3] {
+            [0.0; 3]
+        }
+    }
+
+    #[test]
+    fn schedule_flush_captures_system_written_render_events() {
+        let mut world = World::new();
+        world.add_event::<ImpactRenderEvent>();
+
+        let mut registry = RenderEventRegistry::new();
+        registry.register::<ImpactRenderEvent>();
+        world.insert_resource(registry);
+
+        fn emit_impact(mut writer: EventWriter<'_, ImpactRenderEvent>) {
+            writer.send(ImpactRenderEvent { entity_index: 42 });
+        }
+
+        let mut schedule = Schedule::new();
+        schedule.add_system::<(EventWriter<'_, ImpactRenderEvent>,)>("sim", "emit", emit_impact);
+
+        schedule.run(&mut world);
+
+        // Flush happened at end of schedule.run() — drain should have the event.
+        let events = world.resource::<RenderEventRegistry>().drain();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].entity, 42);
+    }
+
+    #[test]
+    fn schedule_flush_captures_deadline_fired_render_events() {
+        use crate::deadline::{Clock, Deadlines, TestClock, Timestamp};
+
+        let mut world = World::new();
+        world.add_event::<ImpactRenderEvent>();
+        world.add_deadline_type::<ImpactRenderEvent>();
+
+        // Install a clock so drain_all_deadlines actually fires.
+        world
+            .insert_resource(Box::new(TestClock::new(Timestamp::from_micros(0))) as Box<dyn Clock>);
+
+        let mut registry = RenderEventRegistry::new();
+        registry.register::<ImpactRenderEvent>();
+        world.insert_resource(registry);
+
+        // Schedule a deadline at time 0 — clock is at 0, so it fires immediately.
+        world
+            .resource_mut::<Deadlines<ImpactRenderEvent>>()
+            .schedule(
+                Timestamp::from_micros(0),
+                ImpactRenderEvent { entity_index: 99 },
+            );
+
+        let mut schedule = Schedule::new();
+        schedule.run(&mut world);
+
+        // Pre-swap flush captured the deadline event before update_events cleared current.
+        let events = world.resource::<RenderEventRegistry>().drain();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].entity, 99);
+    }
+
+    #[test]
+    fn multi_tick_render_events_accumulate_across_schedule_runs() {
+        let mut world = World::new();
+        world.add_event::<ImpactRenderEvent>();
+
+        let mut registry = RenderEventRegistry::new();
+        registry.register::<ImpactRenderEvent>();
+        world.insert_resource(registry);
+
+        fn emit_impact(mut writer: EventWriter<'_, ImpactRenderEvent>) {
+            writer.send(ImpactRenderEvent { entity_index: 1 });
+        }
+
+        let mut schedule = Schedule::new();
+        schedule.add_system::<(EventWriter<'_, ImpactRenderEvent>,)>("sim", "emit", emit_impact);
+
+        // Two ticks without draining — simulates multi-tick frame.
+        schedule.run(&mut world);
+        schedule.run(&mut world);
+
+        let events = world.resource::<RenderEventRegistry>().drain();
+        assert_eq!(events.len(), 2);
     }
 }

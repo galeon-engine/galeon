@@ -52,6 +52,22 @@ impl<T: 'static> Events<T> {
         self.previous.iter()
     }
 
+    /// Iterate over events in the current (not yet swapped) buffer.
+    ///
+    /// For render extraction that runs *after* a tick completes: events
+    /// sent during tick N live in `current` until the next `update()`.
+    pub fn read_current(&self) -> impl Iterator<Item = &T> {
+        self.current.iter()
+    }
+
+    /// Number of events in the current (not yet swapped) buffer.
+    ///
+    /// Used by render event extractors with offset tracking to avoid
+    /// re-reading events that were already captured in a prior flush.
+    pub fn current_len(&self) -> usize {
+        self.current.len()
+    }
+
     /// Advance the double buffer.
     ///
     /// The previous buffer is cleared. The current buffer becomes the new
@@ -221,6 +237,24 @@ mod tests {
         assert_eq!(events.len(), 1);
         let collected: Vec<_> = events.read().collect();
         assert_eq!(collected, vec![&DamageEvent { amount: 42 }]);
+    }
+
+    #[test]
+    fn read_current_returns_unswaped_events() {
+        let mut events: Events<DamageEvent> = Events::new();
+
+        events.send(DamageEvent { amount: 7 });
+
+        // read() only sees previous (empty).
+        assert_eq!(events.read().count(), 0);
+        // read_current() sees the not-yet-swapped buffer.
+        let current: Vec<_> = events.read_current().collect();
+        assert_eq!(current, vec![&DamageEvent { amount: 7 }]);
+
+        // After update, event moves to previous.
+        events.update();
+        assert_eq!(events.read().count(), 1);
+        assert_eq!(events.read_current().count(), 0);
     }
 
     #[test]

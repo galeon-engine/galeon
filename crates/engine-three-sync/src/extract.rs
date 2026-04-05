@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use galeon_engine::render::{
     MaterialHandle, MeshHandle, ObjectType, ParentEntity, Transform, Visibility,
 };
-use galeon_engine::{Entity, RenderChannelRegistry, World};
+use galeon_engine::{Entity, RenderChannelRegistry, RenderEventRegistry, World};
 
 use crate::frame_packet::{
     CHANGED_MATERIAL, CHANGED_MESH, CHANGED_OBJECT_TYPE, CHANGED_PARENT, CHANGED_TRANSFORM,
@@ -13,6 +13,17 @@ use crate::frame_packet::{
 };
 
 /// Extract render-facing data from the ECS world into a packed frame packet.
+///
+/// # Render events
+///
+/// If a [`RenderEventRegistry`] is present, this function drains its
+/// accumulation buffer into `FramePacket::events`. The buffer must have
+/// been populated by prior [`World::flush_render_events`] calls —
+/// [`Schedule::run`] does this automatically (once after deadlines, once
+/// after systems). Calling `extract_frame` without a preceding flush
+/// produces an empty event list.
+///
+/// # Entity extraction
 ///
 /// Single-pass query using optional components: iterates all entities with a
 /// `Transform` component (the implicit "renderable" marker) and packs their
@@ -136,6 +147,10 @@ pub fn extract_frame(world: &World) -> FramePacket {
                 },
             );
         }
+    }
+
+    if let Some(registry) = world.try_resource::<RenderEventRegistry>() {
+        packet.events = registry.drain();
     }
 
     packet
@@ -377,6 +392,11 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
             *object_type,
             flags,
         );
+    }
+
+    // Events are always fully extracted (not incremental — they are ephemeral).
+    if let Some(registry) = world.try_resource::<RenderEventRegistry>() {
+        packet.events = registry.drain();
     }
 
     packet
@@ -922,5 +942,201 @@ mod tests {
         world.advance_tick();
         let v2 = extract_frame(&world).frame_version;
         assert!(v2 > v1);
+    }
+
+    // -------------------------------------------------------------------------
+    // Render event extraction integration tests
+    // -------------------------------------------------------------------------
+
+    #[derive(Debug)]
+    struct TestImpact {
+        entity_index: u32,
+        pos: [f32; 3],
+        force: f32,
+    }
+
+    impl galeon_engine::RenderEvent for TestImpact {
+        const KIND: u32 = 1;
+        fn entity(&self) -> u32 {
+            self.entity_index
+        }
+        fn position(&self) -> [f32; 3] {
+            self.pos
+        }
+        fn intensity(&self) -> f32 {
+            self.force
+        }
+    }
+
+    #[test]
+    fn extract_no_events_when_registry_absent() {
+        let mut world = World::new();
+        world.spawn((Transform::identity(),));
+        let packet = extract_frame(&world);
+        assert_eq!(packet.event_count(), 0);
+    }
+
+    #[test]
+    fn extract_no_events_when_none_sent() {
+        let mut world = World::new();
+        world.add_event::<TestImpact>();
+        let mut registry = galeon_engine::RenderEventRegistry::new();
+        registry.register::<TestImpact>();
+        world.insert_resource(registry);
+
+        world.spawn((Transform::identity(),));
+        world.flush_render_events();
+        let packet = extract_frame(&world);
+        assert_eq!(packet.event_count(), 0);
+    }
+
+    #[test]
+    fn extract_events_in_full_extraction() {
+        let mut world = World::new();
+        world.add_event::<TestImpact>();
+
+        let mut registry = galeon_engine::RenderEventRegistry::new();
+        registry.register::<TestImpact>();
+        world.insert_resource(registry);
+
+        world
+            .resource_mut::<galeon_engine::Events<TestImpact>>()
+            .send(TestImpact {
+                entity_index: 42,
+                pos: [1.0, 2.0, 3.0],
+                force: 0.75,
+            });
+
+        world.spawn((Transform::identity(),));
+        // Simulate schedule: flush_render_events() after systems.
+        world.flush_render_events();
+        let packet = extract_frame(&world);
+        assert_eq!(packet.event_count(), 1);
+        assert_eq!(packet.events[0].kind, 1);
+        assert_eq!(packet.events[0].entity, 42);
+        assert_eq!(packet.events[0].position, [1.0, 2.0, 3.0]);
+        assert!((packet.events[0].intensity - 0.75).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn extract_events_in_incremental_extraction() {
+        let mut world = World::new();
+        world.add_event::<TestImpact>();
+
+        let mut registry = galeon_engine::RenderEventRegistry::new();
+        registry.register::<TestImpact>();
+        world.insert_resource(registry);
+
+        world.spawn((Transform::from_position(1.0, 0.0, 0.0),));
+        let since = world.change_tick();
+        world.advance_tick();
+
+        world
+            .resource_mut::<galeon_engine::Events<TestImpact>>()
+            .send(TestImpact {
+                entity_index: 7,
+                pos: [5.0, 5.0, 5.0],
+                force: 3.0,
+            });
+
+        world.flush_render_events();
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.event_count(), 1);
+        assert_eq!(packet.events[0].kind, 1);
+        assert_eq!(packet.events[0].entity, 7);
+    }
+
+    #[test]
+    fn extract_multiple_events_same_frame() {
+        let mut world = World::new();
+        world.add_event::<TestImpact>();
+
+        let mut registry = galeon_engine::RenderEventRegistry::new();
+        registry.register::<TestImpact>();
+        world.insert_resource(registry);
+
+        let events = world.resource_mut::<galeon_engine::Events<TestImpact>>();
+        events.send(TestImpact {
+            entity_index: 1,
+            pos: [0.0; 3],
+            force: 1.0,
+        });
+        events.send(TestImpact {
+            entity_index: 2,
+            pos: [10.0; 3],
+            force: 0.5,
+        });
+
+        world.spawn((Transform::identity(),));
+        world.flush_render_events();
+        let packet = extract_frame(&world);
+        assert_eq!(packet.event_count(), 2);
+    }
+
+    #[test]
+    fn multi_tick_events_accumulate() {
+        let mut world = World::new();
+        world.add_event::<TestImpact>();
+
+        let mut registry = galeon_engine::RenderEventRegistry::new();
+        registry.register::<TestImpact>();
+        world.insert_resource(registry);
+        world.spawn((Transform::identity(),));
+
+        // Tick 1: send event, flush, then swap (simulating schedule flow).
+        world
+            .resource_mut::<galeon_engine::Events<TestImpact>>()
+            .send(TestImpact {
+                entity_index: 1,
+                pos: [0.0; 3],
+                force: 1.0,
+            });
+        world.flush_render_events();
+        world.update_events();
+
+        // Tick 2: send another event, flush, swap.
+        world
+            .resource_mut::<galeon_engine::Events<TestImpact>>()
+            .send(TestImpact {
+                entity_index: 2,
+                pos: [5.0; 3],
+                force: 0.5,
+            });
+        world.flush_render_events();
+        world.update_events();
+
+        // Extraction after both ticks: both events present.
+        let packet = extract_frame(&world);
+        assert_eq!(packet.event_count(), 2);
+        assert_eq!(packet.events[0].entity, 1);
+        assert_eq!(packet.events[1].entity, 2);
+    }
+
+    #[test]
+    fn drain_clears_pending_for_next_frame() {
+        let mut world = World::new();
+        world.add_event::<TestImpact>();
+
+        let mut registry = galeon_engine::RenderEventRegistry::new();
+        registry.register::<TestImpact>();
+        world.insert_resource(registry);
+        world.spawn((Transform::identity(),));
+
+        world
+            .resource_mut::<galeon_engine::Events<TestImpact>>()
+            .send(TestImpact {
+                entity_index: 1,
+                pos: [0.0; 3],
+                force: 1.0,
+            });
+        world.flush_render_events();
+
+        // Frame 1: drain returns the event.
+        let packet1 = extract_frame(&world);
+        assert_eq!(packet1.event_count(), 1);
+
+        // Frame 2: no new events, drain returns empty.
+        let packet2 = extract_frame(&world);
+        assert_eq!(packet2.event_count(), 0);
     }
 }
