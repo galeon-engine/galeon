@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1]
+
 ### Added
 
 - **Version bump script** — `bash scripts/bump-version.sh X.Y.Z` updates all 6
@@ -38,6 +40,9 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Shell scripts stay LF-encoded in Git checkouts** — `.gitattributes` now
+  forces `*.sh` to `eol=lf`, keeping Bash-based release tooling runnable in
+  fresh Windows worktrees with `core.autocrlf` enabled.
 - **RendererCache no longer stomps consumer material/geometry overrides** —
   `applyFrame()` now compares handle IDs (integers) instead of resolved Three.js
   object references. Consumers can safely override `obj.material` or `obj.geometry`

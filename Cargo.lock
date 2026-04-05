@@ -163,7 +163,7 @@ dependencies = [
 
 [[package]]
 name = "galeon-engine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "galeon-engine-macros",
  "inventory",
@@ -176,7 +176,7 @@ dependencies = [
 
 [[package]]
 name = "galeon-engine-macros"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -186,7 +186,7 @@ dependencies = [
 
 [[package]]
 name = "galeon-engine-three-sync"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "galeon-engine",
  "serde",
