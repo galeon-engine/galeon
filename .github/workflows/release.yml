@@ -90,6 +90,15 @@ jobs:
             ERRORS=$((ERRORS + 1))
           fi
 
+          # npm package versions
+          for PKG in packages/runtime/package.json packages/engine-ts/package.json packages/shell/package.json; do
+            PKG_VER=$(node -e "import{readFileSync}from'fs';const p=JSON.parse(readFileSync('./$PKG','utf8'));console.log(p.version||'')" --input-type=module)
+            if [ "$PKG_VER" != "$VERSION" ]; then
+              echo "::error::$PKG version is $PKG_VER, expected $VERSION"
+              ERRORS=$((ERRORS + 1))
+            fi
+          done
+
           # npm internal dependency pin
           RUNTIME_PIN=$(node -e "import{readFileSync}from'fs';const p=JSON.parse(readFileSync('./packages/engine-ts/package.json','utf8'));console.log(p.dependencies['@galeon/runtime']||'')" --input-type=module)
           if [ "$RUNTIME_PIN" != "=$VERSION" ]; then
