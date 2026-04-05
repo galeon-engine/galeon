@@ -443,6 +443,25 @@ describe("RendererCache matrix management", () => {
     expect(obj.matrixAutoUpdate).toBe(false);
   });
 
+  test("matrixWorldNeedsUpdate is true after applyFrame", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(1, new THREE.BoxGeometry());
+    cache.registerMaterial(1, new THREE.MeshBasicMaterial());
+
+    const packet = makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      mesh_handles: new Uint32Array([1]),
+      material_handles: new Uint32Array([1]),
+    });
+
+    cache.applyFrame(packet);
+    const obj = cache.getObject(1, 0)!;
+    expect(obj.matrixWorldNeedsUpdate).toBe(true);
+  });
+
   test("matrix elements match compose() output after applyFrame with known transform", () => {
     const scene = new THREE.Scene();
     const cache = new RendererCache(scene);

@@ -151,7 +151,7 @@ export class RendererCache {
         transforms[off + 6]!,
       );
       obj.scale.set(transforms[off + 7]!, transforms[off + 8]!, transforms[off + 9]!);
-      obj.matrix.compose(obj.position, obj.quaternion, obj.scale);
+      obj.updateMatrix();
 
       // Update visibility.
       obj.visible = visibility[i]! === 1;
