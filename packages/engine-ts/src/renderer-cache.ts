@@ -47,6 +47,9 @@ export class RendererCache {
   /** Entities already warned about missing material handles (cleared when handle becomes registered). */
   private readonly warnedMaterials = new Set<number>();
 
+  /** Last applied `ObjectType` discriminant per entity (matches packet `object_types` / Rust repr). */
+  private readonly objectKinds = new Map<number, number>();
+
   /** Fallback geometry used when a mesh handle has no registered geometry. */
   private readonly placeholderGeometry = new THREE.BoxGeometry(1, 1, 1);
   /** Fallback material used when a material handle has no registered material. */
@@ -130,6 +133,16 @@ export class RendererCache {
         obj = undefined;
       }
 
+      if (obj) {
+        const ot = packet.object_types;
+        const desiredKind = ot !== undefined && i < ot.length ? ot[i]! : undefined;
+        const effectiveStored = this.objectKinds.get(entityId) ?? ObjectType.Mesh;
+        if (desiredKind !== undefined && desiredKind !== effectiveStored) {
+          this.removeEntity(entityId, obj);
+          obj = undefined;
+        }
+      }
+
       if (!obj) {
         const meshHandle = mesh_handles[i]!;
         const matHandle = material_handles[i]!;
@@ -152,6 +165,7 @@ export class RendererCache {
         }
         (obj.userData as Record<PropertyKey, unknown>)[GALEON_ENTITY_KEY] = { entityId, generation };
         this.scene.add(obj);
+        this.objectKinds.set(entityId, packet.object_types?.[i] ?? ObjectType.Mesh);
         this.applyTransform(obj, i, transforms);
         obj.visible = visibility[i]! === 1;
       } else {
@@ -289,6 +303,7 @@ export class RendererCache {
       this.resolvedMaterials.delete(id);
       this.warnedMeshes.delete(id);
       this.warnedMaterials.delete(id);
+      this.objectKinds.delete(id);
     }
   }
 

@@ -1016,6 +1016,42 @@ describe("RendererCache Object3D type diversity", () => {
     expect(cache.getObject(1, 0)).toBeInstanceOf(THREE.Mesh);
   });
 
+  test("recreates Three.js object when object_types discriminant changes", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(1, new THREE.BoxGeometry());
+    cache.registerMaterial(1, new THREE.MeshBasicMaterial());
+
+    cache.applyFrame(
+      makePacket({
+        entity_count: 1,
+        entity_ids: new Uint32Array([1]),
+        entity_generations: new Uint32Array([0]),
+        mesh_handles: new Uint32Array([1]),
+        material_handles: new Uint32Array([1]),
+        object_types: new Uint8Array([0]),
+      }),
+    );
+    const mesh = cache.getObject(1, 0)!;
+    expect(mesh).toBeInstanceOf(THREE.Mesh);
+
+    cache.applyFrame(
+      makePacket({
+        entity_count: 1,
+        entity_ids: new Uint32Array([1]),
+        entity_generations: new Uint32Array([0]),
+        mesh_handles: new Uint32Array([1]),
+        material_handles: new Uint32Array([1]),
+        object_types: new Uint8Array([1]),
+        change_flags: new Uint8Array([CHANGED_OBJECT_TYPE]),
+      }),
+    );
+
+    const light = cache.getObject(1, 0)!;
+    expect(light).toBeInstanceOf(THREE.PointLight);
+    expect(light).not.toBe(mesh);
+  });
+
   test("onEntityRemoved fires with Object3D for non-Mesh types", () => {
     const scene = new THREE.Scene();
     const cache = new RendererCache(scene);

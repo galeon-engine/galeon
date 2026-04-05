@@ -32,7 +32,8 @@ pub struct FramePacket {
     /// Named per-entity float channels for game-specific render data.
     pub custom_channels: HashMap<String, ChannelData>,
     /// Per-entity change flags for incremental extraction.
-    /// Bit 0: transform, Bit 1: visibility, Bit 2: mesh, Bit 3: material.
+    /// Bit 0: transform, Bit 1: visibility, Bit 2: mesh, Bit 3: material,
+    /// Bit 4: object type.
     /// Empty for full extractions.
     pub change_flags: Vec<u8>,
 }

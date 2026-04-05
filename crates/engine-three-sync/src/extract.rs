@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
+use std::collections::HashSet;
+
 use galeon_engine::render::{MaterialHandle, MeshHandle, ObjectType, Transform, Visibility};
 use galeon_engine::{Entity, RenderChannelRegistry, World};
 
@@ -78,9 +80,10 @@ pub fn extract_frame(world: &World) -> FramePacket {
 /// since `since_tick`. Each entity gets a `change_flags` bitmask indicating
 /// which fields changed.
 ///
-/// Entities whose Transform was added or changed are always included.
-/// The change flags further indicate if Visibility, MeshHandle, or
-/// MaterialHandle changed on those entities.
+/// Entities are included when their `Transform` changed, when `ObjectType`
+/// changed (even if the transform did not), or when both changed in the same
+/// tick. Change flags are derived from per-column `changed_tick` values, so
+/// a row may carry only `CHANGED_OBJECT_TYPE` without `CHANGED_TRANSFORM`.
 ///
 /// # Change detection precision
 ///
@@ -90,19 +93,34 @@ pub fn extract_frame(world: &World) -> FramePacket {
 /// false positives — only actually-mutated entities appear in
 /// `query_changed` results.
 pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket {
-    // Collect changed Transform entities first (releases archetype borrow).
-    let renderables: Vec<Renderable> = world
-        .query_changed::<Transform>(since_tick)
-        .map(|(e, t)| {
-            let obj_type = world.get::<ObjectType>(e).map(|o| *o as u8).unwrap_or(0);
-            (e, t.position, t.rotation, t.scale, obj_type)
-        })
-        .collect();
+    let mut seen: HashSet<Entity> = HashSet::new();
+    let mut renderables: Vec<Renderable> = Vec::new();
+
+    // Transform changes (including newly spawned renderables).
+    for (e, t) in world.query_changed::<Transform>(since_tick) {
+        let obj_type = world.get::<ObjectType>(e).map(|o| *o as u8).unwrap_or(0);
+        renderables.push((e, t.position, t.rotation, t.scale, obj_type));
+        seen.insert(e);
+    }
+
+    // ObjectType-only changes still need a frame row, but do not appear in
+    // `query_changed::<Transform>` when the transform was untouched.
+    for (e, _) in world.query_changed::<ObjectType>(since_tick) {
+        if seen.contains(&e) {
+            continue;
+        }
+        let Some(t) = world.get::<Transform>(e) else {
+            continue;
+        };
+        let obj_type = world.get::<ObjectType>(e).map(|o| *o as u8).unwrap_or(0);
+        renderables.push((e, t.position, t.rotation, t.scale, obj_type));
+        seen.insert(e);
+    }
 
     let mut packet = FramePacket::with_capacity(renderables.len());
 
     for (entity, position, rotation, scale, object_type) in &renderables {
-        let mut flags: u8 = CHANGED_TRANSFORM;
+        let mut flags: u8 = 0;
 
         let visible = world
             .get::<Visibility>(*entity)
@@ -116,13 +134,19 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
             .map(|m| m.id)
             .unwrap_or(0);
 
-        // Check optional component change flags via entity location.
+        // Derive change flags from per-component change ticks (not from which
+        // iterator produced this row).
         // SAFETY: `world` is borrowed immutably for this entire function, so no
-        // archetype migration can occur. The row from `entity_location` is the
-        // same row where `query_changed` found the entity.
+        // archetype migration can occur.
         if let Some(loc) = world.entity_location(*entity) {
             let arch = world.archetypes().get(loc.archetype_id);
             let row = loc.row as usize;
+            if arch
+                .column::<Transform>()
+                .is_some_and(|c| c.changed_tick(row) > since_tick)
+            {
+                flags |= CHANGED_TRANSFORM;
+            }
             if arch
                 .column::<Visibility>()
                 .is_some_and(|c| c.changed_tick(row) > since_tick)
@@ -169,7 +193,7 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use galeon_engine::render::{MaterialHandle, MeshHandle, Transform, Visibility};
+    use galeon_engine::render::{MaterialHandle, MeshHandle, ObjectType, Transform, Visibility};
 
     #[test]
     fn extract_empty_world() {
@@ -442,7 +466,26 @@ mod tests {
         assert_eq!(packet.transforms[0], 5.0);
     }
 
-    use galeon_engine::ObjectType;
+    #[test]
+    fn incremental_extract_includes_object_type_change_without_transform() {
+        let mut world = World::new();
+        let e = world.spawn((
+            Transform::from_position(1.0, 0.0, 0.0),
+            ObjectType::Mesh,
+        ));
+        let since = world.change_tick();
+        world.advance_tick();
+
+        *world.get_mut::<ObjectType>(e).unwrap() = ObjectType::PointLight;
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.entity_ids[0], e.index());
+        assert_eq!(packet.object_types[0], ObjectType::PointLight as u8);
+        let flags = packet.change_flags[0];
+        assert!(flags & CHANGED_OBJECT_TYPE != 0);
+        assert!(flags & CHANGED_TRANSFORM == 0);
+    }
 
     #[test]
     fn extract_object_type_component() {
