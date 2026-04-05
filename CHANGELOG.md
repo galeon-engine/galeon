@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Shiplog label drift (#103)** — Audited all open issues and backfilled
+  lifecycle labels (`shiplog/ready`, `shiplog/in-progress`) to match envelope
+  `readiness` fields. Added `docs/guide/shiplog-labels.md` with the label
+  taxonomy, audit query, and drift prevention rule.
+
 ### Added
 
 - **Audio/VFX event bridge (`RenderEvent` + `FrameEvent`)** — One-shot ECS events
