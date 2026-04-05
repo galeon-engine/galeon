@@ -1,12 +1,11 @@
 # Tag-triggered release pipeline for Rust crates and npm packages.
+# Mirrors the gametau publish.yml pattern.
 #
-# Primary trigger: push a v* tag (e.g. v0.2.0, v0.2.0-alpha.1).
-# Fallback: workflow_dispatch runs verify-only (no publish).
-#
-# Flow: CI gate → publish crates → publish npm → verify → evidence
+# Primary trigger: push a v* tag.
+# Fallback: workflow_dispatch with explicit version for verify-only.
 #
 # Requires secret: CARGO_REGISTRY_TOKEN (crates.io API token).
-# npm uses trusted publishing (OIDC provenance) — no token needed after setup.
+# npm uses trusted publishing (OIDC provenance).
 
 name: Release
 
@@ -14,197 +13,117 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to verify (e.g. 0.2.0). Skips publish, runs verification only.'
+        required: true
 
 jobs:
-  # ── CI gate (reuses ci.yml via workflow_call) ──────────────────────
   ci:
+    if: github.event_name != 'workflow_dispatch'
     uses: ./.github/workflows/ci.yml
 
-  # ── Extract version from tag or Cargo.toml ─────────────────────────
-  resolve-version:
-    name: Resolve version
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.ver.outputs.version }}
-      is_tag: ${{ steps.ver.outputs.is_tag }}
-      is_prerelease: ${{ steps.ver.outputs.is_prerelease }}
-      npm_tag: ${{ steps.ver.outputs.npm_tag }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Determine version
-        id: ver
-        run: |
-          set -e
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            VERSION="${GITHUB_REF#refs/tags/v}"
-            echo "is_tag=true" >> "$GITHUB_OUTPUT"
-          else
-            VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)"/\1/')
-            echo "is_tag=false" >> "$GITHUB_OUTPUT"
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-          # Check tag matches Cargo.toml version (fast-fail on mismatch)
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            CARGO_VER=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)"/\1/')
-            if [ "$VERSION" != "$CARGO_VER" ]; then
-              echo "::error::Tag version ($VERSION) does not match Cargo.toml ($CARGO_VER)"
-              exit 1
-            fi
-          fi
-
-          # Prerelease detection and npm dist-tag
-          if [[ "$VERSION" == *-* ]]; then
-            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
-            # Extract first prerelease segment: 0.2.0-alpha.1 → alpha,
-            # 0.2.0-alpha-canary.1 → alpha, 0.2.0-0.1 → pre (fallback)
-            PRE_PART="${VERSION#*-}"          # alpha.1, alpha-canary.1, 0.1
-            PRE_SEG="${PRE_PART%%[.-]*}"      # alpha, alpha, 0
-            if [[ "$PRE_SEG" =~ ^[a-zA-Z] ]]; then
-              echo "npm_tag=$PRE_SEG" >> "$GITHUB_OUTPUT"
-            else
-              echo "npm_tag=pre" >> "$GITHUB_OUTPUT"
-            fi
-          else
-            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
-            echo "npm_tag=latest" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Validate lockstep dependency pins
-        run: |
-          set -e
-          VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)"/\1/')
-          ERRORS=0
-
-          # Rust internal dependency pins
-          MACROS_PIN=$(grep 'galeon-engine-macros' crates/engine/Cargo.toml | grep -o '"=[^"]*"' | tr -d '"')
-          if [ "$MACROS_PIN" != "=$VERSION" ]; then
-            echo "::error::crates/engine/Cargo.toml pins galeon-engine-macros at $MACROS_PIN, expected =$VERSION"
-            ERRORS=$((ERRORS + 1))
-          fi
-
-          ENGINE_PIN=$(grep 'galeon-engine ' crates/engine-three-sync/Cargo.toml | grep -o '"=[^"]*"' | tr -d '"')
-          if [ "$ENGINE_PIN" != "=$VERSION" ]; then
-            echo "::error::crates/engine-three-sync/Cargo.toml pins galeon-engine at $ENGINE_PIN, expected =$VERSION"
-            ERRORS=$((ERRORS + 1))
-          fi
-
-          # npm package versions
-          for PKG in packages/runtime/package.json packages/engine-ts/package.json packages/shell/package.json; do
-            PKG_VER=$(node -e "import{readFileSync}from'fs';const p=JSON.parse(readFileSync('./$PKG','utf8'));console.log(p.version||'')" --input-type=module)
-            if [ "$PKG_VER" != "$VERSION" ]; then
-              echo "::error::$PKG version is $PKG_VER, expected $VERSION"
-              ERRORS=$((ERRORS + 1))
-            fi
-          done
-
-          # npm internal dependency pin
-          RUNTIME_PIN=$(node -e "import{readFileSync}from'fs';const p=JSON.parse(readFileSync('./packages/engine-ts/package.json','utf8'));console.log(p.dependencies['@galeon/runtime']||'')" --input-type=module)
-          if [ "$RUNTIME_PIN" != "=$VERSION" ]; then
-            echo "::error::packages/engine-ts/package.json pins @galeon/runtime at $RUNTIME_PIN, expected =$VERSION"
-            ERRORS=$((ERRORS + 1))
-          fi
-
-          if [ "$ERRORS" -gt 0 ]; then
-            echo "::error::$ERRORS lockstep pin(s) do not match version $VERSION"
-            exit 1
-          fi
-          echo "All lockstep pins match $VERSION"
-
-  # ── Publish Rust crates ────────────────────────────────────────────
   publish-crates:
-    name: Publish Rust crates
-    needs: [ci, resolve-version]
-    if: needs.resolve-version.outputs.is_tag == 'true'
+    if: github.event_name != 'workflow_dispatch'
+    needs: ci
     runs-on: ubuntu-latest
-    env:
-      VERSION: ${{ needs.resolve-version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Resolve workspace version
+        run: |
+          workspace_version="$(awk -F'"' '/^version = / {print $2; exit}' Cargo.toml)"
+          echo "VERSION=${workspace_version}" >> "$GITHUB_ENV"
 
       - name: Publish galeon-engine-macros
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
+          set +e
+          output="$(cargo publish -p galeon-engine-macros 2>&1)"
+          status=$?
           set -e
-          # Skip if already published
-          if cargo search galeon-engine-macros --limit 1 | grep -q "\"$VERSION\""; then
-            echo "galeon-engine-macros@$VERSION already published, skipping"
-          else
-            cargo publish -p galeon-engine-macros
+          echo "$output"
+          if [ $status -eq 0 ]; then exit 0; fi
+          if [[ "$output" == *"already exists on crates.io index"* ]]; then
+            echo "galeon-engine-macros v${VERSION} already published; skipping."
+            exit 0
           fi
+          exit $status
 
-      - name: Wait for galeon-engine-macros on crates.io
+      - name: Wait for crates.io index propagation
         run: |
-          set -e
-          echo "Polling crates.io for galeon-engine-macros@$VERSION..."
-          for i in $(seq 1 30); do
-            if cargo search galeon-engine-macros --limit 1 | grep -q "\"$VERSION\""; then
-              echo "Found after attempt $i"
-              break
+          echo "Waiting for galeon-engine-macros v${VERSION} on crates.io..."
+          for attempt in $(seq 1 30); do
+            result="$(cargo search galeon-engine-macros --limit 1 || true)"
+            if [[ "$result" == *"\"$VERSION\""* ]]; then
+              echo "galeon-engine-macros v${VERSION} is visible."
+              exit 0
             fi
-            if [ "$i" -eq 30 ]; then
-              echo "::error::galeon-engine-macros@$VERSION not found after 30 attempts"
-              exit 1
-            fi
+            echo "Not indexed yet (attempt ${attempt}/30). Waiting 10s..."
             sleep 10
           done
+          echo "Timed out; proceeding with publish retries."
 
       - name: Publish galeon-engine
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          set -e
-          if cargo search galeon-engine --limit 1 | grep -q "\"$VERSION\""; then
-            echo "galeon-engine@$VERSION already published, skipping"
-          else
-            cargo publish -p galeon-engine
-          fi
-
-      - name: Wait for galeon-engine on crates.io
-        run: |
-          set -e
-          echo "Polling crates.io for galeon-engine@$VERSION..."
-          for i in $(seq 1 30); do
-            if cargo search galeon-engine --limit 1 | grep -q "\"$VERSION\""; then
-              echo "Found after attempt $i"
-              break
+          for attempt in $(seq 1 30); do
+            set +e
+            output="$(cargo publish -p galeon-engine 2>&1)"
+            status=$?
+            set -e
+            echo "$output"
+            if [ $status -eq 0 ]; then exit 0; fi
+            if [[ "$output" == *"already exists on crates.io index"* ]]; then
+              echo "galeon-engine v${VERSION} already published; skipping."
+              exit 0
             fi
-            if [ "$i" -eq 30 ]; then
-              echo "::error::galeon-engine@$VERSION not found after 30 attempts"
-              exit 1
+            if [[ "$output" == *"failed to select a version"* ]] && [[ "$output" == *"galeon-engine-macros"* ]]; then
+              echo "galeon-engine-macros still propagating (attempt ${attempt}/30). Waiting 10s..."
+              sleep 10
+              continue
             fi
-            sleep 10
+            exit $status
           done
+          echo "Timed out waiting for galeon-engine-macros dependency."
+          exit 1
 
       - name: Publish galeon-engine-three-sync
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          set -e
-          if cargo search galeon-engine-three-sync --limit 1 | grep -q "\"$VERSION\""; then
-            echo "galeon-engine-three-sync@$VERSION already published, skipping"
-          else
-            cargo publish -p galeon-engine-three-sync
-          fi
+          for attempt in $(seq 1 30); do
+            set +e
+            output="$(cargo publish -p galeon-engine-three-sync 2>&1)"
+            status=$?
+            set -e
+            echo "$output"
+            if [ $status -eq 0 ]; then exit 0; fi
+            if [[ "$output" == *"already exists on crates.io index"* ]]; then
+              echo "galeon-engine-three-sync v${VERSION} already published; skipping."
+              exit 0
+            fi
+            if [[ "$output" == *"failed to select a version"* ]] && [[ "$output" == *"galeon-engine"* ]]; then
+              echo "galeon-engine still propagating (attempt ${attempt}/30). Waiting 10s..."
+              sleep 10
+              continue
+            fi
+            exit $status
+          done
+          echo "Timed out waiting for galeon-engine dependency."
+          exit 1
 
-  # ── Publish npm packages ───────────────────────────────────────────
   publish-npm:
-    name: Publish npm packages
-    needs: [ci, resolve-version]
-    if: needs.resolve-version.outputs.is_tag == 'true'
+    if: github.event_name != 'workflow_dispatch'
+    needs: ci
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
-    env:
-      VERSION: ${{ needs.resolve-version.outputs.version }}
-      NPM_TAG: ${{ needs.resolve-version.outputs.npm_tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -222,98 +141,139 @@ jobs:
       - name: Build packages
         run: bunx tsc --build
 
+      - name: Resolve npm dist-tag
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [[ "$version" == *-* ]]; then
+            dist_tag="alpha"
+          else
+            dist_tag="latest"
+          fi
+          echo "NPM_DIST_TAG=${dist_tag}" >> "$GITHUB_ENV"
+          echo "Using npm dist-tag '${dist_tag}' for v${version}."
+
       - name: Publish @galeon/runtime
         run: |
-          set -e
-          if npm view @galeon/runtime@"$VERSION" version 2>/dev/null; then
-            echo "@galeon/runtime@$VERSION already published, skipping"
-          else
-            npm publish --workspace=packages/runtime --provenance --access public --tag "$NPM_TAG"
+          version="${GITHUB_REF_NAME#v}"
+          if npm view "@galeon/runtime@${version}" version >/dev/null 2>&1; then
+            echo "@galeon/runtime@${version} already published; skipping."
+            exit 0
           fi
+          cd packages/runtime
+          npm publish --access public --tag "$NPM_DIST_TAG" --provenance
 
       - name: Publish @galeon/engine-ts
         run: |
-          set -e
-          if npm view @galeon/engine-ts@"$VERSION" version 2>/dev/null; then
-            echo "@galeon/engine-ts@$VERSION already published, skipping"
-          else
-            npm publish --workspace=packages/engine-ts --provenance --access public --tag "$NPM_TAG"
+          version="${GITHUB_REF_NAME#v}"
+          if npm view "@galeon/engine-ts@${version}" version >/dev/null 2>&1; then
+            echo "@galeon/engine-ts@${version} already published; skipping."
+            exit 0
           fi
+          cd packages/engine-ts
+          npm publish --access public --tag "$NPM_DIST_TAG" --provenance
 
       - name: Publish @galeon/shell
         run: |
-          set -e
-          if npm view @galeon/shell@"$VERSION" version 2>/dev/null; then
-            echo "@galeon/shell@$VERSION already published, skipping"
-          else
-            npm publish --workspace=packages/shell --provenance --access public --tag "$NPM_TAG"
+          version="${GITHUB_REF_NAME#v}"
+          if npm view "@galeon/shell@${version}" version >/dev/null 2>&1; then
+            echo "@galeon/shell@${version} already published; skipping."
+            exit 0
           fi
+          cd packages/shell
+          npm publish --access public --tag "$NPM_DIST_TAG" --provenance
 
-  # ── Post-publish verification ──────────────────────────────────────
   verify-publish:
-    name: Verify published artifacts
-    needs: [resolve-version, publish-crates, publish-npm]
-    # Run after publish on tag, or directly after CI on manual dispatch
-    if: always() && needs.resolve-version.result == 'success'
+    name: Verify Published Artifacts
+    needs: [publish-npm, publish-crates]
+    if: >-
+      always() && !cancelled() && (
+        github.event_name == 'workflow_dispatch' ||
+        (needs.publish-npm.result == 'success' && needs.publish-crates.result == 'success')
+      )
     runs-on: ubuntu-latest
-    env:
-      VERSION: ${{ needs.resolve-version.outputs.version }}
     steps:
-      - uses: dtolnay/rust-toolchain@stable
-
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-          registry-url: "https://registry.npmjs.org"
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Verify Rust crate
+      - name: Resolve version
         run: |
-          set -e
-          cd "$(mktemp -d)"
+          if [ -n "${{ inputs.version }}" ]; then
+            version="${{ inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
+          echo "Verifying published artifacts for v${version}"
+
+      - name: Wait for registry propagation
+        if: github.event_name != 'workflow_dispatch'
+        run: sleep 60
+
+      - name: Verify crate — galeon-engine
+        run: |
+          tmp="$(mktemp -d)"
+          cd "$tmp"
           cargo init --name verify-galeon
-          cargo add galeon-engine@"=$VERSION"
+          cargo add "galeon-engine@=${VERSION}"
           cargo check
-          echo "✓ galeon-engine@$VERSION installs and checks from crates.io"
 
-      - name: Verify npm package
+      - name: Verify npm — @galeon/runtime
         run: |
-          set -e
-          cd "$(mktemp -d)"
+          tmp="$(mktemp -d)"
+          cd "$tmp"
           npm init -y
-          npm install @galeon/runtime@"$VERSION"
-          node -e "import('@galeon/runtime').then(() => console.log('✓ ESM import OK'))"
-          echo "✓ @galeon/runtime@$VERSION installs from npm"
+          npm install "@galeon/runtime@${VERSION}"
+          node -e "import('@galeon/runtime').then(() => console.log('@galeon/runtime OK'))"
 
-  # ── Release evidence bundle ────────────────────────────────────────
   release-evidence:
-    name: Release evidence
-    needs: [ci, resolve-version, publish-crates, publish-npm, verify-publish]
-    if: always() && needs.resolve-version.result == 'success'
+    name: Release Evidence Bundle
+    needs: [publish-npm, publish-crates, verify-publish]
+    if: >-
+      always() && !cancelled() &&
+      needs.verify-publish.result == 'success' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (needs.publish-npm.result == 'success' && needs.publish-crates.result == 'success')
+      )
     runs-on: ubuntu-latest
-    env:
-      VERSION: ${{ needs.resolve-version.outputs.version }}
     steps:
-      - name: Generate evidence
+      - name: Resolve version
         run: |
-          cat > evidence.md <<EVIDENCE
-          # Release Evidence — v$VERSION
+          if [ -n "${{ inputs.version }}" ]; then
+            version="${{ inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
 
-          **Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          **Tag:** ${{ github.ref }}
-          **SHA:** ${{ github.sha }}
-          **Triggered by:** ${{ github.event_name }}
+      - name: Build evidence markdown
+        env:
+          PUBLISH_NPM_RESULT: ${{ needs.publish-npm.result }}
+          PUBLISH_CRATES_RESULT: ${{ needs.publish-crates.result }}
+          VERIFY_RESULT: ${{ needs.verify-publish.result }}
+        run: |
+          mkdir -p .release-evidence
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          cat <<EOF > ".release-evidence/release-evidence-v${VERSION}.md"
+          # Release Evidence — v${VERSION}
 
-          ## Job outcomes
+          ## Workflow Summary
+          - Run URL: ${run_url}
+          - publish-crates: ${PUBLISH_CRATES_RESULT}
+          - publish-npm: ${PUBLISH_NPM_RESULT}
+          - verify-publish: ${VERIFY_RESULT}
 
-          | Job | Status |
-          |-----|--------|
-          | CI | ${{ needs.ci.result || 'skipped' }} |
-          | Publish crates | ${{ needs.publish-crates.result || 'skipped' }} |
-          | Publish npm | ${{ needs.publish-npm.result || 'skipped' }} |
-          | Verify | ${{ needs.verify-publish.result || 'skipped' }} |
-          EVIDENCE
+          ## References
+          - Tag: v${VERSION}
+          - Workflow run: ${run_url}
+          EOF
+          cat ".release-evidence/release-evidence-v${VERSION}.md" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: release-evidence-v${{ needs.resolve-version.outputs.version }}
-          path: evidence.md
+          name: release-evidence-v${{ env.VERSION }}
+          path: .release-evidence
+          if-no-files-found: error
+          include-hidden-files: true

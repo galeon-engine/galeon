@@ -90,9 +90,9 @@ npm pack --dry-run --workspace=packages/shell
 
 ### Verify-only (manual dispatch)
 
-Use `workflow_dispatch` to re-verify an already-published version without
-re-publishing. It reads the version from `[workspace.package] version` in
-`Cargo.toml` and checks that version exists on crates.io and npm.
+Use `workflow_dispatch` with an explicit version input to re-verify an
+already-published version without re-publishing. Installs from registries
+and checks the artifacts work.
 
 ### Manual publish (first time or fallback)
 
