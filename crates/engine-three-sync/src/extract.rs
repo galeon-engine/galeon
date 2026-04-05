@@ -81,9 +81,12 @@ pub fn extract_frame(world: &World) -> FramePacket {
 /// which fields changed.
 ///
 /// Entities are included when their `Transform` changed, when `ObjectType`
-/// changed (even if the transform did not), or when both changed in the same
-/// tick. Change flags are derived from per-column `changed_tick` values, so
-/// a row may carry only `CHANGED_OBJECT_TYPE` without `CHANGED_TRANSFORM`.
+/// changed (even if the transform did not), when `ObjectType` was **removed**
+/// (effective type falls back to mesh / `0`), or when several of these happen
+/// in the same tick. Change flags are derived from per-column `changed_tick`
+/// values where the column still exists; removals use
+/// [`World::component_removals_since`], so a row may carry only
+/// `CHANGED_OBJECT_TYPE` without `CHANGED_TRANSFORM`.
 ///
 /// # Change detection precision
 ///
@@ -94,6 +97,7 @@ pub fn extract_frame(world: &World) -> FramePacket {
 /// `query_changed` results.
 pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket {
     let mut seen: HashSet<Entity> = HashSet::new();
+    let mut object_type_removed: HashSet<Entity> = HashSet::new();
     let mut renderables: Vec<Renderable> = Vec::new();
 
     // Transform changes (including newly spawned renderables).
@@ -106,6 +110,22 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
     // ObjectType-only changes still need a frame row, but do not appear in
     // `query_changed::<Transform>` when the transform was untouched.
     for (e, _) in world.query_changed::<ObjectType>(since_tick) {
+        if seen.contains(&e) {
+            continue;
+        }
+        let Some(t) = world.get::<Transform>(e) else {
+            continue;
+        };
+        let obj_type = world.get::<ObjectType>(e).map(|o| *o as u8).unwrap_or(0);
+        renderables.push((e, t.position, t.rotation, t.scale, obj_type));
+        seen.insert(e);
+    }
+
+    // `ObjectType` removal migrates the entity out of archetypes that contain
+    // that column, so `query_changed::<ObjectType>` never sees the entity.
+    // `World::component_removals_since` closes that gap.
+    for e in world.component_removals_since::<ObjectType>(since_tick) {
+        object_type_removed.insert(e);
         if seen.contains(&e) {
             continue;
         }
@@ -165,9 +185,10 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
             {
                 flags |= CHANGED_MATERIAL;
             }
-            if arch
-                .column::<ObjectType>()
-                .is_some_and(|c| c.changed_tick(row) > since_tick)
+            if object_type_removed.contains(entity)
+                || arch
+                    .column::<ObjectType>()
+                    .is_some_and(|c| c.changed_tick(row) > since_tick)
             {
                 flags |= CHANGED_OBJECT_TYPE;
             }
@@ -482,6 +503,27 @@ mod tests {
         assert_eq!(packet.entity_count(), 1);
         assert_eq!(packet.entity_ids[0], e.index());
         assert_eq!(packet.object_types[0], ObjectType::PointLight as u8);
+        let flags = packet.change_flags[0];
+        assert!(flags & CHANGED_OBJECT_TYPE != 0);
+        assert!(flags & CHANGED_TRANSFORM == 0);
+    }
+
+    #[test]
+    fn incremental_extract_includes_object_type_removal_without_transform() {
+        let mut world = World::new();
+        let e = world.spawn((
+            Transform::from_position(1.0, 0.0, 0.0),
+            ObjectType::PointLight,
+        ));
+        let since = world.change_tick();
+        world.advance_tick();
+
+        world.remove::<ObjectType>(e);
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.entity_ids[0], e.index());
+        assert_eq!(packet.object_types[0], ObjectType::Mesh as u8);
         let flags = packet.change_flags[0];
         assert!(flags & CHANGED_OBJECT_TYPE != 0);
         assert!(flags & CHANGED_TRANSFORM == 0);

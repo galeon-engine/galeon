@@ -276,6 +276,14 @@ pub struct World {
     deadline_drainers: Vec<DeadlineDrainer>,
     /// TypeIds of deadline types registered via `add_deadline_type`.
     registered_deadlines: HashSet<TypeId>,
+    /// `(entity, component, tick)` for each successful [`World::remove::<C>`].
+    ///
+    /// Surviving components keep their `changed_tick` when an entity migrates
+    /// after a removal, so change iterators alone cannot observe that a type
+    /// is gone. Consumers such as render extraction use
+    /// [`World::component_removals_since`] to reconcile defaults (for example
+    /// implicit `ObjectType::Mesh` after `ObjectType` is removed).
+    component_removals: Vec<(Entity, TypeId, u64)>,
 }
 
 impl World {
@@ -294,6 +302,7 @@ impl World {
             registered_events: HashSet::new(),
             deadline_drainers: Vec::new(),
             registered_deadlines: HashSet::new(),
+            component_removals: Vec::new(),
         }
     }
 
@@ -309,7 +318,14 @@ impl World {
     /// Advance the change-detection tick by one. Returns the new tick value.
     pub fn advance_tick(&mut self) -> u64 {
         self.change_tick += 1;
-        self.change_tick
+        let ct = self.change_tick;
+        // Prevent unbounded growth: removals older than this window are only
+        // relevant if `since_tick` lags by more than `REMOVAL_LOG_TICK_WINDOW`,
+        // which normal game-loop extraction should not do.
+        const REMOVAL_LOG_TICK_WINDOW: u64 = 10_000;
+        self.component_removals
+            .retain(|(_, _, tick)| *tick + REMOVAL_LOG_TICK_WINDOW > ct);
+        ct
     }
 
     // -------------------------------------------------------------------------
@@ -792,6 +808,26 @@ impl World {
                 },
             );
         }
+
+        self.component_removals
+            .push((entity, c_type_id, self.change_tick));
+    }
+
+    /// Entities that had component `C` removed after `since_tick` (exclusive of
+    /// `since_tick`, inclusive of the current [`World::change_tick`]).
+    ///
+    /// Recorded only for successful [`World::remove::<C>`] calls (not despawns).
+    /// The same entity may appear more than once if removals occurred on
+    /// different ticks; callers typically deduplicate.
+    pub fn component_removals_since<C: Component>(
+        &self,
+        since_tick: u64,
+    ) -> impl Iterator<Item = Entity> + '_ {
+        let tid = TypeId::of::<C>();
+        self.component_removals
+            .iter()
+            .filter(move |(_, t, tick)| *t == tid && *tick > since_tick)
+            .map(|(e, _, _)| *e)
     }
 
     // -------------------------------------------------------------------------
@@ -1196,6 +1232,36 @@ mod tests {
     }
 
     #[test]
+    fn component_removals_since_records_successful_remove() {
+        let mut world = World::new();
+        let e = world.spawn((Pos { x: 1.0, y: 0.0 }, Vel { x: 2.0, y: 0.0 }));
+        let since = world.change_tick();
+        world.advance_tick();
+
+        world.remove::<Vel>(e);
+
+        let rem: Vec<_> = world.component_removals_since::<Vel>(since).collect();
+        assert_eq!(rem, vec![e]);
+        assert!(world
+            .component_removals_since::<Vel>(world.change_tick())
+            .next()
+            .is_none());
+    }
+
+    #[test]
+    fn component_removals_since_ignores_noop_remove() {
+        let mut world = World::new();
+        let e = world.spawn((Pos { x: 1.0, y: 0.0 },));
+        let since = world.change_tick();
+        world.advance_tick();
+
+        world.remove::<Vel>(e);
+
+        let rem: Vec<_> = world.component_removals_since::<Vel>(since).collect();
+        assert!(rem.is_empty());
+    }
+
+    #[test]
     fn insert_then_query_finds_migrated_entity() {
         let mut world = World::new();
         let e1 = world.spawn((Pos { x: 1.0, y: 0.0 },));
@@ -1377,7 +1443,7 @@ mod tests {
     fn query_mut_selective_mutation_stamps_only_mutated() {
         let mut world = World::new();
         let e1 = world.spawn((Pos { x: 1.0, y: 0.0 },));
-        let e2 = world.spawn((Pos { x: 2.0, y: 0.0 },));
+        let _e2 = world.spawn((Pos { x: 2.0, y: 0.0 },));
         world.advance_tick(); // tick → 2
 
         // Mutate only e1, read e2.
