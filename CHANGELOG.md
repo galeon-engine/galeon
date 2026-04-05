@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **CLI scaffold uses published crate** — `galeon new` templates now reference
+  `galeon-engine = "0.1"` (crates.io) instead of a git dependency, so generated
+  projects resolve against the published release rather than the live `master` branch.
+  ([#140](https://github.com/galeon-engine/galeon/issues/140))
+
 ## [0.1.1]
 
 ### Added
