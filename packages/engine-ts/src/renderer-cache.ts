@@ -23,6 +23,16 @@ export class RendererCache {
   private readonly geometries = new Map<number, THREE.BufferGeometry>();
   private readonly materials = new Map<number, THREE.Material>();
 
+  /** Last registry-resolved geometry per entity (not obj.geometry — that may be consumer-overridden). */
+  private readonly resolvedGeometries = new Map<number, THREE.BufferGeometry>();
+  /** Last registry-resolved material per entity (not obj.material — that may be consumer-overridden). */
+  private readonly resolvedMaterials = new Map<number, THREE.Material>();
+
+  /** Entities already warned about missing mesh handles (cleared when handle becomes registered). */
+  private readonly warnedMeshes = new Set<number>();
+  /** Entities already warned about missing material handles (cleared when handle becomes registered). */
+  private readonly warnedMaterials = new Set<number>();
+
   /** Fallback geometry used when a mesh handle has no registered geometry. */
   private readonly placeholderGeometry = new THREE.BoxGeometry(1, 1, 1);
   /** Fallback material used when a material handle has no registered material. */
@@ -91,20 +101,43 @@ export class RendererCache {
       if (obj && this.generations.get(entityId) !== generation) {
         this.scene.remove(obj);
         this.objects.delete(entityId);
+        this.resolvedGeometries.delete(entityId);
+        this.resolvedMaterials.delete(entityId);
+        this.warnedMeshes.delete(entityId);
+        this.warnedMaterials.delete(entityId);
         obj = undefined;
       }
 
       if (!obj) {
-        obj = this.createObject(mesh_handles[i]!, material_handles[i]!);
+        const meshHandle = mesh_handles[i]!;
+        const matHandle = material_handles[i]!;
+        const geometry = this.geometries.get(meshHandle) ?? this.placeholderGeometry;
+        const material = this.materials.get(matHandle) ?? this.placeholderMaterial;
+        obj = new THREE.Mesh(geometry, material);
         this.objects.set(entityId, obj);
         this.generations.set(entityId, generation);
+        this.resolvedGeometries.set(entityId, geometry);
+        this.resolvedMaterials.set(entityId, material);
+        this.warnMissingHandles(entityId, meshHandle, matHandle);
         this.scene.add(obj);
       } else {
-        // Update geometry/material if handles changed at runtime.
-        const geometry = this.geometries.get(mesh_handles[i]!) ?? this.placeholderGeometry;
-        const material = this.materials.get(material_handles[i]!) ?? this.placeholderMaterial;
-        if (obj.geometry !== geometry) obj.geometry = geometry;
-        if (obj.material !== material) obj.material = material;
+        // Compare the registry resolution against what we last resolved — NOT
+        // against obj.geometry/obj.material (which may be consumer-overridden).
+        // This lets consumer overrides survive while still picking up late
+        // registrations and same-handle rebinds.
+        const meshHandle = mesh_handles[i]!;
+        const matHandle = material_handles[i]!;
+        const geometry = this.geometries.get(meshHandle) ?? this.placeholderGeometry;
+        const material = this.materials.get(matHandle) ?? this.placeholderMaterial;
+        if (this.resolvedGeometries.get(entityId) !== geometry) {
+          obj.geometry = geometry;
+          this.resolvedGeometries.set(entityId, geometry);
+        }
+        if (this.resolvedMaterials.get(entityId) !== material) {
+          obj.material = material;
+          this.resolvedMaterials.set(entityId, material);
+        }
+        this.warnMissingHandles(entityId, meshHandle, matHandle);
       }
 
       // Update transform — read 10 floats at offset i * TRANSFORM_STRIDE.
@@ -139,6 +172,10 @@ export class RendererCache {
         this.scene.remove(obj);
         this.objects.delete(id);
         this.generations.delete(id);
+        this.resolvedGeometries.delete(id);
+        this.resolvedMaterials.delete(id);
+        this.warnedMeshes.delete(id);
+        this.warnedMaterials.delete(id);
       }
     }
   }
@@ -173,6 +210,10 @@ export class RendererCache {
     }
     this.objects.clear();
     this.generations.clear();
+    this.resolvedGeometries.clear();
+    this.resolvedMaterials.clear();
+    this.warnedMeshes.clear();
+    this.warnedMaterials.clear();
   }
 
   /** Dispose of placeholder resources. Call when the cache is no longer needed. */
@@ -186,9 +227,22 @@ export class RendererCache {
   // Internal
   // ---------------------------------------------------------------------------
 
-  private createObject(meshId: number, materialId: number): THREE.Mesh {
-    const geometry = this.geometries.get(meshId) ?? this.placeholderGeometry;
-    const material = this.materials.get(materialId) ?? this.placeholderMaterial;
-    return new THREE.Mesh(geometry, material);
+  private warnMissingHandles(entityId: number, meshHandle: number, matHandle: number): void {
+    if (!this.geometries.has(meshHandle)) {
+      if (!this.warnedMeshes.has(entityId)) {
+        console.warn(`[RendererCache] No geometry registered for mesh handle ${meshHandle} (entity ${entityId})`);
+        this.warnedMeshes.add(entityId);
+      }
+    } else {
+      this.warnedMeshes.delete(entityId);
+    }
+    if (!this.materials.has(matHandle)) {
+      if (!this.warnedMaterials.has(entityId)) {
+        console.warn(`[RendererCache] No material registered for handle ${matHandle} (entity ${entityId})`);
+        this.warnedMaterials.add(entityId);
+      }
+    } else {
+      this.warnedMaterials.delete(entityId);
+    }
   }
 }
