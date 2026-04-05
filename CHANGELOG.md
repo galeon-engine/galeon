@@ -9,9 +9,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **Version bump script** — `scripts/bump-version.sh X.Y.Z` updates all 6 lockstep
-  version sources (7 edits) atomically. Validates semver, checks current versions are
-  consistent, and verifies all edits after applying. Supports prerelease tags.
+- **Version bump script** — `bash scripts/bump-version.sh X.Y.Z` updates all 6
+  lockstep version sources (7 edits). Validates SemVer 2.0.0, checks current
+  versions are consistent, and rolls back if verification fails. Supports
+  prerelease and build metadata tags.
   ([#128](https://github.com/galeon-engine/galeon/issues/128))
 
 ### Changed

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 #
-# bump-version.sh — Update all 6 lockstep version sources atomically.
+# bump-version.sh — Update all 6 lockstep version sources with rollback on failure.
 #
 # Usage: scripts/bump-version.sh X.Y.Z
 #
@@ -13,9 +13,40 @@ set -euo pipefail
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
-die()    { printf 'error: %s\n' "$1" >&2; exit 1; }
-ok()     { printf '  ✓ %s\n' "$1"; }
+die()      { printf 'error: %s\n' "$1" >&2; exit 1; }
+ok()       { printf '  ✓ %s\n' "$1"; }
 strip_cr() { tr -d '\r'; }  # neutralise CRLF on Windows checkouts
+
+BACKUP_DIR=""
+ROLLBACK_NEEDED=0
+
+restore_backups() {
+  [[ $ROLLBACK_NEEDED -eq 1 ]] || return 0
+
+  for f in "${ALL_FILES[@]}"; do
+    [[ -f "$BACKUP_DIR/$f" ]] || continue
+    cp "$BACKUP_DIR/$f" "$f"
+  done
+
+  printf 'Rolled back partial changes.\n' >&2
+}
+
+cleanup() {
+  [[ -n "$BACKUP_DIR" && -d "$BACKUP_DIR" ]] && rm -rf "$BACKUP_DIR"
+}
+
+on_exit() {
+  local status=$?
+
+  if [[ $status -ne 0 ]]; then
+    restore_backups
+  fi
+
+  cleanup
+  exit "$status"
+}
+
+trap on_exit EXIT
 
 # ── Args ─────────────────────────────────────────────────────────────
 
@@ -28,8 +59,8 @@ if [[ -z "$NEW_VERSION" ]]; then
   exit 1
 fi
 
-# Validate semver (with optional prerelease/build metadata)
-if ! [[ "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9._-]+)?(\+[a-zA-Z0-9._-]+)?$ ]]; then
+# Validate SemVer 2.0.0 (with optional prerelease/build metadata)
+if ! [[ "$NEW_VERSION" =~ ^(0|[1-9][0-9]*)\.((0|[1-9][0-9]*))\.((0|[1-9][0-9]*))(-((0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(\+([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?$ ]]; then
   die "Invalid semver: '$NEW_VERSION' (expected X.Y.Z[-prerelease][+build])"
 fi
 
@@ -141,6 +172,13 @@ echo "Bumping $CURRENT → $NEW_VERSION ..."
 OLD_ESC="${CURRENT//./\\.}"
 NEW_ESC="${NEW_VERSION//./\\.}"
 
+BACKUP_DIR="$(mktemp -d)"
+for f in "${ALL_FILES[@]}"; do
+  mkdir -p "$BACKUP_DIR/$(dirname "$f")"
+  cp "$f" "$BACKUP_DIR/$f"
+done
+ROLLBACK_NEEDED=1
+
 # 1. Workspace Cargo.toml
 sed -i "/\[workspace\.package\]/,/^\[/ s/version = \"$OLD_ESC\"/version = \"$NEW_VERSION\"/" "$WORKSPACE_CARGO"
 ok "$WORKSPACE_CARGO"
@@ -194,6 +232,8 @@ verify "$SHELL_PKG"          "\"version\": \"$NEW_VERSION\""         "shell vers
 if [[ $ERRORS -gt 0 ]]; then
   die "$ERRORS verification(s) failed. Check the files manually."
 fi
+
+ROLLBACK_NEEDED=0
 
 echo ""
 echo "Done. All 7 locations updated to $NEW_VERSION."

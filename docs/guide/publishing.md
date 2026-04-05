@@ -42,8 +42,9 @@ Run the bump script from the repo root:
 bash scripts/bump-version.sh A.B.C
 ```
 
-This updates all 6 files (7 edits) atomically after verifying the current
-versions are consistent. It supports prerelease tags (`0.2.0-alpha.1`).
+This updates all 6 files (7 edits) after verifying the current versions are
+consistent, and rolls back if verification fails. It supports prerelease and
+build metadata tags (`0.2.0-alpha.1`, `0.2.0-alpha-1+build-7`).
 
 The script edits these locations:
 
