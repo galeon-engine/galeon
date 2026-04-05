@@ -56,10 +56,16 @@ impl<T: 'static> Events<T> {
     ///
     /// For render extraction that runs *after* a tick completes: events
     /// sent during tick N live in `current` until the next `update()`.
-    /// Reading both `read()` and `read_current()` eliminates the extra
-    /// tick of latency that `read()` alone would impose.
     pub fn read_current(&self) -> impl Iterator<Item = &T> {
         self.current.iter()
+    }
+
+    /// Number of events in the current (not yet swapped) buffer.
+    ///
+    /// Used by render event extractors with offset tracking to avoid
+    /// re-reading events that were already captured in a prior flush.
+    pub fn current_len(&self) -> usize {
+        self.current.len()
     }
 
     /// Advance the double buffer.

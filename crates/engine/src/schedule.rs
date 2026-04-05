@@ -58,20 +58,16 @@ impl Schedule {
     ///    events from the previous tick. Commands applied between stages.
     pub fn run(&mut self, world: &mut World) {
         // 1. Drain all overdue deadlines → writes to Events<T> current buffer.
-        //    Runs BEFORE update_events so that fired events land in `current`,
-        //    then the swap makes them immediately readable this tick.
         world.drain_all_deadlines();
 
-        // 2. Advance all event buffers: current → previous, clear current.
-        //    Events from deadline draining (step 1) + events written last tick
-        //    both move into `previous`, readable by EventReader this tick.
-        //
-        //    NOTE: deadline-fired render events are moved to `previous` here
-        //    and are NOT captured by the post-systems flush (which reads
-        //    `current`). Deadline render events have a 1-tick delivery delay.
-        //    This is acceptable: deadlines are scheduled timed cues, not
-        //    latency-sensitive impacts. System-written render events (physics
-        //    contacts, gameplay triggers) are captured at zero latency.
+        // 2. Capture deadline-fired render events from `current` BEFORE the
+        //    swap clears it. Each extractor tracks an offset into current so
+        //    it only reads events added since the last flush — no duplicates.
+        world.flush_render_events();
+
+        // 3. Advance all event buffers: current → previous, clear current.
+        //    Deadline + last-tick events move into `previous`, readable by
+        //    EventReader. Extractor offsets auto-reset when current shrinks.
         world.update_events();
 
         for stage_idx in 0..self.stage_order.len() {
@@ -84,8 +80,7 @@ impl Schedule {
             world.apply_commands();
         }
 
-        // 4. Capture system-written render events from `current` BEFORE the
-        //    next tick's update_events() swaps and clears it.
+        // 4. Capture system-written render events from `current`.
         world.flush_render_events();
     }
 
@@ -438,17 +433,21 @@ mod tests {
 
     #[test]
     fn schedule_flush_captures_deadline_fired_render_events() {
-        use crate::deadline::{Deadlines, Timestamp};
+        use crate::deadline::{Clock, Deadlines, TestClock, Timestamp};
 
         let mut world = World::new();
         world.add_event::<ImpactRenderEvent>();
         world.add_deadline_type::<ImpactRenderEvent>();
 
+        // Install a clock so drain_all_deadlines actually fires.
+        world
+            .insert_resource(Box::new(TestClock::new(Timestamp::from_micros(0))) as Box<dyn Clock>);
+
         let mut registry = RenderEventRegistry::new();
         registry.register::<ImpactRenderEvent>();
         world.insert_resource(registry);
 
-        // Schedule a deadline that fires immediately.
+        // Schedule a deadline at time 0 — clock is at 0, so it fires immediately.
         world
             .resource_mut::<Deadlines<ImpactRenderEvent>>()
             .schedule(
@@ -457,15 +456,12 @@ mod tests {
             );
 
         let mut schedule = Schedule::new();
-
-        // Tick 1: deadline fires into current, swap moves it to previous.
-        // Post-systems flush reads current (empty after swap) — not captured yet.
         schedule.run(&mut world);
+
+        // Pre-swap flush captured the deadline event before update_events cleared current.
         let events = world.resource::<RenderEventRegistry>().drain();
-        assert!(
-            events.is_empty(),
-            "deadline render events have 1-tick delay (scheduled timed cues, not impacts)"
-        );
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].entity, 99);
     }
 
     #[test]

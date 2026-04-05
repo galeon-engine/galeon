@@ -28,6 +28,7 @@
 //! ```
 
 use std::cell::RefCell;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use crate::event::Events;
 use crate::world::World;
@@ -143,16 +144,27 @@ impl RenderEventRegistry {
 
     /// Register an ECS event type for render extraction.
     ///
-    /// The type-erased extractor reads `Events<T>::current` (this tick's
-    /// events, not yet swapped by `update_events`). Called once per tick
-    /// via [`accumulate`](Self::accumulate).
+    /// Each extractor tracks an offset into `Events<T>::current` so that
+    /// multiple flushes per tick (pre-swap for deadlines, post-swap for
+    /// systems) only capture newly added events. When `current` shrinks
+    /// (after `update_events` swaps and clears it), the offset resets.
     pub fn register<T: RenderEvent>(&mut self) {
-        self.extractors.push(Box::new(|world: &World| {
+        let offset = AtomicUsize::new(0);
+        let last_epoch = AtomicU64::new(0);
+        self.extractors.push(Box::new(move |world: &World| {
             let Some(events) = world.try_resource::<Events<T>>() else {
                 return Vec::new();
             };
-            events
+            // Detect buffer swap via epoch counter — reset offset.
+            let epoch = world.event_swap_epoch();
+            if last_epoch.load(Ordering::Relaxed) != epoch {
+                offset.store(0, Ordering::Relaxed);
+                last_epoch.store(epoch, Ordering::Relaxed);
+            }
+            let skip = offset.load(Ordering::Relaxed);
+            let result: Vec<FrameEvent> = events
                 .read_current()
+                .skip(skip)
                 .map(|e| FrameEvent {
                     kind: T::KIND,
                     entity: e.entity(),
@@ -160,7 +172,9 @@ impl RenderEventRegistry {
                     intensity: e.intensity(),
                     data: e.data(),
                 })
-                .collect()
+                .collect();
+            offset.store(events.current_len(), Ordering::Relaxed);
+            result
         }));
     }
 

@@ -284,6 +284,9 @@ pub struct World {
     /// [`World::component_removals_since`] to reconcile defaults (for example
     /// implicit `ObjectType::Mesh` after `ObjectType` is removed).
     component_removals: Vec<(Entity, TypeId, u64)>,
+    /// Counter incremented each time `update_events()` swaps the double buffers.
+    /// Used by render-event extractors to detect swaps and reset their offsets.
+    event_swap_epoch: u64,
 }
 
 impl World {
@@ -303,6 +306,7 @@ impl World {
             deadline_drainers: Vec::new(),
             registered_deadlines: HashSet::new(),
             component_removals: Vec::new(),
+            event_swap_epoch: 0,
         }
     }
 
@@ -508,6 +512,13 @@ impl World {
         }
         // Restore the updaters vec (reuse the allocation).
         std::mem::swap(&mut self.event_updaters, &mut updaters);
+        self.event_swap_epoch += 1;
+    }
+
+    /// Monotonic counter incremented each time `update_events()` swaps.
+    /// Used by render-event extractors to detect swaps and reset offsets.
+    pub fn event_swap_epoch(&self) -> u64 {
+        self.event_swap_epoch
     }
 
     // -------------------------------------------------------------------------
