@@ -847,4 +847,28 @@ describe("RendererCache onEntityRemoved callback", () => {
     expect(sharedDispose).not.toHaveBeenCalled();
     expect(externalMesh.material).toBe(sharedMat);
   });
+
+  test("throwing callback does not corrupt internal maps", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.onEntityRemoved = () => {
+      throw new Error("consumer bug");
+    };
+
+    cache.applyFrame(makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      mesh_handles: new Uint32Array([10]),
+      material_handles: new Uint32Array([20]),
+    }));
+
+    expect(cache.objectCount).toBe(1);
+
+    // Removal triggers callback which throws — maps must still be cleaned up
+    expect(() => cache.applyFrame(makePacket({ entity_count: 0 }))).toThrow("consumer bug");
+    expect(cache.objectCount).toBe(0);
+    expect(cache.getObject(1, 0)).toBeUndefined();
+    expect(scene.children).toHaveLength(0);
+  });
 });

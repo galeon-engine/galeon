@@ -244,13 +244,16 @@ export class RendererCache {
    */
   private removeEntity(id: number, obj: THREE.Mesh): void {
     this.scene.remove(obj);
-    this.onEntityRemoved?.(id, this.generations.get(id)!, obj);
-    this.objects.delete(id);
-    this.generations.delete(id);
-    this.resolvedGeometries.delete(id);
-    this.resolvedMaterials.delete(id);
-    this.warnedMeshes.delete(id);
-    this.warnedMaterials.delete(id);
+    try {
+      this.onEntityRemoved?.(id, this.generations.get(id)!, obj);
+    } finally {
+      this.objects.delete(id);
+      this.generations.delete(id);
+      this.resolvedGeometries.delete(id);
+      this.resolvedMaterials.delete(id);
+      this.warnedMeshes.delete(id);
+      this.warnedMaterials.delete(id);
+    }
   }
 
   private applyTransform(obj: THREE.Mesh, i: number, transforms: Float32Array): void {
