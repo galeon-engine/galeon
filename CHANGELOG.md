@@ -17,6 +17,13 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   children are reparented to the scene root on parent removal.
   ([#135](https://github.com/galeon-engine/galeon/issues/135))
 
+- **Demand rendering — skip `applyFrame()` when nothing changed** —
+  `FramePacket` now carries a `frame_version` (sourced from `World::change_tick()`).
+  `RendererCache` early-outs when the version is unchanged and exposes a `needsRender`
+  getter so game loops can also skip `renderer.render()`. Backward-compatible: packets
+  without `frame_version` always process.
+  ([#137](https://github.com/galeon-engine/galeon/issues/137))
+
 - **`ObjectType` component and Object3D type diversity in RendererCache** —
   Entities can now specify their Three.js representation via an `ObjectType`
   component (Mesh, PointLight, DirectionalLight, LineSegments, Group). The

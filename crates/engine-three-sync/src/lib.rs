@@ -147,7 +147,8 @@ impl WasmEngine {
             4 => ObjectType::Group,
             _ => ObjectType::Mesh,
         };
-        let entity = self.engine.world_mut().spawn((
+        let world = self.engine.world_mut();
+        let entity = world.spawn((
             Transform {
                 position: [transform[0], transform[1], transform[2]],
                 rotation: [transform[3], transform[4], transform[5], transform[6]],
@@ -159,6 +160,10 @@ impl WasmEngine {
             obj_type,
             JsSpawned,
         ));
+        // Advance change_tick so the next extract_frame() produces a
+        // different frame_version, preventing the TS demand-rendering
+        // early-out from skipping the newly spawned entity.
+        world.advance_tick();
         vec![entity.index(), entity.generation()]
     }
 
@@ -173,7 +178,11 @@ impl WasmEngine {
         if world.get::<JsSpawned>(entity).is_none() {
             return false;
         }
-        world.despawn(entity)
+        let removed = world.despawn(entity);
+        if removed {
+            world.advance_tick();
+        }
+        removed
     }
 
     /// Despawn all entities that were spawned from JavaScript.
@@ -189,6 +198,9 @@ impl WasmEngine {
         let count = js_entities.len() as u32;
         for entity in js_entities {
             world.despawn(entity);
+        }
+        if count > 0 {
+            world.advance_tick();
         }
         count
     }
@@ -285,6 +297,12 @@ impl WasmFramePacket {
     #[wasm_bindgen(getter)]
     pub fn object_types(&self) -> Vec<u8> {
         self.inner.object_types.clone()
+    }
+
+    /// Monotonic frame version — consumers can skip processing when unchanged.
+    #[wasm_bindgen(getter)]
+    pub fn frame_version(&self) -> u64 {
+        self.inner.frame_version
     }
 
     /// Number of custom data channels in this frame.

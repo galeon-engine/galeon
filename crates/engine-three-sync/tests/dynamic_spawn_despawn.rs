@@ -104,6 +104,83 @@ fn js_entity_count_tracks_spawns() {
 }
 
 // -------------------------------------------------------------------------
+// Demand rendering: JS mutations must bump change_tick (#137)
+// -------------------------------------------------------------------------
+
+#[test]
+fn spawn_entity_advances_change_tick() {
+    let mut w = WasmEngine::new();
+    let tick_before = w.extract_frame().frame_version();
+
+    w.spawn_entity(DYNAMIC_MESH, DYNAMIC_MATERIAL, &IDENTITY, 0);
+
+    let tick_after = w.extract_frame().frame_version();
+    assert!(
+        tick_after > tick_before,
+        "spawn_entity must advance change_tick so demand rendering sees the new entity"
+    );
+}
+
+#[test]
+fn despawn_entity_advances_change_tick() {
+    let mut w = WasmEngine::new();
+    let id = w.spawn_entity(DYNAMIC_MESH, DYNAMIC_MATERIAL, &IDENTITY, 0);
+    let tick_before = w.extract_frame().frame_version();
+
+    assert!(w.despawn_entity(id[0], id[1]));
+
+    let tick_after = w.extract_frame().frame_version();
+    assert!(
+        tick_after > tick_before,
+        "despawn_entity must advance change_tick so demand rendering sees the removal"
+    );
+}
+
+#[test]
+fn despawn_all_js_entities_advances_change_tick() {
+    let mut w = WasmEngine::new();
+    w.spawn_entity(1, 10, &IDENTITY, 0);
+    let tick_before = w.extract_frame().frame_version();
+
+    w.despawn_all_js_entities();
+
+    let tick_after = w.extract_frame().frame_version();
+    assert!(
+        tick_after > tick_before,
+        "despawn_all_js_entities must advance change_tick so demand rendering sees the removal"
+    );
+}
+
+#[test]
+fn failed_despawn_does_not_advance_change_tick() {
+    let mut w = WasmEngine::new();
+    let tick_before = w.extract_frame().frame_version();
+
+    // Nonexistent entity — despawn returns false, tick should not advance
+    assert!(!w.despawn_entity(999, 0));
+
+    let tick_after = w.extract_frame().frame_version();
+    assert_eq!(
+        tick_after, tick_before,
+        "failed despawn must not advance change_tick"
+    );
+}
+
+#[test]
+fn despawn_all_empty_does_not_advance_change_tick() {
+    let mut w = WasmEngine::new();
+    let tick_before = w.extract_frame().frame_version();
+
+    assert_eq!(w.despawn_all_js_entities(), 0);
+
+    let tick_after = w.extract_frame().frame_version();
+    assert_eq!(
+        tick_after, tick_before,
+        "despawn_all with no JS entities must not advance change_tick"
+    );
+}
+
+// -------------------------------------------------------------------------
 // despawn_entity
 // -------------------------------------------------------------------------
 

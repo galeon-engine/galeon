@@ -102,6 +102,7 @@ pub fn extract_frame(world: &World) -> FramePacket {
     rows.sort_by_key(|row| row.depth);
 
     let mut packet = FramePacket::with_capacity(rows.len());
+    packet.frame_version = world.change_tick();
     let mut entities = Vec::with_capacity(rows.len());
 
     for row in &rows {
@@ -303,6 +304,7 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
     renderables.sort_by_key(|(entity, ..)| hierarchy_depth(world, *entity, 64));
 
     let mut packet = FramePacket::with_capacity(renderables.len());
+    packet.frame_version = world.change_tick();
 
     for (entity, position, rotation, scale, parent_id, object_type) in &renderables {
         let mut flags: u8 = 0;
@@ -889,5 +891,36 @@ mod tests {
         let packet = extract_frame_incremental(&world, since);
         assert_eq!(packet.entity_count(), 1);
         assert!(packet.change_flags[0] & CHANGED_PARENT != 0);
+    }
+
+    #[test]
+    fn extract_frame_sets_frame_version_to_change_tick() {
+        let mut world = World::new();
+        world.spawn((Transform::identity(),));
+        let packet = extract_frame(&world);
+        assert_eq!(packet.frame_version, world.change_tick());
+    }
+
+    #[test]
+    fn incremental_extract_sets_frame_version_to_change_tick() {
+        let mut world = World::new();
+        let e = world.spawn((Transform::from_position(1.0, 0.0, 0.0),));
+        let since = world.change_tick();
+        world.advance_tick();
+        world.get_mut::<Transform>(e).unwrap().position[0] = 2.0;
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.frame_version, world.change_tick());
+    }
+
+    #[test]
+    fn frame_version_changes_after_advance_tick() {
+        let mut world = World::new();
+        world.spawn((Transform::identity(),));
+
+        let v1 = extract_frame(&world).frame_version;
+        world.advance_tick();
+        let v2 = extract_frame(&world).frame_version;
+        assert!(v2 > v1);
     }
 }

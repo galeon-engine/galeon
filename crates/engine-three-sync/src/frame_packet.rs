@@ -40,6 +40,9 @@ pub struct FramePacket {
     /// Bit 4: object type, Bit 5: parent.
     /// Empty for full extractions.
     pub change_flags: Vec<u8>,
+    /// Monotonic version counter — incremented when extractable state changes.
+    /// Consumers can skip `applyFrame()` when the version hasn't changed.
+    pub frame_version: u64,
 }
 
 /// Change-flag bit positions.
@@ -70,6 +73,7 @@ impl FramePacket {
             object_types: Vec::new(),
             custom_channels: HashMap::new(),
             change_flags: Vec::new(),
+            frame_version: 0,
         }
     }
 
@@ -86,6 +90,7 @@ impl FramePacket {
             object_types: Vec::with_capacity(entity_count),
             custom_channels: HashMap::new(),
             change_flags: Vec::with_capacity(entity_count),
+            frame_version: 0,
         }
     }
 
@@ -298,6 +303,14 @@ mod tests {
         assert_eq!(p.parent_ids[1], 0);
         assert_eq!(p.object_types[0], 0);
         assert_eq!(p.object_types[1], 0);
+    }
+
+    #[test]
+    fn new_packet_has_frame_version_zero() {
+        let p = FramePacket::new();
+        assert_eq!(p.frame_version, 0);
+        let p2 = FramePacket::with_capacity(10);
+        assert_eq!(p2.frame_version, 0);
     }
 
     #[test]
