@@ -27,6 +27,8 @@
 //! }
 //! ```
 
+use std::cell::RefCell;
+
 use crate::event::Events;
 use crate::world::World;
 
@@ -95,10 +97,25 @@ pub trait RenderEvent: 'static + Send + Sync {
 // RenderEventRegistry
 // =============================================================================
 
-/// Type-erased extraction closure that drains readable events from the world.
+/// Type-erased extraction closure that reads current-tick events from the world.
 type EventExtractFn = Box<dyn Fn(&World) -> Vec<FrameEvent> + Send + Sync>;
 
-/// Resource that holds all registered render-event extractors.
+/// Resource that holds all registered render-event extractors and an
+/// accumulation buffer that survives across multiple ticks per frame.
+///
+/// # Data flow
+///
+/// ```text
+/// Each tick:  Schedule::run() → systems write EventWriter<T>
+///                             → world.flush_render_events()
+///                               reads Events<T>::current, appends to `pending`
+///                             → update_events() swaps buffers (safe — we already captured)
+///
+/// Each frame: extract_frame() → registry.drain() → moves `pending` into FramePacket
+/// ```
+///
+/// This avoids the double-buffer latency AND prevents multi-tick event loss:
+/// every tick's events accumulate until the next extraction drains them.
 ///
 /// Register event types at startup (inside a [`Plugin`](crate::engine::Plugin)):
 ///
@@ -109,6 +126,10 @@ type EventExtractFn = Box<dyn Fn(&World) -> Vec<FrameEvent> + Send + Sync>;
 /// ```
 pub struct RenderEventRegistry {
     extractors: Vec<EventExtractFn>,
+    /// Accumulation buffer: events captured across ticks via [`accumulate`],
+    /// drained once per frame by [`drain`]. Uses `RefCell` because drain is
+    /// called from `&World` (shared access) during extraction.
+    pending: RefCell<Vec<FrameEvent>>,
 }
 
 impl RenderEventRegistry {
@@ -116,17 +137,15 @@ impl RenderEventRegistry {
     pub fn new() -> Self {
         Self {
             extractors: Vec::new(),
+            pending: RefCell::new(Vec::new()),
         }
     }
 
     /// Register an ECS event type for render extraction.
     ///
-    /// During frame extraction, events of type `T` from the current tick's
-    /// buffer are converted to [`FrameEvent`]s via the [`RenderEvent`] trait.
-    /// We read only `current` (not `previous`) because extraction runs after
-    /// the tick completes — `current` has this tick's events. Reading
-    /// `previous` would cause double-delivery: those events were already in
-    /// `current` during the previous extraction.
+    /// The type-erased extractor reads `Events<T>::current` (this tick's
+    /// events, not yet swapped by `update_events`). Called once per tick
+    /// via [`accumulate`](Self::accumulate).
     pub fn register<T: RenderEvent>(&mut self) {
         self.extractors.push(Box::new(|world: &World| {
             let Some(events) = world.try_resource::<Events<T>>() else {
@@ -145,13 +164,26 @@ impl RenderEventRegistry {
         }));
     }
 
-    /// Drain all readable events from all registered types into a flat buffer.
-    pub fn extract_all(&self, world: &World) -> Vec<FrameEvent> {
-        let mut result = Vec::new();
+    /// Capture this tick's events into the accumulation buffer.
+    ///
+    /// Called by [`World::flush_render_events`] at the end of each
+    /// `Schedule::run()`, **before** `update_events()` swaps the buffers
+    /// on the next tick. This ensures every tick's events are preserved
+    /// even when multiple ticks run per render frame (same effect as
+    /// Bevy's deferred buffer swap, without changing core event semantics).
+    pub fn accumulate(&self, world: &World) {
+        let mut pending = self.pending.borrow_mut();
         for extractor in &self.extractors {
-            result.extend(extractor(world));
+            pending.extend(extractor(world));
         }
-        result
+    }
+
+    /// Take all accumulated events since the last drain.
+    ///
+    /// Called by the extraction pass to move events into the `FramePacket`.
+    /// Uses `RefCell` interior mutability so extraction can drain from `&World`.
+    pub fn drain(&self) -> Vec<FrameEvent> {
+        std::mem::take(&mut *self.pending.borrow_mut())
     }
 
     /// Number of registered event types.
@@ -239,36 +271,40 @@ mod tests {
         assert_eq!(registry.len(), 2);
     }
 
+    // Helper: accumulate + drain simulates the schedule → extraction flow.
+    fn flush_and_drain(registry: &RenderEventRegistry, world: &World) -> Vec<FrameEvent> {
+        registry.accumulate(world);
+        registry.drain()
+    }
+
     #[test]
-    fn extract_empty_when_no_events() {
+    fn drain_empty_when_no_events() {
         let mut world = World::new();
         world.add_event::<ImpactEvent>();
 
         let mut registry = RenderEventRegistry::new();
         registry.register::<ImpactEvent>();
 
-        let events = registry.extract_all(&world);
+        let events = flush_and_drain(&registry, &world);
         assert!(events.is_empty());
     }
 
     #[test]
-    fn extract_empty_when_events_resource_missing() {
+    fn drain_empty_when_events_resource_missing() {
         let world = World::new();
 
         let mut registry = RenderEventRegistry::new();
         registry.register::<ImpactEvent>();
 
-        let events = registry.extract_all(&world);
+        let events = flush_and_drain(&registry, &world);
         assert!(events.is_empty());
     }
 
     #[test]
-    fn extract_events_from_current_buffer() {
+    fn accumulate_captures_current_buffer() {
         let mut world = World::new();
         world.add_event::<ImpactEvent>();
 
-        // Send event — stays in `current` (no update_events).
-        // Extraction reads `current` directly for zero-latency delivery.
         world
             .resource_mut::<Events<ImpactEvent>>()
             .send(ImpactEvent {
@@ -280,7 +316,7 @@ mod tests {
         let mut registry = RenderEventRegistry::new();
         registry.register::<ImpactEvent>();
 
-        let events = registry.extract_all(&world);
+        let events = flush_and_drain(&registry, &world);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].kind, 1);
         assert_eq!(events[0].entity, 42);
@@ -290,7 +326,7 @@ mod tests {
     }
 
     #[test]
-    fn extract_multiple_events_same_type() {
+    fn accumulate_multiple_events_same_type() {
         let mut world = World::new();
         world.add_event::<ImpactEvent>();
 
@@ -309,14 +345,14 @@ mod tests {
         let mut registry = RenderEventRegistry::new();
         registry.register::<ImpactEvent>();
 
-        let events = registry.extract_all(&world);
+        let events = flush_and_drain(&registry, &world);
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].entity, 1);
         assert_eq!(events[1].entity, 2);
     }
 
     #[test]
-    fn extract_multiple_event_types() {
+    fn accumulate_multiple_event_types() {
         let mut world = World::new();
         world.add_event::<ImpactEvent>();
         world.add_event::<ExplosionEvent>();
@@ -339,7 +375,7 @@ mod tests {
         registry.register::<ImpactEvent>();
         registry.register::<ExplosionEvent>();
 
-        let events = registry.extract_all(&world);
+        let events = flush_and_drain(&registry, &world);
         assert_eq!(events.len(), 2);
 
         let impact = events.iter().find(|e| e.kind == 1).unwrap();
@@ -351,11 +387,14 @@ mod tests {
     }
 
     #[test]
-    fn swapped_events_not_re_extracted() {
+    fn multi_tick_accumulation_no_event_loss() {
         let mut world = World::new();
         world.add_event::<ImpactEvent>();
 
-        // Tick N: send event, then swap.
+        let mut registry = RenderEventRegistry::new();
+        registry.register::<ImpactEvent>();
+
+        // Tick 1: send, accumulate, swap.
         world
             .resource_mut::<Events<ImpactEvent>>()
             .send(ImpactEvent {
@@ -363,17 +402,76 @@ mod tests {
                 pos: [0.0; 3],
                 force: 1.0,
             });
-        // Simulates extraction after tick N (event in current → extracted).
-        // Then update_events moves it to previous for ECS readers.
+        registry.accumulate(&world);
+        world.update_events(); // swap clears current — but we already captured
+
+        // Tick 2: send, accumulate, swap.
+        world
+            .resource_mut::<Events<ImpactEvent>>()
+            .send(ImpactEvent {
+                entity_index: 2,
+                pos: [5.0; 3],
+                force: 0.5,
+            });
+        registry.accumulate(&world);
         world.update_events();
 
-        // After swap, extraction should NOT re-deliver the event
-        // (it's now in `previous`, but we only read `current`).
+        // Drain: both ticks' events present, no loss.
+        let events = registry.drain();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].entity, 1);
+        assert_eq!(events[1].entity, 2);
+    }
+
+    #[test]
+    fn drain_clears_pending() {
+        let mut world = World::new();
+        world.add_event::<ImpactEvent>();
+
         let mut registry = RenderEventRegistry::new();
         registry.register::<ImpactEvent>();
 
-        let events = registry.extract_all(&world);
-        assert!(events.is_empty());
+        world
+            .resource_mut::<Events<ImpactEvent>>()
+            .send(ImpactEvent {
+                entity_index: 1,
+                pos: [0.0; 3],
+                force: 1.0,
+            });
+        registry.accumulate(&world);
+
+        assert_eq!(registry.drain().len(), 1);
+        // Second drain returns empty — no double delivery.
+        assert!(registry.drain().is_empty());
+    }
+
+    #[test]
+    fn no_double_delivery_across_frames() {
+        let mut world = World::new();
+        world.add_event::<ImpactEvent>();
+
+        let mut registry = RenderEventRegistry::new();
+        registry.register::<ImpactEvent>();
+
+        // Frame 1: send, accumulate, drain.
+        world
+            .resource_mut::<Events<ImpactEvent>>()
+            .send(ImpactEvent {
+                entity_index: 1,
+                pos: [0.0; 3],
+                force: 1.0,
+            });
+        registry.accumulate(&world);
+        let frame1 = registry.drain();
+        assert_eq!(frame1.len(), 1);
+
+        // Swap (next tick start).
+        world.update_events();
+
+        // Frame 2: no new events, accumulate reads empty current.
+        registry.accumulate(&world);
+        let frame2 = registry.drain();
+        assert!(frame2.is_empty()); // NOT re-delivered from previous
     }
 
     #[test]
@@ -389,7 +487,6 @@ mod tests {
             fn position(&self) -> [f32; 3] {
                 [0.0; 3]
             }
-            // intensity() uses the default impl → 1.0
         }
 
         let mut world = World::new();
@@ -401,7 +498,7 @@ mod tests {
         let mut registry = RenderEventRegistry::new();
         registry.register::<MinimalEvent>();
 
-        let events = registry.extract_all(&world);
+        let events = flush_and_drain(&registry, &world);
         assert_eq!(events.len(), 1);
         assert!((events[0].intensity - 1.0).abs() < f32::EPSILON);
     }
@@ -435,17 +532,15 @@ mod tests {
         let mut registry = RenderEventRegistry::new();
         registry.register::<HitFlash>();
 
-        let events = registry.extract_all(&world);
+        let events = flush_and_drain(&registry, &world);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].kind, 50);
         assert_eq!(events[0].data, [1.0, 0.0, 0.0, 0.8]);
     }
 
     #[test]
-    fn extract_all_with_empty_registry_returns_empty() {
-        let world = World::new();
+    fn drain_with_empty_registry_returns_empty() {
         let registry = RenderEventRegistry::new();
-        let events = registry.extract_all(&world);
-        assert!(events.is_empty());
+        assert!(registry.drain().is_empty());
     }
 }

@@ -76,6 +76,12 @@ impl Schedule {
             }
             world.apply_commands();
         }
+
+        // 4. Flush render events: capture this tick's Events<T>::current
+        //    into the RenderEventRegistry accumulation buffer BEFORE the
+        //    next tick's update_events() swaps and clears it.
+        //    This ensures no events are lost across multi-tick frames.
+        world.flush_render_events();
     }
 
     /// Returns the number of registered systems.

@@ -478,6 +478,19 @@ impl World {
     /// `current`. Called automatically at the start of every
     /// [`Schedule::run()`](crate::schedule::Schedule::run) so that events
     /// written in tick N are readable in tick N+1.
+    /// Flush registered render events from `Events<T>::current` into the
+    /// [`RenderEventRegistry`] accumulation buffer.
+    ///
+    /// Called by [`Schedule::run`] after all systems, **before** the next
+    /// tick's `update_events()` swaps the buffers. This ensures every tick's
+    /// events are captured even when multiple ticks run per render frame
+    /// (same pattern as Bevy's deferred buffer swap).
+    pub fn flush_render_events(&self) {
+        if let Some(registry) = self.try_resource::<crate::render_event::RenderEventRegistry>() {
+            registry.accumulate(self);
+        }
+    }
+
     pub fn update_events(&mut self) {
         // SAFETY: We must call the updaters without holding a borrow on
         // `event_updaters` while also needing `&mut self` inside each closure.
