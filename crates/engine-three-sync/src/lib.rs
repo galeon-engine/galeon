@@ -377,4 +377,11 @@ impl WasmFramePacket {
     pub fn event_intensities(&self) -> Vec<f32> {
         self.inner.events.iter().map(|e| e.intensity).collect()
     }
+
+    /// Extra event payload as a flat Float32Array (4 floats per event).
+    /// Use for color, direction, variant ID, or any event-specific data.
+    #[wasm_bindgen(getter)]
+    pub fn event_data(&self) -> Vec<f32> {
+        self.inner.events.iter().flat_map(|e| e.data).collect()
+    }
 }

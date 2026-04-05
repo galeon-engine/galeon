@@ -23,6 +23,7 @@
 //!     fn entity(&self) -> u32 { self.entity_index }
 //!     fn position(&self) -> [f32; 3] { self.position }
 //!     fn intensity(&self) -> f32 { self.force }
+//!     // data() defaults to [0.0; 4] — override for extra payload
 //! }
 //! ```
 
@@ -36,7 +37,8 @@ use crate::world::World;
 /// A single one-shot event extracted from the ECS for TS consumption.
 ///
 /// Fixed schema optimised for audio/VFX triggers: event type, source entity,
-/// world-space position (for spatial audio), and intensity (for volume/scale).
+/// world-space position (for spatial audio), intensity (for volume/scale),
+/// and a 4-float payload for arbitrary extra data (color, direction, variant).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FrameEvent {
     /// Stable event-type identifier. Each distinct event type returns a unique
@@ -48,11 +50,14 @@ pub struct FrameEvent {
     pub position: [f32; 3],
     /// Intensity/magnitude for volume or scale. `1.0` is the default.
     pub intensity: f32,
+    /// Extra payload for event-specific data (color, direction, variant ID, etc.).
+    /// `[0.0; 4]` when unused.
+    pub data: [f32; 4],
 }
 
 /// Number of f32-equivalent values per [`FrameEvent`] in the struct-of-arrays
-/// WASM transport (kinds + entities + positions + intensities).
-pub const FRAME_EVENT_STRIDE: usize = 6;
+/// WASM transport (kinds + entities + positions + intensities + data).
+pub const FRAME_EVENT_STRIDE: usize = 10;
 
 // =============================================================================
 // RenderEvent trait
@@ -76,6 +81,13 @@ pub trait RenderEvent: 'static + Send + Sync {
     /// Intensity/magnitude for volume scaling. Defaults to `1.0`.
     fn intensity(&self) -> f32 {
         1.0
+    }
+
+    /// Extra payload for event-specific data (e.g. color `[r,g,b,a]`,
+    /// direction `[dx,dy,dz,0]`, variant ID `[id,0,0,0]`).
+    /// Defaults to `[0.0; 4]`.
+    fn data(&self) -> [f32; 4] {
+        [0.0; 4]
     }
 }
 
@@ -124,6 +136,7 @@ impl RenderEventRegistry {
                     entity: e.entity(),
                     position: e.position(),
                     intensity: e.intensity(),
+                    data: e.data(),
                 })
                 .collect()
         }));
@@ -271,6 +284,7 @@ mod tests {
         assert_eq!(events[0].entity, 42);
         assert_eq!(events[0].position, [1.0, 2.0, 3.0]);
         assert!((events[0].intensity - 0.75).abs() < f32::EPSILON);
+        assert_eq!(events[0].data, [0.0; 4]);
     }
 
     #[test]
@@ -386,6 +400,42 @@ mod tests {
         let events = registry.extract_all(&world);
         assert_eq!(events.len(), 1);
         assert!((events[0].intensity - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn custom_data_payload() {
+        #[derive(Debug)]
+        struct HitFlash {
+            color: [f32; 4],
+        }
+
+        impl RenderEvent for HitFlash {
+            const KIND: u32 = 50;
+            fn entity(&self) -> u32 {
+                0
+            }
+            fn position(&self) -> [f32; 3] {
+                [0.0; 3]
+            }
+            fn data(&self) -> [f32; 4] {
+                self.color
+            }
+        }
+
+        let mut world = World::new();
+        world.add_event::<HitFlash>();
+        world.resource_mut::<Events<HitFlash>>().send(HitFlash {
+            color: [1.0, 0.0, 0.0, 0.8],
+        });
+        world.update_events();
+
+        let mut registry = RenderEventRegistry::new();
+        registry.register::<HitFlash>();
+
+        let events = registry.extract_all(&world);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, 50);
+        assert_eq!(events[0].data, [1.0, 0.0, 0.0, 0.8]);
     }
 
     #[test]

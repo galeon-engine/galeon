@@ -54,6 +54,8 @@ export interface FramePacketView {
   readonly event_positions: Float32Array;
   /** Event intensities (one f32 per event). */
   readonly event_intensities: Float32Array;
+  /** Extra event payload (4 floats per event: color, direction, variant, etc.). */
+  readonly event_data: Float32Array;
 }
 
 /** Number of f32 values per entity in the transforms array. */

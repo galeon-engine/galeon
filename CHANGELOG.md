@@ -14,8 +14,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Games implement `RenderEvent` on their event types and register them with
   `RenderEventRegistry`. Events are extracted alongside transforms into
   `FramePacket::events` as fixed-schema `FrameEvent` structs (kind, entity,
-  position, intensity). The WASM bridge exposes struct-of-arrays getters
-  (`event_kinds`, `event_entities`, `event_positions`, `event_intensities`).
+  position, intensity, data). Each event carries a 4-float `data` payload for
+  arbitrary extra parameters (color, direction, variant ID). The WASM bridge
+  exposes struct-of-arrays getters (`event_kinds`, `event_entities`,
+  `event_positions`, `event_intensities`, `event_data`).
   Both full and incremental extraction paths include events.
   ([#86](https://github.com/galeon-engine/galeon/issues/86))
 
