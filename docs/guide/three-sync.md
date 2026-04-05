@@ -245,7 +245,9 @@ cache.applyFrame(packet);
   behave as a full update (same end state as before).
 - `ObjectType` changes recreate the managed Three.js object while preserving
   the entity slot and hierarchy attachment.
-- Missing IDs (were present last frame) → remove from scene.
+- Missing IDs in **full** packets (no `change_flags`) → remove from scene.
+  Incremental packets only include changed entities, so missing IDs do
+  **not** trigger removal — absence means unchanged, not despawned.
 - Unknown mesh/material handles → placeholder (magenta wireframe box).
 - **Custom channels** (`custom_channel_*`) → copied into `userData` for every entity
   in the packet on every frame. They are **not** gated by `change_flags` today
