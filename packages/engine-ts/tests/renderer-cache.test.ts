@@ -4,8 +4,12 @@ import { describe, expect, test, spyOn, mock } from "bun:test";
 import * as THREE from "three";
 import { RendererCache, GALEON_ENTITY_KEY } from "../src/renderer-cache.js";
 import {
+  CHANGED_OBJECT_TYPE,
+  CHANGED_PARENT,
   CHANGED_TRANSFORM,
   CHANGED_VISIBILITY,
+  ObjectType,
+  SCENE_ROOT,
   TRANSFORM_STRIDE,
   type FramePacketView,
 } from "../src/types.js";
@@ -38,6 +42,7 @@ describe("RendererCache custom channels", () => {
       visibility: new Uint8Array([1, 1]),
       mesh_handles: new Uint32Array([10, 10]),
       material_handles: new Uint32Array([20, 20]),
+      parent_ids: new Uint32Array([SCENE_ROOT, SCENE_ROOT]),
       custom_channel_count: 2,
       custom_channel_name_at(index: number): string {
         nameCalls += 1;
@@ -85,6 +90,7 @@ function makePacket(overrides: Partial<FramePacketView> & { entity_count: number
     visibility: new Uint8Array(n).fill(1),
     mesh_handles: new Uint32Array(n),
     material_handles: new Uint32Array(n),
+    parent_ids: new Uint32Array(n).fill(SCENE_ROOT),
     custom_channel_count: 0,
     custom_channel_name_at: () => "",
     custom_channel_stride: () => 0,
@@ -157,7 +163,7 @@ describe("RendererCache change_flags", () => {
         material_handles: new Uint32Array([1]),
       }),
     );
-    const obj = cache.getObject(10, 0)!;
+    const obj = cache.getObject(10, 0)! as THREE.Mesh;
     expect(obj.material).toBe(matA);
     expect(obj.geometry).toBe(geoA);
 
@@ -174,6 +180,102 @@ describe("RendererCache change_flags", () => {
 
     expect(obj.material).toBe(matA);
     expect(obj.geometry).toBe(geoA);
+  });
+});
+
+describe("RendererCache hierarchy", () => {
+  test("parents a child object under its parent on full frames", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    cache.applyFrame(makePacket({
+      entity_count: 2,
+      entity_ids: new Uint32Array([1, 2]),
+      entity_generations: new Uint32Array([0, 0]),
+      object_types: new Uint8Array([ObjectType.Group, ObjectType.Mesh]),
+      parent_ids: new Uint32Array([SCENE_ROOT, 1]),
+    }));
+
+    const parent = cache.getObject(1, 0)!;
+    const child = cache.getObject(2, 0)!;
+    expect(child.parent).toBe(parent);
+  });
+
+  test("CHANGED_PARENT reparents an existing child", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    cache.applyFrame(makePacket({
+      entity_count: 3,
+      entity_ids: new Uint32Array([1, 2, 3]),
+      entity_generations: new Uint32Array([0, 0, 0]),
+      object_types: new Uint8Array([ObjectType.Group, ObjectType.Group, ObjectType.Mesh]),
+      parent_ids: new Uint32Array([SCENE_ROOT, SCENE_ROOT, 1]),
+    }));
+
+    cache.applyFrame(makePacket({
+      entity_count: 3,
+      entity_ids: new Uint32Array([1, 2, 3]),
+      entity_generations: new Uint32Array([0, 0, 0]),
+      object_types: new Uint8Array([ObjectType.Group, ObjectType.Group, ObjectType.Mesh]),
+      parent_ids: new Uint32Array([SCENE_ROOT, SCENE_ROOT, 2]),
+      change_flags: new Uint8Array([0, 0, CHANGED_PARENT]),
+    }));
+
+    const newParent = cache.getObject(2, 0)!;
+    const child = cache.getObject(3, 0)!;
+    expect(child.parent).toBe(newParent);
+  });
+
+  test("removing a parent reparents its children to the scene root", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    cache.applyFrame(makePacket({
+      entity_count: 2,
+      entity_ids: new Uint32Array([1, 2]),
+      entity_generations: new Uint32Array([0, 0]),
+      object_types: new Uint8Array([ObjectType.Group, ObjectType.Mesh]),
+      parent_ids: new Uint32Array([SCENE_ROOT, 1]),
+    }));
+
+    cache.applyFrame(makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([2]),
+      entity_generations: new Uint32Array([0]),
+      object_types: new Uint8Array([ObjectType.Mesh]),
+      parent_ids: new Uint32Array([SCENE_ROOT]),
+    }));
+
+    const child = cache.getObject(2, 0)!;
+    expect(child.parent).toBe(scene);
+  });
+
+  test("object-type replacement keeps children attached when parent id is unchanged", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    cache.applyFrame(makePacket({
+      entity_count: 2,
+      entity_ids: new Uint32Array([1, 2]),
+      entity_generations: new Uint32Array([0, 0]),
+      object_types: new Uint8Array([ObjectType.Group, ObjectType.Mesh]),
+      parent_ids: new Uint32Array([SCENE_ROOT, 1]),
+    }));
+
+    cache.applyFrame(makePacket({
+      entity_count: 2,
+      entity_ids: new Uint32Array([1, 2]),
+      entity_generations: new Uint32Array([0, 0]),
+      object_types: new Uint8Array([ObjectType.PointLight, ObjectType.Mesh]),
+      parent_ids: new Uint32Array([SCENE_ROOT, 1]),
+      change_flags: new Uint8Array([CHANGED_OBJECT_TYPE, 0]),
+    }));
+
+    const parent = cache.getObject(1, 0)!;
+    const child = cache.getObject(2, 0)!;
+    expect(parent).toBeInstanceOf(THREE.PointLight);
+    expect(child.parent).toBe(parent);
   });
 });
 
@@ -199,7 +301,7 @@ describe("RendererCache handle-based tracking", () => {
 
     // Frame 1: entity created with registered material
     cache.applyFrame(packet);
-    const obj = cache.getObject(42, 0)!;
+    const obj = cache.getObject(42, 0)! as THREE.Mesh;
     expect(obj.material).toBe(registeredMat);
 
     // Consumer overrides material (e.g. multi-material array for per-face texturing)
@@ -235,7 +337,7 @@ describe("RendererCache handle-based tracking", () => {
     });
 
     cache.applyFrame(packet);
-    const obj = cache.getObject(7, 0)!;
+    const obj = cache.getObject(7, 0)! as THREE.Mesh;
     expect(obj.geometry).toBe(registeredGeo);
 
     // Consumer overrides geometry
@@ -272,7 +374,7 @@ describe("RendererCache handle-based tracking", () => {
     });
 
     cache.applyFrame(packet1);
-    const obj = cache.getObject(10, 0)!;
+    const obj = cache.getObject(10, 0)! as THREE.Mesh;
     expect(obj.material).toBe(matA);
     expect(obj.geometry).toBe(geoA);
 
@@ -372,7 +474,7 @@ describe("RendererCache handle-based tracking", () => {
 
     cache.applyFrame(packet2);
     expect(cache.objectCount).toBe(1);
-    const obj = cache.getObject(50, 1)!;
+    const obj = cache.getObject(50, 1)! as THREE.Mesh;
     expect(obj.material).toBe(mat2);
     expect(obj.geometry).toBe(geo2);
   });
@@ -448,7 +550,7 @@ describe("RendererCache handle-based tracking", () => {
     });
 
     cache.applyFrame(packet);
-    const obj = cache.getObject(1, 0)!;
+    const obj = cache.getObject(1, 0)! as THREE.Mesh;
     expect(warnSpy).toHaveBeenCalledTimes(2);
 
     // Register the assets after rendering started
@@ -493,7 +595,7 @@ describe("RendererCache handle-based tracking", () => {
     });
 
     cache.applyFrame(packet);
-    const obj = cache.getObject(10, 0)!;
+    const obj = cache.getObject(10, 0)! as THREE.Mesh;
     expect(obj.geometry).toBe(geoA);
     expect(obj.material).toBe(matA);
 
@@ -645,6 +747,7 @@ describe("RendererCache userData[GALEON_ENTITY_KEY] back-pointer", () => {
       visibility: new Uint8Array([1]),
       mesh_handles: new Uint32Array([1]),
       material_handles: new Uint32Array([1]),
+      parent_ids: new Uint32Array([SCENE_ROOT]),
       custom_channel_count: 1,
       custom_channel_name_at: () => "__galeon",
       custom_channel_stride: () => 1,
@@ -686,7 +789,7 @@ describe("RendererCache onEntityRemoved callback", () => {
   test("fires on entity disappearance with correct entityId, generation, and mesh", () => {
     const scene = new THREE.Scene();
     const cache = new RendererCache(scene);
-    const calls: { entityId: number; generation: number; obj: THREE.Mesh }[] = [];
+    const calls: { entityId: number; generation: number; obj: THREE.Object3D }[] = [];
     cache.onEntityRemoved = (entityId, generation, obj) => {
       calls.push({ entityId, generation, obj });
     };
@@ -773,7 +876,7 @@ describe("RendererCache onEntityRemoved callback", () => {
       material_handles: new Uint32Array([20]),
     }));
 
-    const obj = cache.getObject(1, 0)!;
+    const obj = cache.getObject(1, 0)! as THREE.Mesh;
     const customGeo = new THREE.ConeGeometry(1, 2);
     const customMat = new THREE.MeshStandardMaterial({ color: 0x0000ff });
     obj.geometry = customGeo;
@@ -785,9 +888,10 @@ describe("RendererCache onEntityRemoved callback", () => {
     customMat.dispose = matDispose;
 
     cache.onEntityRemoved = (_id, _gen, mesh) => {
-      mesh.geometry.dispose();
-      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      for (const m of mats) (m as THREE.Material).dispose();
+      const m = mesh as THREE.Mesh;
+      m.geometry.dispose();
+      const mats = Array.isArray(m.material) ? m.material : [m.material];
+      for (const mat of mats) (mat as THREE.Material).dispose();
     };
 
     cache.applyFrame(makePacket({ entity_count: 0 }));
@@ -807,7 +911,7 @@ describe("RendererCache onEntityRemoved callback", () => {
       material_handles: new Uint32Array([20]),
     }));
 
-    const obj = cache.getObject(1, 0)!;
+    const obj = cache.getObject(1, 0)! as THREE.Mesh;
     const customMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
     obj.material = customMat;
 
@@ -831,7 +935,7 @@ describe("RendererCache onEntityRemoved callback", () => {
       material_handles: new Uint32Array([20]),
     }));
 
-    const obj = cache.getObject(1, 0)!;
+    const obj = cache.getObject(1, 0)! as THREE.Mesh;
     const sharedMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
     obj.material = sharedMat;
 
@@ -870,5 +974,201 @@ describe("RendererCache onEntityRemoved callback", () => {
     expect(cache.objectCount).toBe(0);
     expect(cache.getObject(1, 0)).toBeUndefined();
     expect(scene.children).toHaveLength(0);
+  });
+});
+
+describe("RendererCache Object3D type diversity", () => {
+  test("creates THREE.Mesh for ObjectType 0 (default)", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(1, new THREE.BoxGeometry());
+    cache.registerMaterial(1, new THREE.MeshBasicMaterial());
+
+    cache.applyFrame(makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      mesh_handles: new Uint32Array([1]),
+      material_handles: new Uint32Array([1]),
+      object_types: new Uint8Array([0]),
+    }));
+
+    const obj = cache.getObject(1, 0)!;
+    expect(obj).toBeInstanceOf(THREE.Mesh);
+  });
+
+  test("creates THREE.PointLight for ObjectType 1", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    cache.applyFrame(makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      object_types: new Uint8Array([1]),
+    }));
+
+    const obj = cache.getObject(1, 0)!;
+    expect(obj).toBeInstanceOf(THREE.PointLight);
+  });
+
+  test("creates THREE.DirectionalLight for ObjectType 2", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    cache.applyFrame(makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      object_types: new Uint8Array([2]),
+    }));
+
+    const obj = cache.getObject(1, 0)!;
+    expect(obj).toBeInstanceOf(THREE.DirectionalLight);
+  });
+
+  test("creates THREE.LineSegments for ObjectType 3", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(1, new THREE.BufferGeometry());
+    cache.registerMaterial(1, new THREE.LineBasicMaterial());
+
+    cache.applyFrame(makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      mesh_handles: new Uint32Array([1]),
+      material_handles: new Uint32Array([1]),
+      object_types: new Uint8Array([3]),
+    }));
+
+    const obj = cache.getObject(1, 0)!;
+    expect(obj).toBeInstanceOf(THREE.LineSegments);
+  });
+
+  test("creates THREE.Group for ObjectType 4", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    cache.applyFrame(makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      object_types: new Uint8Array([4]),
+    }));
+
+    const obj = cache.getObject(1, 0)!;
+    expect(obj).toBeInstanceOf(THREE.Group);
+  });
+
+  test("lights ignore geometry and material handles", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+
+    cache.applyFrame(makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      mesh_handles: new Uint32Array([99]),
+      material_handles: new Uint32Array([88]),
+      object_types: new Uint8Array([1]), // PointLight
+    }));
+
+    // Lights should NOT warn about missing mesh/material handles
+    expect(warnSpy).toHaveBeenCalledTimes(0);
+    warnSpy.mockRestore();
+  });
+
+  test("mixed object types in one frame", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(1, new THREE.BoxGeometry());
+    cache.registerMaterial(1, new THREE.MeshBasicMaterial());
+
+    cache.applyFrame(makePacket({
+      entity_count: 3,
+      entity_ids: new Uint32Array([1, 2, 3]),
+      entity_generations: new Uint32Array([0, 0, 0]),
+      mesh_handles: new Uint32Array([1, 0, 1]),
+      material_handles: new Uint32Array([1, 0, 1]),
+      object_types: new Uint8Array([0, 1, 3]), // Mesh, PointLight, LineSegments
+    }));
+
+    expect(cache.getObject(1, 0)).toBeInstanceOf(THREE.Mesh);
+    expect(cache.getObject(2, 0)).toBeInstanceOf(THREE.PointLight);
+    expect(cache.getObject(3, 0)).toBeInstanceOf(THREE.LineSegments);
+    expect(cache.objectCount).toBe(3);
+  });
+
+  test("absent object_types array defaults to Mesh", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(1, new THREE.BoxGeometry());
+    cache.registerMaterial(1, new THREE.MeshBasicMaterial());
+
+    cache.applyFrame(makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      mesh_handles: new Uint32Array([1]),
+      material_handles: new Uint32Array([1]),
+    }));
+
+    expect(cache.getObject(1, 0)).toBeInstanceOf(THREE.Mesh);
+  });
+
+  test("recreates Three.js object when object_types discriminant changes", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(1, new THREE.BoxGeometry());
+    cache.registerMaterial(1, new THREE.MeshBasicMaterial());
+
+    cache.applyFrame(
+      makePacket({
+        entity_count: 1,
+        entity_ids: new Uint32Array([1]),
+        entity_generations: new Uint32Array([0]),
+        mesh_handles: new Uint32Array([1]),
+        material_handles: new Uint32Array([1]),
+        object_types: new Uint8Array([0]),
+      }),
+    );
+    const mesh = cache.getObject(1, 0)!;
+    expect(mesh).toBeInstanceOf(THREE.Mesh);
+
+    cache.applyFrame(
+      makePacket({
+        entity_count: 1,
+        entity_ids: new Uint32Array([1]),
+        entity_generations: new Uint32Array([0]),
+        mesh_handles: new Uint32Array([1]),
+        material_handles: new Uint32Array([1]),
+        object_types: new Uint8Array([1]),
+        change_flags: new Uint8Array([CHANGED_OBJECT_TYPE]),
+      }),
+    );
+
+    const light = cache.getObject(1, 0)!;
+    expect(light).toBeInstanceOf(THREE.PointLight);
+    expect(light).not.toBe(mesh);
+  });
+
+  test("onEntityRemoved fires with Object3D for non-Mesh types", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    const removed: THREE.Object3D[] = [];
+    cache.onEntityRemoved = (_id, _gen, obj) => { removed.push(obj); };
+
+    cache.applyFrame(makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      object_types: new Uint8Array([1]), // PointLight
+    }));
+
+    cache.applyFrame(makePacket({ entity_count: 0 }));
+    expect(removed.length).toBe(1);
+    expect(removed[0]).toBeInstanceOf(THREE.PointLight);
   });
 });

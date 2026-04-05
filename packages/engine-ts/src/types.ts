@@ -8,8 +8,10 @@ export const CHANGED_VISIBILITY = 1 << 1;
 export const CHANGED_MESH = 1 << 2;
 /** Material handle changed — matches Rust `CHANGED_MATERIAL`. */
 export const CHANGED_MATERIAL = 1 << 3;
+/** Object type changed — matches Rust `CHANGED_OBJECT_TYPE`. */
+export const CHANGED_OBJECT_TYPE = 1 << 4;
 /** Parent entity changed — matches Rust `CHANGED_PARENT`. */
-export const CHANGED_PARENT = 1 << 4;
+export const CHANGED_PARENT = 1 << 5;
 
 /** Sentinel value meaning "child of scene root" (no parent entity). Matches Rust `SCENE_ROOT`. */
 export const SCENE_ROOT = 0xffff_ffff;
@@ -32,6 +34,8 @@ export interface FramePacketView {
   readonly parent_ids: Uint32Array;
   /** Set for incremental extraction; omit or empty for full frames (all fields apply). */
   readonly change_flags?: Uint8Array;
+  /** Object type per entity (0=Mesh, 1=PointLight, 2=DirectionalLight, 3=LineSegments, 4=Group). */
+  readonly object_types?: Uint8Array;
   readonly custom_channel_count: number;
   custom_channel_name_at(index: number): string;
   custom_channel_stride(name: string): number;
@@ -40,3 +44,12 @@ export interface FramePacketView {
 
 /** Number of f32 values per entity in the transforms array. */
 export const TRANSFORM_STRIDE = 10;
+
+/** Object type discriminant — values match Rust `ObjectType` repr(u8). */
+export const enum ObjectType {
+  Mesh = 0,
+  PointLight = 1,
+  DirectionalLight = 2,
+  LineSegments = 3,
+  Group = 4,
+}
