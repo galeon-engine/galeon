@@ -36,7 +36,17 @@ versions are kept in sync manually. Internal dependencies use exact pins
 
 ### Version bump checklist
 
-When bumping from `X.Y.Z` to `A.B.C`:
+Run the bump script from the repo root:
+
+```bash
+bash scripts/bump-version.sh A.B.C
+```
+
+This updates all 6 files (7 edits) after verifying the current versions are
+consistent, and rolls back if verification fails. It supports prerelease and
+build metadata tags (`0.2.0-alpha.1`, `0.2.0-alpha-1+build-7`).
+
+The script edits these locations:
 
 1. `Cargo.toml` → `[workspace.package] version = "A.B.C"`
 2. `crates/engine/Cargo.toml` → `galeon-engine-macros = { …, version = "=A.B.C" }`
@@ -44,6 +54,9 @@ When bumping from `X.Y.Z` to `A.B.C`:
 4. `packages/runtime/package.json` → `"version": "A.B.C"`
 5. `packages/engine-ts/package.json` → `"version": "A.B.C"` **and** `"@galeon/runtime": "=A.B.C"`
 6. `packages/shell/package.json` → `"version": "A.B.C"`
+
+After running, manually update the changelog:
+
 7. `CHANGELOG.md` → move `## Unreleased` items under `## [A.B.C]`
 
 ## Path dependencies and versions (Rust)
@@ -78,8 +91,8 @@ npm pack --dry-run --workspace=packages/shell
 
 ## Release procedure
 
-1. Follow the **version bump checklist** above.
-2. Commit: `git commit -am "release: vA.B.C"`
+1. Run `bash scripts/bump-version.sh A.B.C` (see version bump checklist above).
+2. Update `CHANGELOG.md`, then commit: `git commit -am "release: vA.B.C"`
 3. Tag: `git tag vA.B.C && git push origin master vA.B.C`
 4. The **Release** workflow triggers automatically:
    - CI runs first (reused via `workflow_call`)
