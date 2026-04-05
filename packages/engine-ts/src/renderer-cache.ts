@@ -16,6 +16,12 @@ import { type FramePacketView, TRANSFORM_STRIDE } from "./types.js";
  * Geometry and material are resolved via user-provided registries. If no
  * registry entry exists for a handle, a placeholder is used.
  */
+/**
+ * Symbol key for the entity back-pointer stamped on every managed Three.js object's `userData`.
+ * Using a Symbol avoids namespace collisions with string-keyed custom render channels.
+ */
+export const GALEON_ENTITY_KEY: unique symbol = Symbol.for("galeon.entity");
+
 export class RendererCache {
   private readonly scene: THREE.Scene;
   private readonly objects = new Map<number, THREE.Mesh>();
@@ -120,6 +126,7 @@ export class RendererCache {
         this.resolvedGeometries.set(entityId, geometry);
         this.resolvedMaterials.set(entityId, material);
         this.warnMissingHandles(entityId, meshHandle, matHandle);
+        obj.userData[GALEON_ENTITY_KEY] = { entityId, generation };
         this.scene.add(obj);
       } else {
         // Compare the registry resolution against what we last resolved — NOT

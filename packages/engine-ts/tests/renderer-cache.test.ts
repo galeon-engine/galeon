@@ -2,7 +2,7 @@
 
 import { describe, expect, test, spyOn } from "bun:test";
 import * as THREE from "three";
-import { RendererCache } from "../src/renderer-cache.js";
+import { RendererCache, GALEON_ENTITY_KEY } from "../src/renderer-cache.js";
 import { TRANSFORM_STRIDE, type FramePacketView } from "../src/types.js";
 
 function makeTransforms(entityCount: number): Float32Array {
@@ -469,11 +469,8 @@ describe("RendererCache matrix management", () => {
     cache.registerMaterial(1, new THREE.MeshBasicMaterial());
 
     const transforms = new Float32Array(TRANSFORM_STRIDE);
-    // position: (2, 3, 4)
     transforms[0] = 2; transforms[1] = 3; transforms[2] = 4;
-    // quaternion (x, y, z, w): identity
     transforms[3] = 0; transforms[4] = 0; transforms[5] = 0; transforms[6] = 1;
-    // scale: (1, 2, 0.5)
     transforms[7] = 1; transforms[8] = 2; transforms[9] = 0.5;
 
     const packet = makePacket({
@@ -496,5 +493,98 @@ describe("RendererCache matrix management", () => {
     );
 
     expect(obj.matrix.elements).toEqual(expected.elements);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #136: userData[GALEON_ENTITY_KEY] back-pointer metadata
+// ---------------------------------------------------------------------------
+
+describe("RendererCache userData[GALEON_ENTITY_KEY] back-pointer", () => {
+  test("stamps entityId and generation on object creation", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    const packet = makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      mesh_handles: new Uint32Array([1]),
+      material_handles: new Uint32Array([1]),
+    });
+
+    cache.applyFrame(packet);
+    expect(scene.children[0]?.userData[GALEON_ENTITY_KEY]).toEqual({ entityId: 1, generation: 0 });
+  });
+
+  test("new object after stale-generation eviction has updated generation in userData[GALEON_ENTITY_KEY]", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    const packetGen0 = makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      mesh_handles: new Uint32Array([1]),
+      material_handles: new Uint32Array([1]),
+    });
+
+    cache.applyFrame(packetGen0);
+    expect(scene.children[0]?.userData[GALEON_ENTITY_KEY]).toEqual({ entityId: 1, generation: 0 });
+
+    const packetGen1 = makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([1]),
+      mesh_handles: new Uint32Array([1]),
+      material_handles: new Uint32Array([1]),
+    });
+
+    cache.applyFrame(packetGen1);
+    expect(scene.children[0]?.userData[GALEON_ENTITY_KEY]).toEqual({ entityId: 1, generation: 1 });
+  });
+
+  test("custom channel with any string key cannot overwrite Symbol-keyed back-pointer", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    const packet: FramePacketView = {
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      transforms: makeTransforms(1),
+      visibility: new Uint8Array([1]),
+      mesh_handles: new Uint32Array([1]),
+      material_handles: new Uint32Array([1]),
+      custom_channel_count: 1,
+      custom_channel_name_at: () => "__galeon",
+      custom_channel_stride: () => 1,
+      custom_channel_data: () => new Float32Array([999]),
+    };
+
+    cache.applyFrame(packet);
+    const obj = cache.getObject(1, 0)!;
+    expect(obj.userData["__galeon"]).toBe(999);
+    expect(obj.userData[GALEON_ENTITY_KEY]).toEqual({ entityId: 1, generation: 0 });
+  });
+
+  test("entity removal leaves no objects in scene", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    const packet = makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      mesh_handles: new Uint32Array([1]),
+      material_handles: new Uint32Array([1]),
+    });
+
+    cache.applyFrame(packet);
+    expect(cache.objectCount).toBe(1);
+
+    const emptyPacket = makePacket({ entity_count: 0 });
+    cache.applyFrame(emptyPacket);
+    expect(cache.objectCount).toBe(0);
   });
 });
