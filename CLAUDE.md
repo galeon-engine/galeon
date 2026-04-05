@@ -106,4 +106,5 @@ bun run check        # Type-check all packages (tsc --build)
 - **Data format**: RON for game data, TOML for config
 - **Docs**: Update `docs/guide/` and `CHANGELOG.md` with every PR
 - **No competitor references**: In committed code/docs, describe Galeon on its own merits
+- **Prior-art research**: Before implementing any non-trivial system, study how battle-tested OSS libraries solve the same problem. If we believe we can do better, read their git history (issues, reverted commits, regression fixes) first — learn from their mistakes before diverging. Reference projects belong in the vault (`galeon-engine/`), never in committed code.
 - **Default branch**: `master`
