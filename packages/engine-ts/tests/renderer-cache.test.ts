@@ -2,7 +2,7 @@
 
 import { describe, expect, test, spyOn } from "bun:test";
 import * as THREE from "three";
-import { RendererCache } from "../src/renderer-cache.js";
+import { RendererCache, GALEON_ENTITY_KEY } from "../src/renderer-cache.js";
 import { TRANSFORM_STRIDE, type FramePacketView } from "../src/types.js";
 
 function makeTransforms(entityCount: number): Float32Array {
@@ -420,10 +420,10 @@ describe("RendererCache handle-based tracking", () => {
 });
 
 // ---------------------------------------------------------------------------
-// #136: userData.__galeon back-pointer metadata
+// #136: userData[GALEON_ENTITY_KEY] back-pointer metadata
 // ---------------------------------------------------------------------------
 
-describe("RendererCache userData.__galeon back-pointer", () => {
+describe("RendererCache userData[GALEON_ENTITY_KEY] back-pointer", () => {
   test("stamps entityId and generation on object creation", () => {
     const scene = new THREE.Scene();
     const cache = new RendererCache(scene);
@@ -437,10 +437,10 @@ describe("RendererCache userData.__galeon back-pointer", () => {
     });
 
     cache.applyFrame(packet);
-    expect(scene.children[0]?.userData.__galeon).toEqual({ entityId: 1, generation: 0 });
+    expect(scene.children[0]?.userData[GALEON_ENTITY_KEY]).toEqual({ entityId: 1, generation: 0 });
   });
 
-  test("new object after stale-generation eviction has updated generation in userData.__galeon", () => {
+  test("new object after stale-generation eviction has updated generation in userData[GALEON_ENTITY_KEY]", () => {
     const scene = new THREE.Scene();
     const cache = new RendererCache(scene);
 
@@ -453,7 +453,7 @@ describe("RendererCache userData.__galeon back-pointer", () => {
     });
 
     cache.applyFrame(packetGen0);
-    expect(scene.children[0]?.userData.__galeon).toEqual({ entityId: 1, generation: 0 });
+    expect(scene.children[0]?.userData[GALEON_ENTITY_KEY]).toEqual({ entityId: 1, generation: 0 });
 
     const packetGen1 = makePacket({
       entity_count: 1,
@@ -464,7 +464,33 @@ describe("RendererCache userData.__galeon back-pointer", () => {
     });
 
     cache.applyFrame(packetGen1);
-    expect(scene.children[0]?.userData.__galeon).toEqual({ entityId: 1, generation: 1 });
+    expect(scene.children[0]?.userData[GALEON_ENTITY_KEY]).toEqual({ entityId: 1, generation: 1 });
+  });
+
+  test("custom channel with any string key cannot overwrite Symbol-keyed back-pointer", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    const packet: FramePacketView = {
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      transforms: makeTransforms(1),
+      visibility: new Uint8Array([1]),
+      mesh_handles: new Uint32Array([1]),
+      material_handles: new Uint32Array([1]),
+      custom_channel_count: 1,
+      custom_channel_name_at: () => "__galeon",
+      custom_channel_stride: () => 1,
+      custom_channel_data: () => new Float32Array([999]),
+    };
+
+    cache.applyFrame(packet);
+    const obj = cache.getObject(1, 0)!;
+    // String-keyed channel writes to userData["__galeon"]
+    expect(obj.userData["__galeon"]).toBe(999);
+    // Symbol-keyed back-pointer is untouched
+    expect(obj.userData[GALEON_ENTITY_KEY]).toEqual({ entityId: 1, generation: 0 });
   });
 
   test("entity removal leaves no objects in scene", () => {
