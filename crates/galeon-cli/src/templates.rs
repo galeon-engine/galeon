@@ -32,7 +32,7 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
-galeon-engine = "0.1.1"
+galeon-engine = "0.2.0"
 "#
     )
 }
@@ -59,7 +59,7 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
-galeon-engine = "0.1.1"
+galeon-engine = "0.2.0"
 {name}-protocol = {{ path = "../protocol" }}
 "#
     )
@@ -84,7 +84,7 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
-galeon-engine = "0.1.1"
+galeon-engine = "0.2.0"
 {name}-protocol = {{ path = "../protocol" }}
 {name}-domain = {{ path = "../domain" }}
 axum = "0.8"

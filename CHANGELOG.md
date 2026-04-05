@@ -14,6 +14,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `readiness` fields. Added `docs/guide/shiplog-labels.md` with the label
   taxonomy, audit query, and drift prevention rule.
 
+## [0.2.0]
+
 ### Added
 
 - **Audio/VFX event bridge (`RenderEvent` + `FrameEvent`)** — One-shot ECS events

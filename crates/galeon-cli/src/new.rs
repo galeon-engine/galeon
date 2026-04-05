@@ -199,7 +199,7 @@ mod template_dep_tests {
             ("server", &server),
         ] {
             assert!(
-                content.contains(r#"galeon-engine = "0.1.1""#),
+                content.contains(r#"galeon-engine = "0.2.0""#),
                 "{label} template missing published crate dependency"
             );
             assert!(

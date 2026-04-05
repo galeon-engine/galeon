@@ -1,6 +1,6 @@
 {
   "name": "@galeon/shell",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Galeon Engine editor shell — Godot-style Solid.js panel UI",
   "type": "module",
   "main": "dist/index.js",
