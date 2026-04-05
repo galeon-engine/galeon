@@ -10,4 +10,11 @@ export function runtimeVersion(): string {
 
 // Renderer cache — Three.js sync consumer.
 export { RendererCache } from "./renderer-cache.js";
-export { type FramePacketView, TRANSFORM_STRIDE } from "./types.js";
+export {
+  CHANGED_MATERIAL,
+  CHANGED_MESH,
+  CHANGED_TRANSFORM,
+  CHANGED_VISIBILITY,
+  type FramePacketView,
+  TRANSFORM_STRIDE,
+} from "./types.js";

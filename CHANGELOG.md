@@ -9,6 +9,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`WasmFramePacket.change_flags` and `RendererCache` incremental gating** —
+  WASM exposes per-entity change bitmasks; `@galeon/engine-ts` applies transform,
+  visibility, and mesh/material updates only when the corresponding flags are set
+  (full frames omit flags and behave as before).
+  ([#132](https://github.com/galeon-engine/galeon/issues/132))
+
 - **Public package matrix, versioning policy, and stability docs** &mdash; README now
   documents all published crates/packages, the pre-1.0 versioning policy, and
   consumer stability expectations. Publishing guide cross-references the README.

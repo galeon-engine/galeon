@@ -246,6 +246,14 @@ impl WasmFramePacket {
         self.inner.material_handles.clone()
     }
 
+    /// Per-entity change bitmasks for incremental extraction (parallel to other
+    /// entity arrays). Empty for full `extract_frame` packets; consumers should
+    /// treat that as "update all fields" (e.g. flag `0xFF` per entity).
+    #[wasm_bindgen(getter)]
+    pub fn change_flags(&self) -> Vec<u8> {
+        self.inner.change_flags.clone()
+    }
+
     /// Number of custom data channels in this frame.
     #[wasm_bindgen(getter)]
     pub fn custom_channel_count(&self) -> u32 {

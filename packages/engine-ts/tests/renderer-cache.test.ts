@@ -3,7 +3,12 @@
 import { describe, expect, test, spyOn } from "bun:test";
 import * as THREE from "three";
 import { RendererCache } from "../src/renderer-cache.js";
-import { TRANSFORM_STRIDE, type FramePacketView } from "../src/types.js";
+import {
+  CHANGED_TRANSFORM,
+  CHANGED_VISIBILITY,
+  TRANSFORM_STRIDE,
+  type FramePacketView,
+} from "../src/types.js";
 
 function makeTransforms(entityCount: number): Float32Array {
   const transforms = new Float32Array(entityCount * TRANSFORM_STRIDE);
@@ -87,6 +92,90 @@ function makePacket(overrides: Partial<FramePacketView> & { entity_count: number
     ...overrides,
   };
 }
+
+describe("RendererCache change_flags", () => {
+  test("omitting CHANGED_TRANSFORM skips applying packet transform for existing entities", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(1, new THREE.BoxGeometry());
+    cache.registerMaterial(1, new THREE.MeshBasicMaterial());
+
+    const t1 = makeTransforms(1);
+    cache.applyFrame(
+      makePacket({
+        entity_count: 1,
+        entity_ids: new Uint32Array([1]),
+        entity_generations: new Uint32Array([0]),
+        transforms: t1,
+        mesh_handles: new Uint32Array([1]),
+        material_handles: new Uint32Array([1]),
+      }),
+    );
+    const obj = cache.getObject(1, 0)!;
+    expect(obj.position.x).toBe(0);
+
+    const t2 = makeTransforms(1);
+    t2[0] = 100;
+    t2[1] = 200;
+    t2[2] = 300;
+
+    cache.applyFrame(
+      makePacket({
+        entity_count: 1,
+        entity_ids: new Uint32Array([1]),
+        entity_generations: new Uint32Array([0]),
+        transforms: t2,
+        visibility: new Uint8Array([0]),
+        mesh_handles: new Uint32Array([1]),
+        material_handles: new Uint32Array([1]),
+        change_flags: new Uint8Array([CHANGED_VISIBILITY]),
+      }),
+    );
+
+    expect(obj.position.x).toBe(0);
+    expect(obj.visible).toBe(false);
+  });
+
+  test("omitting CHANGED_MESH and CHANGED_MATERIAL skips handle resolution for existing entities", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    const matA = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+    const matB = new THREE.MeshBasicMaterial({ color: 0x0000ff });
+    const geoA = new THREE.BoxGeometry();
+    const geoB = new THREE.SphereGeometry(1);
+    cache.registerMaterial(1, matA);
+    cache.registerMaterial(2, matB);
+    cache.registerGeometry(1, geoA);
+    cache.registerGeometry(2, geoB);
+
+    cache.applyFrame(
+      makePacket({
+        entity_count: 1,
+        entity_ids: new Uint32Array([10]),
+        entity_generations: new Uint32Array([0]),
+        mesh_handles: new Uint32Array([1]),
+        material_handles: new Uint32Array([1]),
+      }),
+    );
+    const obj = cache.getObject(10, 0)!;
+    expect(obj.material).toBe(matA);
+    expect(obj.geometry).toBe(geoA);
+
+    cache.applyFrame(
+      makePacket({
+        entity_count: 1,
+        entity_ids: new Uint32Array([10]),
+        entity_generations: new Uint32Array([0]),
+        mesh_handles: new Uint32Array([2]),
+        material_handles: new Uint32Array([2]),
+        change_flags: new Uint8Array([CHANGED_TRANSFORM]),
+      }),
+    );
+
+    expect(obj.material).toBe(matA);
+    expect(obj.geometry).toBe(geoA);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // T3-A: Consumer material override survives applyFrame

@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
 import * as THREE from "three";
-import { type FramePacketView, TRANSFORM_STRIDE } from "./types.js";
+import {
+  CHANGED_MATERIAL,
+  CHANGED_MESH,
+  CHANGED_TRANSFORM,
+  CHANGED_VISIBILITY,
+  type FramePacketView,
+  TRANSFORM_STRIDE,
+} from "./types.js";
 
 /**
  * Renderer-side cache that consumes packed extraction tables from the
@@ -86,12 +93,15 @@ export class RendererCache {
       mesh_handles,
       material_handles,
     } = packet;
+    const changeFlags = packet.change_flags;
+    const hasChangeFlags = changeFlags !== undefined && changeFlags.length > 0;
 
     for (let i = 0; i < packet.entity_count; i++) {
       // Typed arrays are bounds-controlled by entity_count; non-null asserts are safe here.
       const entityId = entity_ids[i]!;
       const generation = entity_generations[i]!;
       activeIds.add(entityId);
+      const flag = hasChangeFlags ? changeFlags[i]! : 0xff;
 
       let obj = this.objects.get(entityId);
 
@@ -120,39 +130,36 @@ export class RendererCache {
         this.resolvedMaterials.set(entityId, material);
         this.warnMissingHandles(entityId, meshHandle, matHandle);
         this.scene.add(obj);
+        this.applyTransform(obj, i, transforms);
+        obj.visible = visibility[i]! === 1;
       } else {
-        // Compare the registry resolution against what we last resolved — NOT
-        // against obj.geometry/obj.material (which may be consumer-overridden).
-        // This lets consumer overrides survive while still picking up late
-        // registrations and same-handle rebinds.
-        const meshHandle = mesh_handles[i]!;
-        const matHandle = material_handles[i]!;
-        const geometry = this.geometries.get(meshHandle) ?? this.placeholderGeometry;
-        const material = this.materials.get(matHandle) ?? this.placeholderMaterial;
-        if (this.resolvedGeometries.get(entityId) !== geometry) {
-          obj.geometry = geometry;
-          this.resolvedGeometries.set(entityId, geometry);
+        const meshOrMat = flag & (CHANGED_MESH | CHANGED_MATERIAL);
+        if (meshOrMat !== 0) {
+          // Compare the registry resolution against what we last resolved — NOT
+          // against obj.geometry/obj.material (which may be consumer-overridden).
+          // This lets consumer overrides survive while still picking up late
+          // registrations and same-handle rebinds.
+          const meshHandle = mesh_handles[i]!;
+          const matHandle = material_handles[i]!;
+          const geometry = this.geometries.get(meshHandle) ?? this.placeholderGeometry;
+          const material = this.materials.get(matHandle) ?? this.placeholderMaterial;
+          if ((flag & CHANGED_MESH) !== 0 && this.resolvedGeometries.get(entityId) !== geometry) {
+            obj.geometry = geometry;
+            this.resolvedGeometries.set(entityId, geometry);
+          }
+          if ((flag & CHANGED_MATERIAL) !== 0 && this.resolvedMaterials.get(entityId) !== material) {
+            obj.material = material;
+            this.resolvedMaterials.set(entityId, material);
+          }
+          this.warnMissingHandles(entityId, meshHandle, matHandle);
         }
-        if (this.resolvedMaterials.get(entityId) !== material) {
-          obj.material = material;
-          this.resolvedMaterials.set(entityId, material);
+        if ((flag & CHANGED_TRANSFORM) !== 0) {
+          this.applyTransform(obj, i, transforms);
         }
-        this.warnMissingHandles(entityId, meshHandle, matHandle);
+        if ((flag & CHANGED_VISIBILITY) !== 0) {
+          obj.visible = visibility[i]! === 1;
+        }
       }
-
-      // Update transform — read 10 floats at offset i * TRANSFORM_STRIDE.
-      const off = i * TRANSFORM_STRIDE;
-      obj.position.set(transforms[off]!, transforms[off + 1]!, transforms[off + 2]!);
-      obj.quaternion.set(
-        transforms[off + 3]!,
-        transforms[off + 4]!,
-        transforms[off + 5]!,
-        transforms[off + 6]!,
-      );
-      obj.scale.set(transforms[off + 7]!, transforms[off + 8]!, transforms[off + 9]!);
-
-      // Update visibility.
-      obj.visible = visibility[i]! === 1;
 
       // Apply custom channel data to userData.
       for (const channel of customChannels) {
@@ -226,6 +233,18 @@ export class RendererCache {
   // ---------------------------------------------------------------------------
   // Internal
   // ---------------------------------------------------------------------------
+
+  private applyTransform(obj: THREE.Mesh, i: number, transforms: Float32Array): void {
+    const off = i * TRANSFORM_STRIDE;
+    obj.position.set(transforms[off]!, transforms[off + 1]!, transforms[off + 2]!);
+    obj.quaternion.set(
+      transforms[off + 3]!,
+      transforms[off + 4]!,
+      transforms[off + 5]!,
+      transforms[off + 6]!,
+    );
+    obj.scale.set(transforms[off + 7]!, transforms[off + 8]!, transforms[off + 9]!);
+  }
 
   private warnMissingHandles(entityId: number, meshHandle: number, matHandle: number): void {
     if (!this.geometries.has(meshHandle)) {

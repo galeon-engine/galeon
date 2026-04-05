@@ -47,6 +47,7 @@ transforms:       [f32; N * 10]   // per entity: pos(3) + rot(4) + scale(3)
 visibility:       [u8;  N]        // 1 = visible, 0 = hidden
 mesh_handles:     [u32; N]
 material_handles: [u32; N]
+change_flags:     [u8;  N]        // empty for full extract; bitmasks for incremental
 ```
 
 **Transform stride is 10 floats:**
@@ -102,6 +103,11 @@ rules:
 `WasmFramePacket` exposes getter properties via `wasm_bindgen`. Each getter
 clones the backing `Vec`, which wasm-bindgen converts to a JS typed array
 (`Float32Array`, `Uint32Array`, `Uint8Array`).
+
+`change_flags` is a parallel `Uint8Array` of per-entity bitmasks for incremental
+extraction (`extract_frame_incremental`); it is empty for full `extract_frame`
+packets. `@galeon/engine-ts` `RendererCache` uses these flags to skip redundant
+Three.js writes when present.
 
 **MVP transport:** copied flat buffers. Future optimisation: direct typed array
 views into WASM linear memory (zero-copy).
@@ -216,8 +222,10 @@ cache.applyFrame(packet);
 
 **Per-frame behaviour:**
 
-- New entity IDs → create `THREE.Mesh`, add to scene.
-- Existing IDs → update position/quaternion/scale/visibility.
+- New entity IDs → create `THREE.Mesh`, add to scene (full row applied).
+- Existing IDs → when `change_flags` is present, update only transform, visibility,
+  and mesh/material resolution for bits set in the flag; when absent or empty,
+  behave as a full update (same end state as before).
 - Missing IDs (were present last frame) → remove from scene.
 - Unknown mesh/material handles → placeholder (magenta wireframe box).
 
