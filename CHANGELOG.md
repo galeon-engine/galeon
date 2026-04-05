@@ -17,6 +17,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **GitHub Release automation** — tag-triggered releases now create/update a
+  GitHub Release after publish + verification succeed, attach the evidence
+  markdown as a release asset, and mark prerelease tags as prereleases.
+  Verify-only workflow dispatches continue to skip release creation.
+  ([#101](https://github.com/galeon-engine/galeon/issues/101))
 - **Tag-triggered release workflow** — `release.yml` now triggers on `v*` tag pushes
   instead of manual `workflow_dispatch`. CI runs as a gate via `workflow_call` before
   any publish step. Crates.io propagation uses `cargo search` polling (30 x 10s)
