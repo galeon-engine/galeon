@@ -228,6 +228,12 @@ cache.applyFrame(packet);
   behave as a full update (same end state as before).
 - Missing IDs (were present last frame) → remove from scene.
 - Unknown mesh/material handles → placeholder (magenta wireframe box).
+- **Custom channels** (`custom_channel_*`) → copied into `userData` for every entity
+  in the packet on every frame. They are **not** gated by `change_flags` today
+  (no per-channel change bitmask in the protocol). Full `extract_frame` always
+  carries channel payloads; incremental Rust extraction currently omits custom
+  channels, so this mainly matters for full packets. Skipping redundant channel
+  writes when flags exist is a plausible future optimization.
 
 ## Tooling Path: DebugSnapshot
 
@@ -267,3 +273,7 @@ and debug queries — never for per-frame rendering.
   renderer cache vs Rust extraction output.
 - **Native host path**: When running in Electrobun (desktop), the extraction
   tables feed a native GPU renderer instead of Three.js.
+- **Custom channels + incremental flags**: If incremental packets ever carry
+  custom channel data, a `CHANGED_CUSTOM` (or per-channel) signal could let
+  `RendererCache` skip `userData` writes the way `change_flags` skips transform
+  work today.

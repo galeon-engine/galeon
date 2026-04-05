@@ -169,7 +169,10 @@ export class RendererCache {
         }
       }
 
-      // Apply custom channel data to userData.
+      // Custom channels: always applied per entity when present on the packet.
+      // There is no CHANGED_CUSTOM (or per-channel) bit yet, so change_flags do not
+      // gate this path — a future optimization could skip writes when the Rust
+      // extractor can signal unchanged channel rows.
       for (const channel of customChannels) {
         const { name, stride, data } = channel;
         const off = i * stride;
