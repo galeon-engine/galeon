@@ -4,8 +4,8 @@
   "type": "module",
   "workspaces": ["packages/*"],
   "scripts": {
-    "check": "tsc --build",
-    "build": "tsc --build"
+    "check": "bunx tsc --build",
+    "build": "bunx tsc --build"
   },
   "devDependencies": {
     "@types/bun": "latest",

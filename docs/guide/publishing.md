@@ -100,12 +100,14 @@ npm pack --dry-run --workspace=packages/shell
    - npm packages publish with skip-if-exists guards
    - Post-publish verification installs from registries
    - Evidence bundle uploaded as workflow artifact
+   - GitHub Release created from the pushed tag, with prerelease tags marked as prereleases and the evidence markdown attached as a release asset
 
 ### Verify-only (manual dispatch)
 
 Use `workflow_dispatch` with an explicit version input to re-verify an
 already-published version without re-publishing. Installs from registries
-and checks the artifacts work.
+and checks the artifacts work. Verify-only runs do **not** create or edit a
+GitHub Release.
 
 ### Manual publish (first time or fallback)
 

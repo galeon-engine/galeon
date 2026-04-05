@@ -9,6 +9,9 @@
 
 name: Release
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
   push:
     tags: ['v*']
@@ -277,3 +280,56 @@ jobs:
           path: .release-evidence
           if-no-files-found: error
           include-hidden-files: true
+
+  github-release:
+    name: GitHub Release
+    needs: [publish-npm, publish-crates, verify-publish, release-evidence]
+    if: >-
+      github.event_name != 'workflow_dispatch' &&
+      !cancelled() &&
+      needs.publish-npm.result == 'success' &&
+      needs.publish-crates.result == 'success' &&
+      needs.verify-publish.result == 'success' &&
+      needs.release-evidence.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-evidence-${{ github.ref_name }}
+          path: .release-evidence
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          evidence=".release-evidence/release-evidence-v${version}.md"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "GitHub Release ${tag} already exists; refreshing attached evidence."
+            gh release upload "$tag" "${evidence}#Release Evidence" --clobber
+            if [[ "$version" == *-* ]]; then
+              gh release edit "$tag" --title "$tag" --prerelease
+            else
+              gh release edit "$tag" --title "$tag" --latest
+            fi
+            exit 0
+          fi
+
+          if [[ "$version" == *-* ]]; then
+            gh release create "$tag" "${evidence}#Release Evidence" \
+              --title "$tag" \
+              --generate-notes \
+              --verify-tag \
+              --prerelease \
+              --latest=false
+          else
+            gh release create "$tag" "${evidence}#Release Evidence" \
+              --title "$tag" \
+              --generate-notes \
+              --verify-tag \
+              --latest
+          fi
