@@ -61,6 +61,26 @@ pub struct MaterialHandle {
     pub id: u32,
 }
 
+/// What kind of Three.js object to create for this entity.
+///
+/// Extracted as a `u8` in the FramePacket. The TS renderer uses this
+/// to pick the correct constructor (Mesh, PointLight, etc.).
+#[derive(Component, Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum ObjectType {
+    /// `THREE.Mesh` — the default for renderable entities.
+    #[default]
+    Mesh = 0,
+    /// `THREE.PointLight` — omni-directional light source.
+    PointLight = 1,
+    /// `THREE.DirectionalLight` — sun-like parallel light.
+    DirectionalLight = 2,
+    /// `THREE.LineSegments` — debug line rendering.
+    LineSegments = 3,
+    /// `THREE.Group` — container for hierarchy.
+    Group = 4,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -83,5 +103,19 @@ mod tests {
     #[test]
     fn visibility_default_is_visible() {
         assert!(Visibility::default().visible);
+    }
+
+    #[test]
+    fn object_type_default_is_mesh() {
+        assert_eq!(ObjectType::default(), ObjectType::Mesh);
+    }
+
+    #[test]
+    fn object_type_as_u8() {
+        assert_eq!(ObjectType::Mesh as u8, 0);
+        assert_eq!(ObjectType::PointLight as u8, 1);
+        assert_eq!(ObjectType::DirectionalLight as u8, 2);
+        assert_eq!(ObjectType::LineSegments as u8, 3);
+        assert_eq!(ObjectType::Group as u8, 4);
     }
 }

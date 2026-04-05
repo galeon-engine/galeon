@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
-use galeon_engine::render::{MaterialHandle, MeshHandle, Transform, Visibility};
+use std::collections::HashSet;
+
+use galeon_engine::render::{MaterialHandle, MeshHandle, ObjectType, Transform, Visibility};
 use galeon_engine::{Entity, RenderChannelRegistry, World};
 
 use crate::frame_packet::{
-    CHANGED_MATERIAL, CHANGED_MESH, CHANGED_TRANSFORM, CHANGED_VISIBILITY, ChannelData, FramePacket,
+    CHANGED_MATERIAL, CHANGED_MESH, CHANGED_OBJECT_TYPE, CHANGED_TRANSFORM, CHANGED_VISIBILITY,
+    ChannelData, FramePacket,
 };
 
 /// Extract render-facing data from the ECS world into a packed frame packet.
@@ -22,7 +25,7 @@ use crate::frame_packet::{
 /// - `MeshHandle`: defaults to `0` (no mesh)
 /// - `MaterialHandle`: defaults to `0` (no material)
 /// - Custom channels: defaults to `0.0` for all floats
-type Renderable = (Entity, [f32; 3], [f32; 4], [f32; 3]);
+type Renderable = (Entity, [f32; 3], [f32; 4], [f32; 3], u8);
 
 pub fn extract_frame(world: &World) -> FramePacket {
     let query = world.query::<(
@@ -36,6 +39,7 @@ pub fn extract_frame(world: &World) -> FramePacket {
     let mut entities = Vec::with_capacity(query.len());
 
     for (entity, (transform, vis, mesh, mat)) in query {
+        let obj_type = world.get::<ObjectType>(entity).map(|t| *t as u8).unwrap_or(0);
         packet.push(
             entity.index(),
             entity.generation(),
@@ -45,6 +49,7 @@ pub fn extract_frame(world: &World) -> FramePacket {
             vis.map(|v| v.visible).unwrap_or(true),
             mesh.map(|m| m.id).unwrap_or(0),
             mat.map(|m| m.id).unwrap_or(0),
+            obj_type,
         );
 
         entities.push(entity);
@@ -75,9 +80,13 @@ pub fn extract_frame(world: &World) -> FramePacket {
 /// since `since_tick`. Each entity gets a `change_flags` bitmask indicating
 /// which fields changed.
 ///
-/// Entities whose Transform was added or changed are always included.
-/// The change flags further indicate if Visibility, MeshHandle, or
-/// MaterialHandle changed on those entities.
+/// Entities are included when their `Transform` changed, when `ObjectType`
+/// changed (even if the transform did not), when `ObjectType` was **removed**
+/// (effective type falls back to mesh / `0`), or when several of these happen
+/// in the same tick. Change flags are derived from per-column `changed_tick`
+/// values where the column still exists; removals use
+/// [`World::component_removals_since`], so a row may carry only
+/// `CHANGED_OBJECT_TYPE` without `CHANGED_TRANSFORM`.
 ///
 /// # Change detection precision
 ///
@@ -87,16 +96,51 @@ pub fn extract_frame(world: &World) -> FramePacket {
 /// false positives — only actually-mutated entities appear in
 /// `query_changed` results.
 pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket {
-    // Collect changed Transform entities first (releases archetype borrow).
-    let renderables: Vec<Renderable> = world
-        .query_changed::<Transform>(since_tick)
-        .map(|(e, t)| (e, t.position, t.rotation, t.scale))
-        .collect();
+    let mut seen: HashSet<Entity> = HashSet::new();
+    let mut object_type_removed: HashSet<Entity> = HashSet::new();
+    let mut renderables: Vec<Renderable> = Vec::new();
+
+    // Transform changes (including newly spawned renderables).
+    for (e, t) in world.query_changed::<Transform>(since_tick) {
+        let obj_type = world.get::<ObjectType>(e).map(|o| *o as u8).unwrap_or(0);
+        renderables.push((e, t.position, t.rotation, t.scale, obj_type));
+        seen.insert(e);
+    }
+
+    // ObjectType-only changes still need a frame row, but do not appear in
+    // `query_changed::<Transform>` when the transform was untouched.
+    for (e, _) in world.query_changed::<ObjectType>(since_tick) {
+        if seen.contains(&e) {
+            continue;
+        }
+        let Some(t) = world.get::<Transform>(e) else {
+            continue;
+        };
+        let obj_type = world.get::<ObjectType>(e).map(|o| *o as u8).unwrap_or(0);
+        renderables.push((e, t.position, t.rotation, t.scale, obj_type));
+        seen.insert(e);
+    }
+
+    // `ObjectType` removal migrates the entity out of archetypes that contain
+    // that column, so `query_changed::<ObjectType>` never sees the entity.
+    // `World::component_removals_since` closes that gap.
+    for e in world.component_removals_since::<ObjectType>(since_tick) {
+        object_type_removed.insert(e);
+        if seen.contains(&e) {
+            continue;
+        }
+        let Some(t) = world.get::<Transform>(e) else {
+            continue;
+        };
+        let obj_type = world.get::<ObjectType>(e).map(|o| *o as u8).unwrap_or(0);
+        renderables.push((e, t.position, t.rotation, t.scale, obj_type));
+        seen.insert(e);
+    }
 
     let mut packet = FramePacket::with_capacity(renderables.len());
 
-    for (entity, position, rotation, scale) in &renderables {
-        let mut flags: u8 = CHANGED_TRANSFORM;
+    for (entity, position, rotation, scale, object_type) in &renderables {
+        let mut flags: u8 = 0;
 
         let visible = world
             .get::<Visibility>(*entity)
@@ -110,13 +154,19 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
             .map(|m| m.id)
             .unwrap_or(0);
 
-        // Check optional component change flags via entity location.
+        // Derive change flags from per-component change ticks (not from which
+        // iterator produced this row).
         // SAFETY: `world` is borrowed immutably for this entire function, so no
-        // archetype migration can occur. The row from `entity_location` is the
-        // same row where `query_changed` found the entity.
+        // archetype migration can occur.
         if let Some(loc) = world.entity_location(*entity) {
             let arch = world.archetypes().get(loc.archetype_id);
             let row = loc.row as usize;
+            if arch
+                .column::<Transform>()
+                .is_some_and(|c| c.changed_tick(row) > since_tick)
+            {
+                flags |= CHANGED_TRANSFORM;
+            }
             if arch
                 .column::<Visibility>()
                 .is_some_and(|c| c.changed_tick(row) > since_tick)
@@ -135,6 +185,13 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
             {
                 flags |= CHANGED_MATERIAL;
             }
+            if object_type_removed.contains(entity)
+                || arch
+                    .column::<ObjectType>()
+                    .is_some_and(|c| c.changed_tick(row) > since_tick)
+            {
+                flags |= CHANGED_OBJECT_TYPE;
+            }
         }
 
         packet.push_incremental(
@@ -146,6 +203,7 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
             visible,
             mesh_id,
             material_id,
+            *object_type,
             flags,
         );
     }
@@ -156,7 +214,7 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use galeon_engine::render::{MaterialHandle, MeshHandle, Transform, Visibility};
+    use galeon_engine::render::{MaterialHandle, MeshHandle, ObjectType, Transform, Visibility};
 
     #[test]
     fn extract_empty_world() {
@@ -427,5 +485,84 @@ mod tests {
         let packet = extract_frame_incremental(&world, since);
         assert_eq!(packet.entity_count(), 1);
         assert_eq!(packet.transforms[0], 5.0);
+    }
+
+    #[test]
+    fn incremental_extract_includes_object_type_change_without_transform() {
+        let mut world = World::new();
+        let e = world.spawn((
+            Transform::from_position(1.0, 0.0, 0.0),
+            ObjectType::Mesh,
+        ));
+        let since = world.change_tick();
+        world.advance_tick();
+
+        *world.get_mut::<ObjectType>(e).unwrap() = ObjectType::PointLight;
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.entity_ids[0], e.index());
+        assert_eq!(packet.object_types[0], ObjectType::PointLight as u8);
+        let flags = packet.change_flags[0];
+        assert!(flags & CHANGED_OBJECT_TYPE != 0);
+        assert!(flags & CHANGED_TRANSFORM == 0);
+    }
+
+    #[test]
+    fn incremental_extract_includes_object_type_removal_without_transform() {
+        let mut world = World::new();
+        let e = world.spawn((
+            Transform::from_position(1.0, 0.0, 0.0),
+            ObjectType::PointLight,
+        ));
+        let since = world.change_tick();
+        world.advance_tick();
+
+        world.remove::<ObjectType>(e);
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.entity_ids[0], e.index());
+        assert_eq!(packet.object_types[0], ObjectType::Mesh as u8);
+        let flags = packet.change_flags[0];
+        assert!(flags & CHANGED_OBJECT_TYPE != 0);
+        assert!(flags & CHANGED_TRANSFORM == 0);
+    }
+
+    #[test]
+    fn extract_object_type_component() {
+        let mut world = World::new();
+        world.spawn((
+            Transform::from_position(1.0, 0.0, 0.0),
+            ObjectType::PointLight,
+        ));
+        world.spawn((
+            Transform::from_position(2.0, 0.0, 0.0),
+            ObjectType::Mesh,
+        ));
+        world.spawn((Transform::from_position(3.0, 0.0, 0.0),));
+
+        let packet = extract_frame(&world);
+        assert_eq!(packet.entity_count(), 3);
+
+        // Find each entity by position (order not guaranteed)
+        for i in 0..3 {
+            let pos_x = packet.transforms[i * 10];
+            match pos_x as u32 {
+                1 => assert_eq!(packet.object_types[i], ObjectType::PointLight as u8),
+                2 => assert_eq!(packet.object_types[i], ObjectType::Mesh as u8),
+                3 => assert_eq!(packet.object_types[i], 0), // default
+                _ => panic!("unexpected position"),
+            }
+        }
+    }
+
+    #[test]
+    fn extract_object_type_defaults_to_mesh() {
+        let mut world = World::new();
+        world.spawn((Transform::identity(),));
+
+        let packet = extract_frame(&world);
+        assert_eq!(packet.object_types[0], 0);
     }
 }

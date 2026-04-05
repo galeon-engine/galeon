@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use galeon_engine::RenderChannelRegistry;
 use galeon_engine::World;
-use galeon_engine::render::{MaterialHandle, MeshHandle, Transform, Visibility};
+use galeon_engine::render::{MaterialHandle, MeshHandle, ObjectType, Transform, Visibility};
 use serde::Serialize;
 
 /// Debug snapshot of all renderable entities.
@@ -30,6 +30,7 @@ pub struct EntitySnapshot {
     pub visible: Option<bool>,
     pub mesh_handle: Option<u32>,
     pub material_handle: Option<u32>,
+    pub object_type: Option<String>,
     pub custom_channels: HashMap<String, Vec<f32>>,
 }
 
@@ -58,6 +59,7 @@ pub fn extract_debug_snapshot(world: &World) -> DebugSnapshot {
     let mut entities = Vec::with_capacity(query.len());
 
     for (entity, (transform, vis, mesh, mat)) in query {
+        let obj_type = world.get::<ObjectType>(entity);
         let mut custom_channels = HashMap::new();
         if let Some(reg) = registry {
             for channel in &reg.channels {
@@ -77,6 +79,7 @@ pub fn extract_debug_snapshot(world: &World) -> DebugSnapshot {
             visible: vis.map(|v| v.visible),
             mesh_handle: mesh.map(|m| m.id),
             material_handle: mat.map(|m| m.id),
+            object_type: obj_type.map(|t| format!("{:?}", t)),
             custom_channels,
         });
     }
@@ -97,6 +100,7 @@ pub fn snapshot_to_json(snapshot: &DebugSnapshot) -> String {
 mod tests {
     use super::*;
     use galeon_engine::render::{MaterialHandle, MeshHandle, Transform, Visibility};
+    use galeon_engine::ObjectType;
 
     #[test]
     fn empty_world_snapshot() {
@@ -195,5 +199,27 @@ mod tests {
         world.spawn((Transform::identity(),));
         let snap = extract_debug_snapshot(&world);
         assert!(snap.entities[0].custom_channels.is_empty());
+    }
+
+    #[test]
+    fn snapshot_includes_object_type() {
+        let mut world = World::new();
+        world.spawn((
+            Transform::from_position(1.0, 0.0, 0.0),
+            ObjectType::PointLight,
+        ));
+
+        let snap = extract_debug_snapshot(&world);
+        let e = &snap.entities[0];
+        assert_eq!(e.object_type, Some("PointLight".to_string()));
+    }
+
+    #[test]
+    fn snapshot_object_type_none_when_absent() {
+        let mut world = World::new();
+        world.spawn((Transform::identity(),));
+
+        let snap = extract_debug_snapshot(&world);
+        assert_eq!(snap.entities[0].object_type, None);
     }
 }
