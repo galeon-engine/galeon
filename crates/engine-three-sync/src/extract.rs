@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
-use galeon_engine::render::{MaterialHandle, MeshHandle, Transform, Visibility};
+use galeon_engine::render::{MaterialHandle, MeshHandle, ObjectType, Transform, Visibility};
 use galeon_engine::{Entity, RenderChannelRegistry, World};
 
 use crate::frame_packet::{
-    CHANGED_MATERIAL, CHANGED_MESH, CHANGED_TRANSFORM, CHANGED_VISIBILITY, ChannelData, FramePacket,
+    CHANGED_MATERIAL, CHANGED_MESH, CHANGED_OBJECT_TYPE, CHANGED_TRANSFORM, CHANGED_VISIBILITY,
+    ChannelData, FramePacket,
 };
 
 /// Extract render-facing data from the ECS world into a packed frame packet.
@@ -22,7 +23,7 @@ use crate::frame_packet::{
 /// - `MeshHandle`: defaults to `0` (no mesh)
 /// - `MaterialHandle`: defaults to `0` (no material)
 /// - Custom channels: defaults to `0.0` for all floats
-type Renderable = (Entity, [f32; 3], [f32; 4], [f32; 3]);
+type Renderable = (Entity, [f32; 3], [f32; 4], [f32; 3], u8);
 
 pub fn extract_frame(world: &World) -> FramePacket {
     let query = world.query::<(
@@ -36,6 +37,7 @@ pub fn extract_frame(world: &World) -> FramePacket {
     let mut entities = Vec::with_capacity(query.len());
 
     for (entity, (transform, vis, mesh, mat)) in query {
+        let obj_type = world.get::<ObjectType>(entity).map(|t| *t as u8).unwrap_or(0);
         packet.push(
             entity.index(),
             entity.generation(),
@@ -45,6 +47,7 @@ pub fn extract_frame(world: &World) -> FramePacket {
             vis.map(|v| v.visible).unwrap_or(true),
             mesh.map(|m| m.id).unwrap_or(0),
             mat.map(|m| m.id).unwrap_or(0),
+            obj_type,
         );
 
         entities.push(entity);
@@ -90,12 +93,15 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
     // Collect changed Transform entities first (releases archetype borrow).
     let renderables: Vec<Renderable> = world
         .query_changed::<Transform>(since_tick)
-        .map(|(e, t)| (e, t.position, t.rotation, t.scale))
+        .map(|(e, t)| {
+            let obj_type = world.get::<ObjectType>(e).map(|o| *o as u8).unwrap_or(0);
+            (e, t.position, t.rotation, t.scale, obj_type)
+        })
         .collect();
 
     let mut packet = FramePacket::with_capacity(renderables.len());
 
-    for (entity, position, rotation, scale) in &renderables {
+    for (entity, position, rotation, scale, object_type) in &renderables {
         let mut flags: u8 = CHANGED_TRANSFORM;
 
         let visible = world
@@ -135,6 +141,12 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
             {
                 flags |= CHANGED_MATERIAL;
             }
+            if arch
+                .column::<ObjectType>()
+                .is_some_and(|c| c.changed_tick(row) > since_tick)
+            {
+                flags |= CHANGED_OBJECT_TYPE;
+            }
         }
 
         packet.push_incremental(
@@ -146,6 +158,7 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
             visible,
             mesh_id,
             material_id,
+            *object_type,
             flags,
         );
     }
@@ -427,5 +440,44 @@ mod tests {
         let packet = extract_frame_incremental(&world, since);
         assert_eq!(packet.entity_count(), 1);
         assert_eq!(packet.transforms[0], 5.0);
+    }
+
+    use galeon_engine::ObjectType;
+
+    #[test]
+    fn extract_object_type_component() {
+        let mut world = World::new();
+        world.spawn((
+            Transform::from_position(1.0, 0.0, 0.0),
+            ObjectType::PointLight,
+        ));
+        world.spawn((
+            Transform::from_position(2.0, 0.0, 0.0),
+            ObjectType::Mesh,
+        ));
+        world.spawn((Transform::from_position(3.0, 0.0, 0.0),));
+
+        let packet = extract_frame(&world);
+        assert_eq!(packet.entity_count(), 3);
+
+        // Find each entity by position (order not guaranteed)
+        for i in 0..3 {
+            let pos_x = packet.transforms[i * 10];
+            match pos_x as u32 {
+                1 => assert_eq!(packet.object_types[i], ObjectType::PointLight as u8),
+                2 => assert_eq!(packet.object_types[i], ObjectType::Mesh as u8),
+                3 => assert_eq!(packet.object_types[i], 0), // default
+                _ => panic!("unexpected position"),
+            }
+        }
+    }
+
+    #[test]
+    fn extract_object_type_defaults_to_mesh() {
+        let mut world = World::new();
+        world.spawn((Transform::identity(),));
+
+        let packet = extract_frame(&world);
+        assert_eq!(packet.object_types[0], 0);
     }
 }

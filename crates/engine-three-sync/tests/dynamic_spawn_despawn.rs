@@ -40,7 +40,7 @@ fn wasm_engine_with_seed() -> WasmEngine {
 #[test]
 fn spawn_entity_returns_valid_id() {
     let mut w = WasmEngine::new();
-    let id = w.spawn_entity(DYNAMIC_MESH, DYNAMIC_MATERIAL, &IDENTITY);
+    let id = w.spawn_entity(DYNAMIC_MESH, DYNAMIC_MATERIAL, &IDENTITY, 0);
     assert_eq!(id.len(), 2);
 }
 
@@ -48,7 +48,7 @@ fn spawn_entity_returns_valid_id() {
 fn spawn_entity_rejects_short_transform() {
     let mut w = WasmEngine::new();
     // 9 elements — too short, should return empty (not panic)
-    let id = w.spawn_entity(DYNAMIC_MESH, DYNAMIC_MATERIAL, &[0.0; 9]);
+    let id = w.spawn_entity(DYNAMIC_MESH, DYNAMIC_MATERIAL, &[0.0; 9], 0);
     assert!(id.is_empty());
     assert_eq!(w.extract_frame().entity_count(), 0);
 }
@@ -56,7 +56,7 @@ fn spawn_entity_rejects_short_transform() {
 #[test]
 fn spawn_entity_rejects_empty_transform() {
     let mut w = WasmEngine::new();
-    let id = w.spawn_entity(DYNAMIC_MESH, DYNAMIC_MATERIAL, &[]);
+    let id = w.spawn_entity(DYNAMIC_MESH, DYNAMIC_MATERIAL, &[], 0);
     assert!(id.is_empty());
 }
 
@@ -64,7 +64,7 @@ fn spawn_entity_rejects_empty_transform() {
 fn spawn_entity_appears_in_extract_frame() {
     let mut w = WasmEngine::new();
     let xform = [1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0];
-    w.spawn_entity(DYNAMIC_MESH, DYNAMIC_MATERIAL, &xform);
+    w.spawn_entity(DYNAMIC_MESH, DYNAMIC_MATERIAL, &xform, 0);
 
     let frame = w.extract_frame();
     assert_eq!(frame.entity_count(), 1);
@@ -83,9 +83,9 @@ fn spawn_entity_appears_in_extract_frame() {
 #[test]
 fn multiple_spawns_all_visible() {
     let mut w = WasmEngine::new();
-    w.spawn_entity(1, 10, &IDENTITY);
-    w.spawn_entity(2, 20, &IDENTITY);
-    w.spawn_entity(3, 30, &IDENTITY);
+    w.spawn_entity(1, 10, &IDENTITY, 0);
+    w.spawn_entity(2, 20, &IDENTITY, 0);
+    w.spawn_entity(3, 30, &IDENTITY, 0);
 
     let frame = w.extract_frame();
     assert_eq!(frame.entity_count(), 3);
@@ -96,10 +96,10 @@ fn js_entity_count_tracks_spawns() {
     let mut w = WasmEngine::new();
     assert_eq!(w.js_entity_count(), 0);
 
-    w.spawn_entity(1, 10, &IDENTITY);
+    w.spawn_entity(1, 10, &IDENTITY, 0);
     assert_eq!(w.js_entity_count(), 1);
 
-    w.spawn_entity(2, 20, &IDENTITY);
+    w.spawn_entity(2, 20, &IDENTITY, 0);
     assert_eq!(w.js_entity_count(), 2);
 }
 
@@ -110,7 +110,7 @@ fn js_entity_count_tracks_spawns() {
 #[test]
 fn despawn_entity_removes_from_frame() {
     let mut w = WasmEngine::new();
-    let id = w.spawn_entity(DYNAMIC_MESH, DYNAMIC_MATERIAL, &IDENTITY);
+    let id = w.spawn_entity(DYNAMIC_MESH, DYNAMIC_MATERIAL, &IDENTITY, 0);
 
     assert!(w.despawn_entity(id[0], id[1]));
 
@@ -122,7 +122,7 @@ fn despawn_entity_removes_from_frame() {
 #[test]
 fn despawn_stale_handle_returns_false() {
     let mut w = WasmEngine::new();
-    let id = w.spawn_entity(DYNAMIC_MESH, DYNAMIC_MATERIAL, &IDENTITY);
+    let id = w.spawn_entity(DYNAMIC_MESH, DYNAMIC_MATERIAL, &IDENTITY, 0);
 
     assert!(w.despawn_entity(id[0], id[1]));
     // Stale handle — generation mismatch
@@ -157,7 +157,7 @@ fn js_entity_count_excludes_plugin_entities() {
     let mut w = wasm_engine_with_seed();
     assert_eq!(w.js_entity_count(), 0);
 
-    w.spawn_entity(DYNAMIC_MESH, DYNAMIC_MATERIAL, &IDENTITY);
+    w.spawn_entity(DYNAMIC_MESH, DYNAMIC_MATERIAL, &IDENTITY, 0);
     assert_eq!(w.js_entity_count(), 1);
 
     // Total entities = 2 (plugin + JS), but js_entity_count = 1
@@ -172,9 +172,9 @@ fn js_entity_count_excludes_plugin_entities() {
 #[test]
 fn despawn_all_js_entities_cleans_up() {
     let mut w = wasm_engine_with_seed();
-    w.spawn_entity(1, 10, &IDENTITY);
-    w.spawn_entity(2, 20, &IDENTITY);
-    w.spawn_entity(3, 30, &IDENTITY);
+    w.spawn_entity(1, 10, &IDENTITY, 0);
+    w.spawn_entity(2, 20, &IDENTITY, 0);
+    w.spawn_entity(3, 30, &IDENTITY, 0);
 
     assert_eq!(w.js_entity_count(), 3);
     let removed = w.despawn_all_js_entities();
@@ -205,6 +205,7 @@ fn plugin_entities_survive_dynamic_spawn_and_despawn() {
         DYNAMIC_MESH,
         DYNAMIC_MATERIAL,
         &[5.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
+        0,
     );
 
     let frame = w.extract_frame();
@@ -223,7 +224,7 @@ fn dynamic_entity_does_not_corrupt_plugin_entity_data() {
     let mut w = wasm_engine_with_seed();
 
     for i in 0..5 {
-        let id = w.spawn_entity(100 + i, 200 + i, &IDENTITY);
+        let id = w.spawn_entity(100 + i, 200 + i, &IDENTITY, 0);
         w.despawn_entity(id[0], id[1]);
     }
 

@@ -7,6 +7,7 @@ import {
   CHANGED_TRANSFORM,
   CHANGED_VISIBILITY,
   type FramePacketView,
+  ObjectType,
   TRANSFORM_STRIDE,
 } from "./types.js";
 
@@ -31,7 +32,7 @@ export const GALEON_ENTITY_KEY: unique symbol = Symbol.for("galeon.entity");
 
 export class RendererCache {
   private readonly scene: THREE.Scene;
-  private readonly objects = new Map<number, THREE.Mesh>();
+  private readonly objects = new Map<number, THREE.Object3D>();
   private readonly generations = new Map<number, number>();
   private readonly geometries = new Map<number, THREE.BufferGeometry>();
   private readonly materials = new Map<number, THREE.Material>();
@@ -62,7 +63,7 @@ export class RendererCache {
    * Use this to dispose consumer-owned GPU resources (geometry, material)
    * that the cache cannot safely auto-dispose because it does not own them.
    */
-  onEntityRemoved?: (entityId: number, generation: number, obj: THREE.Mesh) => void;
+  onEntityRemoved?: (entityId: number, generation: number, obj: THREE.Object3D) => void;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -132,22 +133,30 @@ export class RendererCache {
       if (!obj) {
         const meshHandle = mesh_handles[i]!;
         const matHandle = material_handles[i]!;
-        const geometry = this.geometries.get(meshHandle) ?? this.placeholderGeometry;
-        const material = this.materials.get(matHandle) ?? this.placeholderMaterial;
-        obj = new THREE.Mesh(geometry, material);
+        const objectType = packet.object_types?.[i] ?? ObjectType.Mesh;
+        const needsGeoMat = RendererCache.needsGeometryMaterial(objectType);
+        const geometry = needsGeoMat
+          ? (this.geometries.get(meshHandle) ?? this.placeholderGeometry)
+          : this.placeholderGeometry;
+        const material = needsGeoMat
+          ? (this.materials.get(matHandle) ?? this.placeholderMaterial)
+          : this.placeholderMaterial;
+        obj = this.createObject(objectType, geometry, material);
         obj.matrixAutoUpdate = false;
         this.objects.set(entityId, obj);
         this.generations.set(entityId, generation);
-        this.resolvedGeometries.set(entityId, geometry);
-        this.resolvedMaterials.set(entityId, material);
-        this.warnMissingHandles(entityId, meshHandle, matHandle);
+        if (needsGeoMat) {
+          this.resolvedGeometries.set(entityId, geometry);
+          this.resolvedMaterials.set(entityId, material);
+          this.warnMissingHandles(entityId, meshHandle, matHandle);
+        }
         (obj.userData as Record<PropertyKey, unknown>)[GALEON_ENTITY_KEY] = { entityId, generation };
         this.scene.add(obj);
         this.applyTransform(obj, i, transforms);
         obj.visible = visibility[i]! === 1;
       } else {
         const meshOrMat = flag & (CHANGED_MESH | CHANGED_MATERIAL);
-        if (meshOrMat !== 0) {
+        if (meshOrMat !== 0 && obj instanceof THREE.Mesh) {
           // Compare the registry resolution against what we last resolved — NOT
           // against obj.geometry/obj.material (which may be consumer-overridden).
           // This lets consumer overrides survive while still picking up late
@@ -211,7 +220,7 @@ export class RendererCache {
    * matches. Returns `undefined` if the entity was despawned and the slot
    * reused — preserving generational safety through the public API.
    */
-  getObject(entityId: number, generation: number): THREE.Mesh | undefined {
+  getObject(entityId: number, generation: number): THREE.Object3D | undefined {
     if (this.generations.get(entityId) !== generation) return undefined;
     return this.objects.get(entityId);
   }
@@ -239,10 +248,37 @@ export class RendererCache {
   // ---------------------------------------------------------------------------
 
   /**
+   * Returns true if this object type uses geometry and material.
+   * Lights and Groups don't need them — skip registry resolution and warnings.
+   */
+  private static needsGeometryMaterial(objectType: number): boolean {
+    return objectType === ObjectType.Mesh || objectType === ObjectType.LineSegments;
+  }
+
+  private createObject(
+    objectType: number,
+    geometry: THREE.BufferGeometry,
+    material: THREE.Material,
+  ): THREE.Object3D {
+    switch (objectType) {
+      case ObjectType.PointLight:
+        return new THREE.PointLight();
+      case ObjectType.DirectionalLight:
+        return new THREE.DirectionalLight();
+      case ObjectType.LineSegments:
+        return new THREE.LineSegments(geometry, material);
+      case ObjectType.Group:
+        return new THREE.Group();
+      default:
+        return new THREE.Mesh(geometry, material);
+    }
+  }
+
+  /**
    * Remove an entity's mesh from the scene and clean up internal tracking.
    * Notifies `onEntityRemoved` so the consumer can dispose resources it owns.
    */
-  private removeEntity(id: number, obj: THREE.Mesh): void {
+  private removeEntity(id: number, obj: THREE.Object3D): void {
     this.scene.remove(obj);
     try {
       this.onEntityRemoved?.(id, this.generations.get(id)!, obj);
@@ -256,7 +292,7 @@ export class RendererCache {
     }
   }
 
-  private applyTransform(obj: THREE.Mesh, i: number, transforms: Float32Array): void {
+  private applyTransform(obj: THREE.Object3D, i: number, transforms: Float32Array): void {
     const off = i * TRANSFORM_STRIDE;
     obj.position.set(transforms[off]!, transforms[off + 1]!, transforms[off + 2]!);
     obj.quaternion.set(

@@ -57,7 +57,7 @@ pub use query::{
     AddedIter, ChangedIter, Mut, NoFilter, Query2Iter, Query2MutIter, Query3Iter, Query3MutIter,
     QueryFilter, QueryIter, QueryIterMut, QuerySpec, QuerySpecMut, With, Without,
 };
-pub use render::{MaterialHandle, MeshHandle, Transform, Visibility};
+pub use render::{MaterialHandle, MeshHandle, ObjectType, Transform, Visibility};
 pub use render_channel::{ChannelRegistration, ExtractToFloats, RenderChannelRegistry};
 pub use schedule::Schedule;
 pub use system_param::{Access, Query, QueryMut, Res, ResMut, SystemParam};

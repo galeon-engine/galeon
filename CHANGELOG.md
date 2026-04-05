@@ -9,6 +9,14 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`ObjectType` component and Object3D type diversity in RendererCache** —
+  Entities can now specify their Three.js representation via an `ObjectType`
+  component (Mesh, PointLight, DirectionalLight, LineSegments, Group). The
+  RendererCache factory creates the correct object type, skipping geometry/material
+  resolution for types that don't need them. Backward-compatible: entities without
+  `ObjectType` default to Mesh.
+  ([#134](https://github.com/galeon-engine/galeon/issues/134))
+
 - **`RendererCache.onEntityRemoved` callback** — Notifies consumers when an entity
   is removed (despawn, stale-generation eviction, or `clear()`), allowing explicit
   disposal of consumer-owned GPU resources. The cache no longer auto-disposes
