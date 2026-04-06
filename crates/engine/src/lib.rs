@@ -18,6 +18,7 @@ pub mod event;
 pub mod function_system;
 pub mod game_loop;
 pub mod handler;
+pub mod handler_function;
 pub mod manifest;
 pub mod protocol;
 pub mod query;
@@ -47,11 +48,13 @@ pub use engine::{Engine, Plugin};
 pub use entity::Entity;
 pub use event::{EventReader, EventWriter, Events};
 pub use function_system::{IntoSystem, System};
-pub use galeon_engine_macros::{Component, command, dto, event, query};
+pub use galeon_engine_macros::{Component, command, dto, event, handler, query};
 pub use game_loop::FixedTimestep;
 pub use handler::HandlerRegistry;
+pub use handler_function::{Handler, IntoHandler, run_handler};
 pub use manifest::{
-    FieldEntry, ManifestEntry, ManifestField, ProtocolManifest, ProtocolRegistration,
+    FieldEntry, HandlerRegistration, ManifestEntry, ManifestField, ProtocolManifest,
+    ProtocolRegistration,
 };
 pub use protocol::{Command, Dto, Event, ProtocolKind, ProtocolMeta, ProtocolQuery};
 pub use query::{

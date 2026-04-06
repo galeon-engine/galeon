@@ -52,6 +52,28 @@ pub struct ProtocolRegistration {
 
 inventory::collect!(ProtocolRegistration);
 
+/// A registered handler function with its metadata.
+///
+/// Instances are created by the `#[handler]` attribute macro and collected
+/// via [`inventory`]. This is a second `inventory` stream parallel to
+/// [`ProtocolRegistration`] — protocol schema stays in the manifest;
+/// handler metadata lives here.
+pub struct HandlerRegistration {
+    /// Handler function name (e.g., `"dispatch_fleet"`).
+    pub name: &'static str,
+    /// Full module path for code generation (e.g., `"my_game::api::fleet"`).
+    /// Populated via `module_path!()` at the call site.
+    pub module_path: &'static str,
+    /// Request type name — first parameter (e.g., `"DispatchFleetCmd"`).
+    pub request_type: &'static str,
+    /// Response type name — `Ok` variant of `Result` (e.g., `"FleetStatus"`).
+    pub response_type: &'static str,
+    /// Error type name — `Err` variant of `Result` (e.g., `"FleetError"`).
+    pub error_type: &'static str,
+}
+
+inventory::collect!(HandlerRegistration);
+
 /// A field within a manifest entry (serializable).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ManifestField {
@@ -236,6 +258,38 @@ impl ProtocolManifest {
         }
 
         surface_names.into_iter().collect()
+    }
+
+    /// Validate that all registered handlers reference known protocol items.
+    ///
+    /// Cross-checks each [`HandlerRegistration::request_type`] against the
+    /// collected [`ProtocolRegistration`] names. Returns an error for each
+    /// handler whose request type is not a registered command, query, or event.
+    ///
+    /// Call this after [`collect`](Self::collect) to catch wiring mistakes
+    /// (e.g., `#[handler] fn bad(cmd: String)`) before codegen or routing.
+    pub fn validate_handlers() -> Result<(), Vec<String>> {
+        let protocol_names: BTreeSet<&str> = inventory::iter::<ProtocolRegistration>
+            .into_iter()
+            .map(|r| r.name)
+            .collect();
+
+        let errors: Vec<String> = inventory::iter::<HandlerRegistration>
+            .into_iter()
+            .filter(|h| !protocol_names.contains(h.request_type))
+            .map(|h| {
+                format!(
+                    "handler '{}' has request type '{}' which is not a registered protocol item",
+                    h.name, h.request_type,
+                )
+            })
+            .collect();
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
     }
 
     /// Serialize to pretty-printed JSON.

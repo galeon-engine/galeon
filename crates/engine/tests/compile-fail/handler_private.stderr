@@ -1,0 +1,5 @@
+error: #[handler] functions must be `pub`
+ --> tests/compile-fail/handler_private.rs:6:4
+  |
+6 | fn bad_handler(cmd: String) -> Result<String, String> {
+  |    ^^^^^^^^^^^

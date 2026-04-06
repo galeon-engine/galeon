@@ -1,0 +1,5 @@
+error: #[handler] functions must have at least one parameter (the request type)
+ --> tests/compile-fail/handler_no_params.rs:6:19
+  |
+6 | pub fn bad_handler() -> Result<String, String> {
+  |                   ^^
