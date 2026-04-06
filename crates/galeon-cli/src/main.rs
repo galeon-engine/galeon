@@ -4,6 +4,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 
 mod generate;
 mod new;
+mod routes;
 mod templates;
 
 #[derive(Parser)]
@@ -28,6 +29,8 @@ enum CliCommand {
         #[command(subcommand)]
         target: generate::GenerateCommand,
     },
+    /// Print the effective route table for a Galeon project
+    Routes,
 }
 
 #[derive(Clone, ValueEnum)]
@@ -55,5 +58,11 @@ fn main() {
                 std::process::exit(1);
             }
         },
+        CliCommand::Routes => {
+            if let Err(e) = routes::run() {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
     }
 }

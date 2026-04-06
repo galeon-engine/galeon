@@ -9,6 +9,15 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`galeon routes` inspection command (#166)** — New top-level `galeon routes`
+  command prints a deterministic route table for a Galeon project. Reuses the
+  same scan → collect → resolve pipeline as `galeon generate routes` via a new
+  `inspect-routes` reflection helper mode that outputs JSON instead of codegen.
+  Columns: METHOD, PATH, HANDLER, REQUEST (with kind). Sorted alphabetically by
+  path. Empty projects show "No routes found." Unit tests cover table formatting,
+  column alignment, and singular/plural count. Integration tests verify the full
+  pipeline against fixture projects with real handlers.
+
 - **Filesystem-routed axum glue generation (#164)** — `galeon generate routes`
   scans the protocol crate's `api/` directory, matches route files to
   `#[handler]` registrations via module path, and emits `generated/routes.rs` —
