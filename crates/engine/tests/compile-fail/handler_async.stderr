@@ -1,0 +1,5 @@
+error: #[handler] functions must be synchronous (not `async`)
+ --> tests/compile-fail/handler_async.rs:6:5
+  |
+6 | pub async fn bad_handler(cmd: String) -> Result<String, String> {
+  |     ^^^^^

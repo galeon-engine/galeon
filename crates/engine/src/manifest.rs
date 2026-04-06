@@ -52,6 +52,28 @@ pub struct ProtocolRegistration {
 
 inventory::collect!(ProtocolRegistration);
 
+/// A registered handler function with its metadata.
+///
+/// Instances are created by the `#[handler]` attribute macro and collected
+/// via [`inventory`]. This is a second `inventory` stream parallel to
+/// [`ProtocolRegistration`] — protocol schema stays in the manifest;
+/// handler metadata lives here.
+pub struct HandlerRegistration {
+    /// Handler function name (e.g., `"dispatch_fleet"`).
+    pub name: &'static str,
+    /// Full module path for code generation (e.g., `"my_game::api::fleet"`).
+    /// Populated via `module_path!()` at the call site.
+    pub module_path: &'static str,
+    /// Request type name — first parameter (e.g., `"DispatchFleetCmd"`).
+    pub request_type: &'static str,
+    /// Response type name — `Ok` variant of `Result` (e.g., `"FleetStatus"`).
+    pub response_type: &'static str,
+    /// Error type name — `Err` variant of `Result` (e.g., `"FleetError"`).
+    pub error_type: &'static str,
+}
+
+inventory::collect!(HandlerRegistration);
+
 /// A field within a manifest entry (serializable).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ManifestField {

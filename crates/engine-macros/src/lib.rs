@@ -356,3 +356,144 @@ pub fn event(attr: TokenStream, input: TokenStream) -> TokenStream {
 pub fn dto(attr: TokenStream, input: TokenStream) -> TokenStream {
     protocol_attr(attr, input, "Dto", "Dto", &["Clone"])
 }
+
+// ---------------------------------------------------------------------------
+// Handler attribute macro
+// ---------------------------------------------------------------------------
+
+/// Extract `Ok` and `Err` types from a `Result<R, E>` return type.
+fn extract_result_types(ty: &syn::Type) -> Result<(String, String), syn::Error> {
+    if let syn::Type::Path(type_path) = ty
+        && let Some(segment) = type_path.path.segments.last()
+        && segment.ident == "Result"
+        && let syn::PathArguments::AngleBracketed(args) = &segment.arguments
+    {
+        let type_args: Vec<_> = args.args.iter().collect();
+        if type_args.len() == 2
+            && let syn::GenericArgument::Type(ok_type) = &type_args[0]
+            && let syn::GenericArgument::Type(err_type) = &type_args[1]
+        {
+            return Ok((type_to_string(ok_type), type_to_string(err_type)));
+        }
+    }
+
+    Err(syn::Error::new_spanned(
+        ty,
+        "#[handler] functions must return `Result<R, E>`",
+    ))
+}
+
+/// Shared implementation for the `#[handler]` attribute macro.
+fn handler_attr(_attr: TokenStream, input: TokenStream) -> TokenStream {
+    let func: syn::ItemFn = match syn::parse(input) {
+        Ok(f) => f,
+        Err(e) => return e.to_compile_error().into(),
+    };
+
+    // --- Validation ---
+
+    // Must be `pub`.
+    if !matches!(func.vis, syn::Visibility::Public(_)) {
+        return syn::Error::new(func.sig.ident.span(), "#[handler] functions must be `pub`")
+            .to_compile_error()
+            .into();
+    }
+
+    // Must not be `async`.
+    if let Some(async_token) = func.sig.asyncness {
+        return syn::Error::new(
+            async_token.span(),
+            "#[handler] functions must be synchronous (not `async`)",
+        )
+        .to_compile_error()
+        .into();
+    }
+
+    // Must have at least one parameter (the request type).
+    if func.sig.inputs.is_empty() {
+        return syn::Error::new(
+            func.sig.paren_token.span.join(),
+            "#[handler] functions must have at least one parameter (the request type)",
+        )
+        .to_compile_error()
+        .into();
+    }
+
+    // First parameter must not be `self`.
+    let first_param = func.sig.inputs.first().unwrap();
+    let request_type_str = match first_param {
+        syn::FnArg::Typed(pat_type) => type_to_string(&pat_type.ty),
+        syn::FnArg::Receiver(r) => {
+            return syn::Error::new(
+                r.self_token.span(),
+                "#[handler] functions must not have `self` as the first parameter",
+            )
+            .to_compile_error()
+            .into();
+        }
+    };
+
+    // Return type must be `Result<R, E>`.
+    let return_type = match &func.sig.output {
+        syn::ReturnType::Default => {
+            return syn::Error::new(
+                func.sig.paren_token.span.close(),
+                "#[handler] functions must return `Result<R, E>`",
+            )
+            .to_compile_error()
+            .into();
+        }
+        syn::ReturnType::Type(_, ty) => ty,
+    };
+
+    let (response_type_str, error_type_str) = match extract_result_types(return_type) {
+        Ok(types) => types,
+        Err(e) => return e.to_compile_error().into(),
+    };
+
+    // --- Emit metadata ---
+
+    let krate = engine_crate();
+    let name_str = func.sig.ident.to_string();
+
+    let expanded = quote! {
+        #func
+
+        #krate::inventory::submit! {
+            #krate::manifest::HandlerRegistration {
+                name: #name_str,
+                module_path: module_path!(),
+                request_type: #request_type_str,
+                response_type: #response_type_str,
+                error_type: #error_type_str,
+            }
+        }
+    };
+
+    expanded.into()
+}
+
+/// Marks a function as a Galeon **handler** (filesystem-routed API endpoint).
+///
+/// Registers handler metadata via [`inventory`] for code generation.
+/// The function must be:
+/// - `pub` (visible to generated router glue)
+/// - Synchronous (not `async`)
+/// - First parameter is the request type
+/// - Returns `Result<R, E>`
+///
+/// Additional parameters beyond the first are reserved for future ECS
+/// `SystemParam` injection (#163).
+///
+/// # Example
+///
+/// ```ignore
+/// #[galeon_engine::handler]
+/// pub fn dispatch_fleet(cmd: DispatchFleetCmd) -> Result<FleetStatus, FleetError> {
+///     todo!()
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn handler(attr: TokenStream, input: TokenStream) -> TokenStream {
+    handler_attr(attr, input)
+}

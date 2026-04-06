@@ -1,0 +1,5 @@
+error: #[handler] functions must return `Result<R, E>`
+ --> tests/compile-fail/handler_no_result.rs:6:36
+  |
+6 | pub fn bad_handler(cmd: String) -> String {
+  |                                    ^^^^^^
