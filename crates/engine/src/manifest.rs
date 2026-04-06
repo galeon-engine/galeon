@@ -269,6 +269,8 @@ impl ProtocolManifest {
     /// Call this after [`collect`](Self::collect) to catch wiring mistakes
     /// (e.g., `#[handler] fn bad(cmd: String)`) before codegen or routing.
     pub fn validate_handlers() -> Result<(), Vec<String>> {
+        use crate::route_scanner::strip_type_prefix;
+
         let protocol_names: BTreeSet<&str> = inventory::iter::<ProtocolRegistration>
             .into_iter()
             .map(|r| r.name)
@@ -276,7 +278,7 @@ impl ProtocolManifest {
 
         let errors: Vec<String> = inventory::iter::<HandlerRegistration>
             .into_iter()
-            .filter(|h| !protocol_names.contains(h.request_type))
+            .filter(|h| !protocol_names.contains(strip_type_prefix(h.request_type)))
             .map(|h| {
                 format!(
                     "handler '{}' has request type '{}' which is not a registered protocol item",
