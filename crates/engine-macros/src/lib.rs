@@ -431,8 +431,8 @@ fn handler_attr(_attr: TokenStream, input: TokenStream) -> TokenStream {
 
     // First parameter must not be `self`.
     let first_param = func.sig.inputs.first().unwrap();
-    let request_type_str = match first_param {
-        syn::FnArg::Typed(pat_type) => type_to_string(&pat_type.ty),
+    let (request_type, request_type_str) = match first_param {
+        syn::FnArg::Typed(pat_type) => (pat_type.ty.clone(), type_to_string(&pat_type.ty)),
         syn::FnArg::Receiver(r) => {
             return syn::Error::new(
                 r.self_token.span(),
@@ -442,6 +442,18 @@ fn handler_attr(_attr: TokenStream, input: TokenStream) -> TokenStream {
             .into();
         }
     };
+
+    // Collect extra parameter types (everything after the request param).
+    let extra_param_types: Vec<Box<syn::Type>> = func
+        .sig
+        .inputs
+        .iter()
+        .skip(1)
+        .filter_map(|arg| match arg {
+            syn::FnArg::Typed(pat_type) => Some(pat_type.ty.clone()),
+            _ => None,
+        })
+        .collect();
 
     // Return type must be `Result<R, E>`.
     let return_type = match &func.sig.output {
@@ -461,10 +473,20 @@ fn handler_attr(_attr: TokenStream, input: TokenStream) -> TokenStream {
         Err(e) => return e.to_compile_error().into(),
     };
 
-    // --- Emit metadata ---
+    // --- Emit metadata + IntoHandler compatibility assertion ---
 
     let krate = engine_crate();
     let name_str = func.sig.ident.to_string();
+    let fn_ident = &func.sig.ident;
+
+    // Build the IntoHandler Params tuple from extra param types.
+    // Zero extras → (), one extra → (P0,), two extras → (P0, P1,), ...
+    let params_tuple = if extra_param_types.is_empty() {
+        quote!(())
+    } else {
+        let types = &extra_param_types;
+        quote!((#(#types,)*))
+    };
 
     let expanded = quote! {
         #func
@@ -478,6 +500,21 @@ fn handler_attr(_attr: TokenStream, input: TokenStream) -> TokenStream {
                 error_type: #error_type_str,
             }
         }
+
+        // Hidden compile-time assertion: the handler function must be
+        // compatible with IntoHandler. This catches non-SystemParam extra
+        // parameters at compile time rather than letting them silently pass.
+        const _: () = {
+            fn _assert_into_handler<F, Req, Resp, Params>(
+                _f: F,
+            ) where
+                F: #krate::handler_function::IntoHandler<Req, Resp, Params>,
+            {}
+
+            fn _check() {
+                _assert_into_handler::<_, #request_type, _, #params_tuple>(#fn_ident);
+            }
+        };
     };
 
     expanded.into()

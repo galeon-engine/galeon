@@ -41,14 +41,22 @@ pub fn get_fleet_status(_query: GetFleetStatus) -> Result<FleetStatus, String> {
     })
 }
 
-/// Handler with extra parameters beyond the request (reserved for future
-/// SystemParam injection, #163). The macro should accept these without error.
+/// Handler with a real SystemParam extra parameter (Res).
+/// Verifies that #[handler] accepts SystemParam extras that work with IntoHandler.
 #[galeon_engine::handler]
-pub fn handler_with_extra_params(cmd: DispatchFleet, _factor: u32) -> Result<FleetStatus, String> {
+pub fn handler_with_system_param(
+    cmd: DispatchFleet,
+    _config: galeon_engine::Res<'_, FleetConfig>,
+) -> Result<FleetStatus, String> {
     Ok(FleetStatus {
         fleet_id: cmd.fleet_id,
         ok: true,
     })
+}
+
+/// Shared resource for handler SystemParam tests.
+pub struct FleetConfig {
+    pub max_fleet_size: u32,
 }
 
 // --- Tests ---
@@ -80,9 +88,9 @@ fn query_handler_registers_metadata() {
 }
 
 #[test]
-fn handler_with_extra_params_registers() {
-    let reg = find_registration("handler_with_extra_params")
-        .expect("handler_with_extra_params should be registered");
+fn handler_with_system_param_registers() {
+    let reg = find_registration("handler_with_system_param")
+        .expect("handler_with_system_param should be registered");
     assert_eq!(reg.request_type, "DispatchFleet");
 }
 
@@ -116,4 +124,17 @@ fn handler_function_still_callable() {
     let status = result.unwrap();
     assert_eq!(status.fleet_id, 42);
     assert!(status.ok);
+}
+
+#[test]
+fn validate_handlers_passes_for_protocol_request_types() {
+    // All handlers in this test file use DispatchFleet (command) or
+    // GetFleetStatus (query) as request types — both are registered
+    // protocol items, so validation should pass.
+    let result = galeon_engine::manifest::ProtocolManifest::validate_handlers();
+    assert!(
+        result.is_ok(),
+        "validate_handlers failed: {:?}",
+        result.unwrap_err()
+    );
 }
