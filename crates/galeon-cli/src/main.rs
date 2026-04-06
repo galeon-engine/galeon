@@ -2,6 +2,7 @@
 
 use clap::{Parser, Subcommand, ValueEnum};
 
+mod generate;
 mod new;
 mod templates;
 
@@ -21,6 +22,11 @@ enum CliCommand {
         /// Project preset
         #[arg(long, default_value = "server-authoritative")]
         preset: Preset,
+    },
+    /// Generate protocol artifacts for a Galeon project
+    Generate {
+        #[command(subcommand)]
+        target: generate::GenerateCommand,
     },
 }
 
@@ -42,5 +48,12 @@ fn main() {
             }
             println!("created project `{name}`");
         }
+        CliCommand::Generate { target } => match generate::run(target) {
+            Ok(path) => println!("wrote {}", path.display()),
+            Err(e) => {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        },
     }
 }

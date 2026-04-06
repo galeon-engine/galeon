@@ -9,6 +9,14 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`galeon generate` CLI artifact commands (#77)** — `galeon generate ts`,
+  `galeon generate manifest`, and `galeon generate descriptors` now emit
+  protocol artifacts from a Galeon project directory. The CLI walks up to
+  `galeon.toml`, resolves the target `crates/protocol` crate, and runs a
+  reflection helper that links the real protocol crate so `inventory`-based
+  collection drives output. Default outputs land in `generated/types.ts`,
+  `generated/manifest.json`, and `generated/descriptors.json`; `--out` overrides
+  the destination.
 - **ECS handler invocation bridge (#163)** — New `Handler`, `IntoHandler`, and
   `run_handler` API provides a parallel execution seam to `IntoSystem` for
   request/response handlers shaped `fn(Req, P0, P1, ...) -> Result<Resp, String>`.
@@ -33,6 +41,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [0.2.0]
 
 ### Added
+
 
 - **Audio/VFX event bridge (`RenderEvent` + `FrameEvent`)** — One-shot ECS events
   can now flow to the TypeScript layer for triggering audio and visual effects.
@@ -105,6 +114,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+
 - **Version bump script** — `bash scripts/bump-version.sh X.Y.Z` updates all 6
   lockstep version sources (7 edits). Validates SemVer 2.0.0, checks current
   versions are consistent, and rolls back if verification fails. Supports
@@ -146,6 +156,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([#124](https://github.com/galeon-engine/galeon/issues/124))
 
 ### Added
+
 
 - **npm publishing surface** — `@galeon/runtime`, `@galeon/engine-ts`, and `@galeon/shell`
   now emit JS + declarations to `dist/`, include proper `exports`/`types`/`main` fields,
@@ -374,6 +385,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 
+
 - `Engine` struct owning `World` + `Schedule` with a fluent builder API
   (`add_system`, `add_plugin`, `insert_resource`) and `tick`/`run_once`
   execution methods ([#8](https://github.com/galeon-engine/galeon/issues/8))
@@ -402,3 +414,4 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - WASM bridge (`engine-three-sync`) with `wasm-bindgen` version export
 - Dual license: AGPL-3.0 + Commercial with tiered royalties
 - GitHub Actions CI: Rust (fmt, clippy, test, WASM check) + TypeScript (tsc)
+

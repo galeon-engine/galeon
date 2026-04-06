@@ -87,6 +87,29 @@ export interface WorldSnapshot {
 Type mapping: `u64`/`f32` → `number`, `String` → `string`, `bool` → `boolean`,
 `Vec<T>` → `T[]`, `Option<T>` → `T | null`, `HashMap<K,V>` → `Record<K,V>`.
 
+## CLI Generation
+
+Inside a Galeon project, `galeon generate` emits the same protocol artifacts
+through a reflection helper that links the project's protocol crate:
+
+```bash
+galeon generate ts
+galeon generate manifest
+galeon generate descriptors
+```
+
+Default outputs:
+
+- `galeon generate ts` → `generated/types.ts`
+- `galeon generate manifest` → `generated/manifest.json`
+- `galeon generate descriptors` → `generated/descriptors.json`
+
+Override the destination with `--out <path>`. The CLI walks up from the current
+directory until it finds `galeon.toml`, then resolves the project's
+`crates/protocol/Cargo.toml` and mirrors that crate's `galeon-engine`
+dependency spec so `inventory` registration is collected from the real linked
+protocol crate.
+
 ## Protocol Descriptors
 
 `generate_descriptors(&manifest)` produces route metadata grouped by surface:
@@ -144,3 +167,4 @@ let json = registry.dispatch_command_json("SpawnUnit", request_json).unwrap();
 ```
 
 Both adapters target the same registry — same handlers, two execution modes.
+
