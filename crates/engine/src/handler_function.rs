@@ -126,14 +126,15 @@ pub fn run_handler<Req, Resp>(
 // Zero-param impl — fn(Req) -> Result<Resp, String>
 // =============================================================================
 
-impl<Func, Req, Resp> HandlerParamFunction<Req, Resp, ()> for Func
+impl<Func, Req, Resp, Err> HandlerParamFunction<Req, Resp, ()> for Func
 where
-    Func: FnMut(Req) -> Result<Resp, String> + 'static,
+    Func: FnMut(Req) -> Result<Resp, Err> + 'static,
     Req: 'static,
     Resp: 'static,
+    Err: ToString + 'static,
 {
     fn run(&mut self, request: Req, _world: &mut World) -> Result<Resp, String> {
-        self(request)
+        self(request).map_err(|e| e.to_string())
     }
 
     fn param_access() -> Vec<Access> {
@@ -163,11 +164,12 @@ where
 macro_rules! impl_handler_param_function {
     ($($P:ident),+) => {
         #[allow(non_snake_case)]
-        impl<Func, Req, Resp, $($P: SystemParam + 'static),+> HandlerParamFunction<Req, Resp, ($($P,)+)> for Func
+        impl<Func, Req, Resp, Err, $($P: SystemParam + 'static),+> HandlerParamFunction<Req, Resp, ($($P,)+)> for Func
         where
-            Func: FnMut(Req, $($P::Item<'_>),+) -> Result<Resp, String> + 'static,
+            Func: FnMut(Req, $($P::Item<'_>),+) -> Result<Resp, Err> + 'static,
             Req: 'static,
             Resp: 'static,
+            Err: ToString + 'static,
         {
             fn run(&mut self, request: Req, world: &mut World) -> Result<Resp, String> {
                 // SAFETY: same justification as SystemParamFunction — conflict
@@ -178,7 +180,7 @@ macro_rules! impl_handler_param_function {
                 // field-level references to `resources` or `archetypes`,
                 // which live in separate memory regions.
                 let cell = unsafe { UnsafeWorldCell::new(world as *mut World) };
-                unsafe { self(request, $($P::fetch(cell),)+) }
+                unsafe { self(request, $($P::fetch(cell),)+) }.map_err(|e| e.to_string())
             }
 
             fn param_access() -> Vec<Access> {
@@ -448,5 +450,63 @@ mod tests {
         let result = handler.run(SpawnRequest { unit_id: 1 }, &mut world);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "some error");
+    }
+
+    // -- Domain error type tests --
+
+    #[derive(Debug)]
+    struct ApiError {
+        code: u16,
+        message: String,
+    }
+
+    impl std::fmt::Display for ApiError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "ApiError({}): {}", self.code, self.message)
+        }
+    }
+
+    fn handler_with_domain_error(_req: SpawnRequest) -> Result<SpawnResponse, ApiError> {
+        Err(ApiError {
+            code: 404,
+            message: "not found".into(),
+        })
+    }
+
+    #[test]
+    fn domain_error_type_converts_to_string() {
+        let mut handler: Box<dyn Handler<SpawnRequest, SpawnResponse>> =
+            IntoHandler::<SpawnRequest, SpawnResponse, ()>::into_handler(
+                handler_with_domain_error,
+                "domain_error",
+            );
+        let mut world = World::new();
+        let result = handler.run(SpawnRequest { unit_id: 1 }, &mut world);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "ApiError(404): not found");
+    }
+
+    fn handler_with_domain_error_and_params(
+        _req: SpawnRequest,
+        _cfg: Res<'_, Config>,
+    ) -> Result<SpawnResponse, ApiError> {
+        Err(ApiError {
+            code: 500,
+            message: "internal".into(),
+        })
+    }
+
+    #[test]
+    fn domain_error_type_with_params() {
+        let mut handler: Box<dyn Handler<SpawnRequest, SpawnResponse>> =
+            IntoHandler::<SpawnRequest, SpawnResponse, (Res<'_, Config>,)>::into_handler(
+                handler_with_domain_error_and_params,
+                "domain_error_params",
+            );
+        let mut world = World::new();
+        world.insert_resource(Config { multiplier: 1.0 });
+        let result = handler.run(SpawnRequest { unit_id: 1 }, &mut world);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "ApiError(500): internal");
     }
 }
