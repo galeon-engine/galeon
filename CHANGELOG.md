@@ -7,6 +7,14 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`#[handler]` registration + validation (#162)** — New `#[handler]` attribute
+  macro registers handler metadata (function name, module path, request/response/error
+  types) via `inventory` for downstream code generation. Validates that targets are
+  public, synchronous, have a request parameter, and return `Result<R, E>`.
+  Compile-fail tests cover async fn, private fn, missing params, and wrong return type.
+
 ### Fixed
 
 - **Shiplog label drift (#103)** — Audited all open issues and backfilled
