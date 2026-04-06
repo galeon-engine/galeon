@@ -362,7 +362,7 @@ fn generate_routes(args: &[String], manifest: &ProtocolManifest) -> String {
     });
 
     // T4: Generate axum glue code.
-    generate_axum_routes(&resolved, &manifest.protocol_version)
+    generate_axum_routes(&resolved, manifest)
 }
 "#;
     template.replace(
@@ -830,9 +830,10 @@ preset = "server-authoritative"
         assert!(routes.contains("dispatch_command_json"));
         assert!(routes.contains("\"SpawnUnit\""));
 
-        // Query route is GET (unit struct, no fields).
+        // Query route is POST (all routes use POST to avoid unit-struct
+        // vs empty-named-struct deserialization ambiguity).
         assert!(routes.contains("\"/api/fleet/snapshot\""));
-        assert!(routes.contains("routing::get(api_fleet_snapshot)"));
+        assert!(routes.contains("routing::post(api_fleet_snapshot)"));
         assert!(routes.contains("dispatch_query_json"));
         assert!(routes.contains("\"GetWorldSnapshot\""));
 

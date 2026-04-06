@@ -28,7 +28,6 @@
 //! through [`HandlerRegistry`]. The scanner discovers *exposure* — which
 //! handlers are reachable via HTTP — without re-deriving protocol schema.
 
-use crate::codegen::HttpMethod;
 use crate::manifest::{HandlerRegistration, ProtocolManifest};
 use crate::protocol::ProtocolKind;
 use serde::{Deserialize, Serialize};
@@ -160,8 +159,9 @@ pub struct ResolvedRoute {
     pub protocol_name: String,
     /// Protocol kind — determines dispatch method.
     pub kind: ProtocolKind,
-    /// HTTP method — derived from protocol kind and field presence.
-    pub http_method: HttpMethod,
+    /// Explicit surface memberships from the manifest entry.
+    /// Empty means "default surface only" — same semantics as [`ManifestEntry::surfaces`].
+    pub surfaces: Vec<String>,
 }
 
 /// Match scanned routes to handler registrations and manifest entries.
@@ -169,7 +169,7 @@ pub struct ResolvedRoute {
 /// For each [`ScannedRoute`], finds the matching [`HandlerMeta`] by checking
 /// whether `handler.module_path` ends with the route's `module_suffix`.
 /// Then looks up the handler's `request_type` in the manifest to determine
-/// the protocol kind and HTTP method.
+/// the protocol kind and surface membership.
 ///
 /// Returns resolved routes on success, or a list of diagnostic messages
 /// for unmatched routes or ambiguous matches.
@@ -212,10 +212,10 @@ pub fn resolve_routes(
 
         let handler = candidates[0];
 
-        // Look up the request type in the manifest to determine kind + method.
-        let (kind, http_method, protocol_name) =
-            match lookup_protocol_kind(manifest, &handler.request_type) {
-                Some((kind, method, name)) => (kind, method, name),
+        // Look up the request type in the manifest to determine kind + surfaces.
+        let (kind, protocol_name, surfaces) =
+            match lookup_protocol_entry(manifest, &handler.request_type) {
+                Some(result) => result,
                 None => {
                     errors.push(format!(
                         "route {} handler '{}' has request type '{}' not found in manifest",
@@ -230,7 +230,7 @@ pub fn resolve_routes(
             handler_fn_name: handler.name.clone(),
             protocol_name,
             kind,
-            http_method,
+            surfaces,
         });
     }
 
@@ -241,35 +241,49 @@ pub fn resolve_routes(
     }
 }
 
-/// Look up a request type name in the manifest and return its protocol kind
-/// and HTTP method.
+/// Look up a request type name in the manifest.
+///
+/// Returns the protocol kind, canonical manifest name, and surface memberships.
 ///
 /// The `request_type` from [`HandlerRegistration`] may include a path prefix
 /// (e.g., `"crate::SpawnUnit"`) because the `#[handler]` macro preserves the
 /// type path as written in source. We match against the last segment of the
 /// path to find the corresponding manifest entry.
-fn lookup_protocol_kind(
+fn lookup_protocol_entry(
     manifest: &ProtocolManifest,
     request_type: &str,
-) -> Option<(ProtocolKind, HttpMethod, String)> {
+) -> Option<(ProtocolKind, String, Vec<String>)> {
     let type_name = request_type.rsplit("::").next().unwrap_or(request_type);
 
     for entry in &manifest.commands {
         if entry.name == type_name {
-            return Some((ProtocolKind::Command, HttpMethod::Post, entry.name.clone()));
+            return Some((
+                ProtocolKind::Command,
+                entry.name.clone(),
+                entry.surfaces.clone(),
+            ));
         }
     }
     for entry in &manifest.queries {
         if entry.name == type_name {
-            let method = if entry.fields.is_empty() {
-                HttpMethod::Get
-            } else {
-                HttpMethod::Post
-            };
-            return Some((ProtocolKind::Query, method, entry.name.clone()));
+            return Some((
+                ProtocolKind::Query,
+                entry.name.clone(),
+                entry.surfaces.clone(),
+            ));
         }
     }
     None
+}
+
+/// Strip any module path prefix from a request type name.
+///
+/// `"crate::SpawnUnit"` → `"SpawnUnit"`, `"SpawnUnit"` → `"SpawnUnit"`.
+///
+/// Shared between route resolution and handler validation so both
+/// entrypoints behave consistently.
+pub fn strip_type_prefix(qualified: &str) -> &str {
+    qualified.rsplit("::").next().unwrap_or(qualified)
 }
 
 // =============================================================================
@@ -278,16 +292,24 @@ fn lookup_protocol_kind(
 
 /// Generate the `routes.rs` axum glue source code from resolved routes.
 ///
-/// The generated code creates an axum `Router` with
-/// `Arc<HandlerRegistry>` as state. Each route delegates to
+/// The generated code creates per-surface axum `Router` functions with
+/// `Arc<HandlerRegistry>` as state. Each route uses POST and delegates to
 /// [`HandlerRegistry::dispatch_command_json`] or
 /// [`HandlerRegistry::dispatch_query_json`] using the protocol name
 /// from the manifest.
-pub fn generate_axum_routes(routes: &[ResolvedRoute], protocol_version: &str) -> String {
+///
+/// All routes are POST — the manifest cannot distinguish unit structs
+/// (`null`) from empty named structs (`{}`), so GET with a hardcoded
+/// payload would break one or the other at runtime.
+///
+/// For single-surface manifests the function is `pub fn router()`.
+/// For multi-surface manifests each surface gets its own function
+/// (e.g., `pub fn gameplay_router()`).
+pub fn generate_axum_routes(routes: &[ResolvedRoute], manifest: &ProtocolManifest) -> String {
     let mut out = String::new();
 
     out.push_str("// Auto-generated by Galeon Engine — do not edit.\n");
-    out.push_str(&format!("// Protocol: {protocol_version}\n\n"));
+    out.push_str(&format!("// Protocol: {}\n\n", manifest.protocol_version));
 
     out.push_str("use axum::extract::State;\n");
     out.push_str("use axum::http::StatusCode;\n");
@@ -296,78 +318,88 @@ pub fn generate_axum_routes(routes: &[ResolvedRoute], protocol_version: &str) ->
     out.push_str("use std::sync::Arc;\n");
     out.push('\n');
 
-    // Router function
-    out.push_str("/// Filesystem-routed axum glue.\n");
-    out.push_str("///\n");
-    out.push_str("/// Mount with `Arc<HandlerRegistry>` as axum state.\n");
-    out.push_str(
-        "/// The registry handles request deserialization, handler dispatch, and response serialization.\n",
-    );
-    out.push_str("pub fn router() -> Router<Arc<HandlerRegistry>> {\n");
-    out.push_str("    Router::new()\n");
+    // Per-surface router functions.
+    let surface_names = manifest.resolved_surface_names();
 
-    for route in routes {
-        let method = match route.http_method {
-            HttpMethod::Get => "get",
-            HttpMethod::Post => "post",
-        };
-        let handler_name = route_to_handler_ident(&route.route_path);
-        out.push_str(&format!(
-            "        .route({}, routing::{method}({handler_name}))\n",
-            quote_str(&route.route_path),
-        ));
+    if surface_names.len() == 1 {
+        // Single surface — generate a plain `router()`.
+        emit_router_fn(&mut out, "router", routes, |_| true);
+    } else {
+        // Multi-surface — generate `<surface>_router()` per surface.
+        let default_surface = &manifest.default_surface;
+        for surface in &surface_names {
+            let fn_name = format!("{}_router", surface.replace('-', "_"));
+            emit_router_fn(&mut out, &fn_name, routes, |r| {
+                route_belongs_to_surface(r, surface, default_surface)
+            });
+        }
     }
 
-    out.push_str("}\n\n");
-
-    // Handler functions
+    // Handler functions — shared across surfaces, deduplicated.
+    let mut emitted: std::collections::HashSet<String> = std::collections::HashSet::new();
     for route in routes {
         let handler_name = route_to_handler_ident(&route.route_path);
+        if !emitted.insert(handler_name.clone()) {
+            continue;
+        }
         let dispatch_method = match route.kind {
             ProtocolKind::Command => "dispatch_command_json",
             ProtocolKind::Query => "dispatch_query_json",
             _ => "dispatch_command_json",
         };
 
-        match route.http_method {
-            HttpMethod::Post => {
-                out.push_str(&format!(
-                    "async fn {handler_name}(\n\
-                     \x20   State(registry): State<Arc<HandlerRegistry>>,\n\
-                     \x20   body: String,\n\
-                     ) -> Result<String, (StatusCode, String)> {{\n\
-                     \x20   registry\n\
-                     \x20       .{dispatch_method}({}, &body)\n\
-                     \x20       .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))\n\
-                     }}\n\n",
-                    quote_str(&route.protocol_name),
-                ));
-            }
-            HttpMethod::Get => {
-                out.push_str(&format!(
-                    "async fn {handler_name}(\n\
-                     \x20   State(registry): State<Arc<HandlerRegistry>>,\n\
-                     ) -> Result<String, (StatusCode, String)> {{\n\
-                     \x20   registry\n\
-                     \x20       .{dispatch_method}({}, \"null\")\n\
-                     \x20       .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))\n\
-                     }}\n\n",
-                    quote_str(&route.protocol_name),
-                ));
-            }
-        }
+        out.push_str(&format!(
+            "async fn {handler_name}(\n\
+             \x20   State(registry): State<Arc<HandlerRegistry>>,\n\
+             \x20   body: String,\n\
+             ) -> Result<String, (StatusCode, String)> {{\n\
+             \x20   registry\n\
+             \x20       .{dispatch_method}({}, &body)\n\
+             \x20       .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))\n\
+             }}\n\n",
+            quote_str(&route.protocol_name),
+        ));
     }
 
     out
+}
+
+/// Emit a single router function containing the routes that pass `filter`.
+fn emit_router_fn(
+    out: &mut String,
+    fn_name: &str,
+    routes: &[ResolvedRoute],
+    filter: impl Fn(&ResolvedRoute) -> bool,
+) {
+    out.push_str(&format!(
+        "pub fn {fn_name}() -> Router<Arc<HandlerRegistry>> {{\n"
+    ));
+    out.push_str("    Router::new()\n");
+    for route in routes.iter().filter(|r| filter(r)) {
+        let handler_name = route_to_handler_ident(&route.route_path);
+        out.push_str(&format!(
+            "        .route({}, routing::post({handler_name}))\n",
+            quote_str(&route.route_path),
+        ));
+    }
+    out.push_str("}\n\n");
+}
+
+/// Check whether a resolved route belongs to a surface, using the same
+/// semantics as [`ProtocolManifest::entry_belongs_to_surface`].
+fn route_belongs_to_surface(route: &ResolvedRoute, surface: &str, default_surface: &str) -> bool {
+    if route.surfaces.is_empty() {
+        surface == default_surface
+    } else {
+        route.surfaces.iter().any(|s| s == surface)
+    }
 }
 
 /// Convert a route path to a valid Rust function identifier.
 ///
 /// `/api/fleet/dispatch` → `api_fleet_dispatch`
 fn route_to_handler_ident(route_path: &str) -> String {
-    route_path
-        .trim_start_matches('/')
-        .replace(['/', '-'], "_")
+    route_path.trim_start_matches('/').replace(['/', '-'], "_")
 }
 
 /// Quote a string as a Rust string literal.
@@ -523,13 +555,13 @@ mod tests {
         assert_eq!(resolved[0].handler_fn_name, "dispatch_fleet");
         assert_eq!(resolved[0].protocol_name, "DispatchFleetCmd");
         assert_eq!(resolved[0].kind, ProtocolKind::Command);
-        assert_eq!(resolved[0].http_method, HttpMethod::Post);
+        assert!(resolved[0].surfaces.is_empty()); // inherits default
 
         assert_eq!(resolved[1].route_path, "/api/fleet/snapshot");
         assert_eq!(resolved[1].handler_fn_name, "fleet_snapshot");
         assert_eq!(resolved[1].protocol_name, "GetFleetSnapshot");
         assert_eq!(resolved[1].kind, ProtocolKind::Query);
-        assert_eq!(resolved[1].http_method, HttpMethod::Get);
+        assert!(resolved[1].surfaces.is_empty());
     }
 
     #[test]
@@ -562,59 +594,62 @@ mod tests {
     }
 
     #[test]
-    fn resolve_query_with_fields_uses_post() {
-        let scanned = scan_api_routes(&["api/fleet/search.rs"]);
+    fn resolve_carries_surface_membership() {
+        let scanned = scan_api_routes(&["api/admin/reset.rs"]);
         let handlers = vec![HandlerMeta {
-            name: "search_fleet".into(),
-            module_path: "my_game::api::fleet::search".into(),
-            request_type: "SearchFleet".into(),
-            response_type: "SearchResults".into(),
+            name: "admin_reset".into(),
+            module_path: "my_game::api::admin::reset".into(),
+            request_type: "AdminReset".into(),
+            response_type: "()".into(),
             error_type: "String".into(),
         }];
         let manifest = ProtocolManifest {
             manifest_version: "2".into(),
             protocol_version: "test@0.1".into(),
-            default_surface: "default".into(),
-            surfaces: vec!["default".into()],
-            commands: vec![],
-            queries: vec![ManifestEntry {
-                name: "SearchFleet".into(),
-                kind: ProtocolKind::Query,
-                fields: vec![ManifestField {
-                    name: "name_filter".into(),
-                    ty: "String".into(),
-                }],
+            default_surface: "gameplay".into(),
+            surfaces: vec!["authority".into(), "gameplay".into()],
+            commands: vec![ManifestEntry {
+                name: "AdminReset".into(),
+                kind: ProtocolKind::Command,
+                fields: vec![],
                 doc: "".into(),
-                surfaces: vec![],
+                surfaces: vec!["authority".into()],
             }],
+            queries: vec![],
             events: vec![],
             dtos: vec![],
         };
 
         let resolved = resolve_routes(&scanned, &handlers, &manifest).unwrap();
-        assert_eq!(resolved[0].http_method, HttpMethod::Post);
+        assert_eq!(resolved[0].surfaces, vec!["authority".to_string()]);
     }
 
     // -- T4: generate_axum_routes --
 
+    fn sample_manifest_single_surface() -> ProtocolManifest {
+        sample_manifest_for_routes()
+    }
+
     #[test]
     fn generate_routes_contains_header() {
-        let code = generate_axum_routes(&[], "test@0.1");
+        let manifest = sample_manifest_single_surface();
+        let code = generate_axum_routes(&[], &manifest);
         assert!(code.contains("Auto-generated by Galeon Engine"));
         assert!(code.contains("test@0.1"));
     }
 
     #[test]
     fn generate_routes_post_command() {
+        let manifest = sample_manifest_single_surface();
         let routes = vec![ResolvedRoute {
             route_path: "/api/fleet/dispatch".into(),
             handler_fn_name: "dispatch_fleet".into(),
             protocol_name: "DispatchFleetCmd".into(),
             kind: ProtocolKind::Command,
-            http_method: HttpMethod::Post,
+            surfaces: vec![],
         }];
 
-        let code = generate_axum_routes(&routes, "test@0.1");
+        let code = generate_axum_routes(&routes, &manifest);
         assert!(code.contains("routing::post(api_fleet_dispatch)"));
         assert!(code.contains("\"/api/fleet/dispatch\""));
         assert!(code.contains("dispatch_command_json"));
@@ -623,56 +658,131 @@ mod tests {
     }
 
     #[test]
-    fn generate_routes_get_query() {
+    fn generate_routes_query_is_post() {
+        let manifest = sample_manifest_single_surface();
         let routes = vec![ResolvedRoute {
             route_path: "/api/fleet/snapshot".into(),
             handler_fn_name: "fleet_snapshot".into(),
             protocol_name: "GetFleetSnapshot".into(),
             kind: ProtocolKind::Query,
-            http_method: HttpMethod::Get,
+            surfaces: vec![],
         }];
 
-        let code = generate_axum_routes(&routes, "test@0.1");
-        assert!(code.contains("routing::get(api_fleet_snapshot)"));
+        let code = generate_axum_routes(&routes, &manifest);
+        // All routes are POST — avoids unit-struct vs empty-named-struct ambiguity.
+        assert!(code.contains("routing::post(api_fleet_snapshot)"));
         assert!(code.contains("dispatch_query_json"));
-        assert!(code.contains("\"null\""));
-        // GET handlers should not take a body parameter.
-        assert!(!code.contains("body: String"));
+        assert!(code.contains("body: String"));
+        assert!(!code.contains("\"null\""));
     }
 
     #[test]
     fn generate_routes_multiple_routes() {
+        let manifest = sample_manifest_single_surface();
         let routes = vec![
             ResolvedRoute {
                 route_path: "/api/fleet/dispatch".into(),
                 handler_fn_name: "dispatch_fleet".into(),
                 protocol_name: "DispatchFleetCmd".into(),
                 kind: ProtocolKind::Command,
-                http_method: HttpMethod::Post,
+                surfaces: vec![],
             },
             ResolvedRoute {
                 route_path: "/api/fleet/snapshot".into(),
                 handler_fn_name: "fleet_snapshot".into(),
                 protocol_name: "GetFleetSnapshot".into(),
                 kind: ProtocolKind::Query,
-                http_method: HttpMethod::Get,
+                surfaces: vec![],
             },
         ];
 
-        let code = generate_axum_routes(&routes, "test@0.1");
+        let code = generate_axum_routes(&routes, &manifest);
         assert!(code.contains("api_fleet_dispatch"));
         assert!(code.contains("api_fleet_snapshot"));
-        // Both routes in the Router
         assert!(code.contains(".route(\"/api/fleet/dispatch\""));
         assert!(code.contains(".route(\"/api/fleet/snapshot\""));
     }
 
     #[test]
     fn generate_routes_empty() {
-        let code = generate_axum_routes(&[], "test@0.1");
+        let manifest = sample_manifest_single_surface();
+        let code = generate_axum_routes(&[], &manifest);
         assert!(code.contains("Router::new()"));
-        // No .route() calls
         assert!(!code.contains(".route("));
+    }
+
+    #[test]
+    fn generate_routes_single_surface_uses_plain_router() {
+        let manifest = sample_manifest_single_surface();
+        let routes = vec![ResolvedRoute {
+            route_path: "/api/fleet/dispatch".into(),
+            handler_fn_name: "dispatch_fleet".into(),
+            protocol_name: "DispatchFleetCmd".into(),
+            kind: ProtocolKind::Command,
+            surfaces: vec![],
+        }];
+
+        let code = generate_axum_routes(&routes, &manifest);
+        assert!(code.contains("pub fn router()"));
+        assert!(!code.contains("_router()"));
+    }
+
+    #[test]
+    fn generate_routes_multi_surface_filters_by_surface() {
+        let manifest = ProtocolManifest {
+            manifest_version: "2".into(),
+            protocol_version: "test@0.1".into(),
+            default_surface: "gameplay".into(),
+            surfaces: vec!["authority".into(), "gameplay".into()],
+            commands: vec![],
+            queries: vec![],
+            events: vec![],
+            dtos: vec![],
+        };
+
+        let routes = vec![
+            ResolvedRoute {
+                route_path: "/api/fleet/dispatch".into(),
+                handler_fn_name: "dispatch_fleet".into(),
+                protocol_name: "DispatchFleetCmd".into(),
+                kind: ProtocolKind::Command,
+                surfaces: vec![], // default surface = gameplay
+            },
+            ResolvedRoute {
+                route_path: "/api/admin/reset".into(),
+                handler_fn_name: "admin_reset".into(),
+                protocol_name: "AdminReset".into(),
+                kind: ProtocolKind::Command,
+                surfaces: vec!["authority".into()],
+            },
+        ];
+
+        let code = generate_axum_routes(&routes, &manifest);
+
+        // Per-surface router functions.
+        assert!(code.contains("pub fn authority_router()"));
+        assert!(code.contains("pub fn gameplay_router()"));
+        assert!(!code.contains("pub fn router()"));
+
+        // Extract each router function body (up to closing `}`).
+        let extract_router_body = |fn_name: &str| -> String {
+            let start = code.find(&format!("pub fn {fn_name}()")).unwrap();
+            let rest = &code[start..];
+            // The function ends at the first `}\n\n` (closing brace + blank line).
+            let end = rest.find("}\n\n").unwrap() + 1;
+            rest[..end].to_string()
+        };
+
+        let authority_body = extract_router_body("authority_router");
+        let gameplay_body = extract_router_body("gameplay_router");
+
+        // authority_router contains only AdminReset
+        assert!(authority_body.contains("api_admin_reset"));
+        assert!(!authority_body.contains("api_fleet_dispatch"));
+
+        // gameplay_router contains only DispatchFleetCmd
+        assert!(gameplay_body.contains("api_fleet_dispatch"));
+        assert!(!gameplay_body.contains("api_admin_reset"));
     }
 
     #[test]

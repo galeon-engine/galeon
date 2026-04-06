@@ -66,7 +66,8 @@ pub use render::{MaterialHandle, MeshHandle, ObjectType, ParentEntity, Transform
 pub use render_channel::{ChannelRegistration, ExtractToFloats, RenderChannelRegistry};
 pub use render_event::{FrameEvent, RenderEvent, RenderEventRegistry};
 pub use route_scanner::{
-    HandlerMeta, ResolvedRoute, ScannedRoute, generate_axum_routes, resolve_routes, scan_api_routes,
+    HandlerMeta, ResolvedRoute, ScannedRoute, generate_axum_routes, resolve_routes,
+    scan_api_routes, strip_type_prefix,
 };
 pub use schedule::Schedule;
 pub use system_param::{Access, Query, QueryMut, Res, ResMut, SystemParam};
