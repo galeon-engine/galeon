@@ -382,7 +382,10 @@ fn generate_routes(args: &[String], manifest: &ProtocolManifest) -> String {
 
 fn inspect_routes(args: &[String], manifest: &ProtocolManifest) -> String {
     let resolved = resolve_from_args(args, manifest);
-    serde_json::to_string(&resolved).expect("failed to serialize resolved routes")
+    serde_json::to_string(&serde_json::json!({
+        "default_surface": manifest.default_surface,
+        "routes": resolved,
+    })).expect("failed to serialize resolved routes")
 }
 "#;
     template.replace(
@@ -878,14 +881,17 @@ preset = "server-authoritative"
     // -- Inspect routes (T5) --
 
     #[test]
-    fn inspect_routes_returns_resolved_json() {
+    fn inspect_routes_returns_envelope_with_default_surface() {
         let temp = create_fixture_routes_project();
 
         let (json, protocol_version) = inspect_routes_json(temp.path()).unwrap();
 
         assert_eq!(protocol_version, "fixture-protocol@0.3.1");
 
-        let entries: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+        let envelope: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(envelope["default_surface"], "default");
+
+        let entries = envelope["routes"].as_array().unwrap();
         assert_eq!(entries.len(), 2);
 
         // Sorted by route_path — dispatch before snapshot.
@@ -893,6 +899,7 @@ preset = "server-authoritative"
         assert_eq!(entries[0]["handler_fn_name"], "dispatch_fleet");
         assert_eq!(entries[0]["protocol_name"], "SpawnUnit");
         assert_eq!(entries[0]["kind"], "Command");
+        assert!(entries[0]["surfaces"].as_array().unwrap().is_empty());
 
         assert_eq!(entries[1]["route_path"], "/api/fleet/snapshot");
         assert_eq!(entries[1]["handler_fn_name"], "fleet_snapshot");
@@ -901,13 +908,13 @@ preset = "server-authoritative"
     }
 
     #[test]
-    fn inspect_routes_empty_project_returns_empty_array() {
+    fn inspect_routes_empty_project_returns_empty_routes() {
         // Use the basic fixture (no api/ directory).
         let temp = create_fixture_project();
 
         let (json, _) = inspect_routes_json(temp.path()).unwrap();
-        let entries: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
-        assert!(entries.is_empty());
+        let envelope: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(envelope["routes"].as_array().unwrap().is_empty());
     }
 
     #[test]
