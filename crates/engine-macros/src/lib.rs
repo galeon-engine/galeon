@@ -399,6 +399,16 @@ fn handler_attr(_attr: TokenStream, input: TokenStream) -> TokenStream {
             .into();
     }
 
+    // Must not be generic.
+    if !func.sig.generics.params.is_empty() {
+        return syn::Error::new(
+            func.sig.generics.params.first().unwrap().span(),
+            "#[handler] functions must not be generic — each handler must have concrete request/response types",
+        )
+        .to_compile_error()
+        .into();
+    }
+
     // Must not be `async`.
     if let Some(async_token) = func.sig.asyncness {
         return syn::Error::new(

@@ -1,0 +1,5 @@
+error: #[handler] functions must not be generic — each handler must have concrete request/response types
+ --> tests/compile-fail/handler_generic.rs:7:20
+  |
+7 | pub fn bad_handler<T>(cmd: T) -> Result<T, String> {
+  |                    ^
