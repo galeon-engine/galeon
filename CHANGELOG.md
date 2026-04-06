@@ -9,6 +9,14 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **ECS handler invocation bridge (#163)** — New `Handler`, `IntoHandler`, and
+  `run_handler` API provides a parallel execution seam to `IntoSystem` for
+  request/response handlers shaped `fn(Req, P0, P1, ...) -> Result<Resp, String>`.
+  The first parameter is the request value; remaining parameters are `SystemParam`
+  types (`Res`, `ResMut`, `Query`, `QueryMut`, etc.) injected from the ECS World.
+  Conflict validation reuses the same `Access::conflicts_with` rules as systems.
+  Supports 0–8 SystemParam arities via macro expansion.
+
 - **`#[handler]` registration + validation (#162)** — New `#[handler]` attribute
   macro registers handler metadata (function name, module path, request/response/error
   types) via `inventory` for downstream code generation. Validates that targets are
