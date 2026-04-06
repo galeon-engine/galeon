@@ -26,7 +26,10 @@ pub fn bad_handler(cmd: String) -> Result<String, String> {
 #[test]
 fn validate_handlers_rejects_non_protocol_request_type() {
     let result = ProtocolManifest::validate_handlers();
-    assert!(result.is_err(), "expected Err for non-protocol request type");
+    assert!(
+        result.is_err(),
+        "expected Err for non-protocol request type"
+    );
     let errors = result.unwrap_err();
     assert_eq!(errors.len(), 1);
     assert!(
