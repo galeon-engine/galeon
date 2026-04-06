@@ -34,8 +34,9 @@ pub trait Handler<Req, Resp> {
 
 /// Converts a compatible function into a boxed [`Handler`].
 ///
-/// Implemented for parameterized functions `fn(Req, P0, P1, ...) -> Result<Resp, String>`
-/// where each `P` is a [`SystemParam`]. Parallel to
+/// Implemented for parameterized functions `fn(Req, P0, P1, ...) -> Result<Resp, E>`
+/// where each `P` is a [`SystemParam`] and `E: ToString`. The error is
+/// converted to `String` at the bridge boundary. Parallel to
 /// [`IntoSystem`][crate::function_system::IntoSystem].
 pub trait IntoHandler<Req, Resp, Params> {
     fn into_handler(self, name: &'static str) -> Box<dyn Handler<Req, Resp>>;
@@ -47,8 +48,9 @@ pub trait IntoHandler<Req, Resp, Params> {
 
 /// Internal bridge trait. Parallel to `SystemParamFunction`.
 ///
-/// Bridges an `FnMut(Req, P::Item<'_>, ...) -> Result<Resp, String>` to
-/// the `Handler::run` interface.
+/// Bridges an `FnMut(Req, P::Item<'_>, ...) -> Result<Resp, E>` (where
+/// `E: ToString`) to the `Handler::run` interface, converting errors to
+/// `String` at the boundary.
 pub(crate) trait HandlerParamFunction<Req, Resp, Params>: 'static {
     fn run(&mut self, request: Req, world: &mut World) -> Result<Resp, String>;
     fn param_access() -> Vec<Access>;
@@ -123,7 +125,7 @@ pub fn run_handler<Req, Resp>(
 }
 
 // =============================================================================
-// Zero-param impl — fn(Req) -> Result<Resp, String>
+// Zero-param impl — fn(Req) -> Result<Resp, E> where E: ToString
 // =============================================================================
 
 impl<Func, Req, Resp, Err> HandlerParamFunction<Req, Resp, ()> for Func
