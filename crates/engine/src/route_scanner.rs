@@ -333,7 +333,7 @@ pub fn generate_axum_routes(
 
     out.push_str("use axum::extract::State;\n");
     out.push_str("use axum::http::StatusCode;\n");
-    out.push_str("use axum::{Router, routing};\n");
+    out.push_str("use axum::{Json, Router, routing};\n");
     out.push_str("use galeon_engine::HandlerRegistry;\n");
     out.push_str("use std::sync::Arc;\n");
     out.push('\n');
@@ -385,10 +385,11 @@ pub fn generate_axum_routes(
         out.push_str(&format!(
             "async fn {handler_name}(\n\
              \x20   State(registry): State<Arc<HandlerRegistry>>,\n\
-             \x20   body: String,\n\
+             \x20   Json(body): Json<serde_json::Value>,\n\
              ) -> Result<String, (StatusCode, String)> {{\n\
+             \x20   let json = body.to_string();\n\
              \x20   registry\n\
-             \x20       .{dispatch_method}({}, &body)\n\
+             \x20       .{dispatch_method}({}, &json)\n\
              \x20       .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))\n\
              }}\n\n",
             quote_str(&route.protocol_name),
@@ -708,7 +709,7 @@ mod tests {
         assert!(code.contains("\"/api/fleet/dispatch\""));
         assert!(code.contains("dispatch_command_json"));
         assert!(code.contains("\"DispatchFleetCmd\""));
-        assert!(code.contains("body: String"));
+        assert!(code.contains("Json(body): Json<serde_json::Value>"));
     }
 
     #[test]
@@ -726,7 +727,7 @@ mod tests {
         // All routes are POST — avoids unit-struct vs empty-named-struct ambiguity.
         assert!(code.contains("routing::post(api_fleet_snapshot)"));
         assert!(code.contains("dispatch_query_json"));
-        assert!(code.contains("body: String"));
+        assert!(code.contains("Json(body): Json<serde_json::Value>"));
         assert!(!code.contains("\"null\""));
     }
 
