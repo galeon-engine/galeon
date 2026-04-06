@@ -234,6 +234,23 @@ pub fn resolve_routes(
         });
     }
 
+    // Detect handler identifier collisions (e.g., api/foo/bar.rs vs api/foo_bar.rs
+    // both mapping to `api_foo_bar`).
+    let mut ident_to_route: std::collections::HashMap<String, &str> =
+        std::collections::HashMap::new();
+    for route in &resolved {
+        let ident = route_to_handler_ident(&route.route_path);
+        if let Some(existing) = ident_to_route.get(&ident) {
+            errors.push(format!(
+                "routes {} and {} both map to handler identifier '{}' — \
+                 rename one to avoid collision",
+                existing, route.route_path, ident,
+            ));
+        } else {
+            ident_to_route.insert(ident, &route.route_path);
+        }
+    }
+
     if errors.is_empty() {
         Ok(resolved)
     } else {
@@ -328,7 +345,7 @@ pub fn generate_axum_routes(routes: &[ResolvedRoute], manifest: &ProtocolManifes
         // Multi-surface — generate `<surface>_router()` per surface.
         let default_surface = &manifest.default_surface;
         for surface in &surface_names {
-            let fn_name = format!("{}_router", surface.replace('-', "_"));
+            let fn_name = format!("{}_router", to_rust_ident(surface));
             emit_router_fn(&mut out, &fn_name, routes, |r| {
                 route_belongs_to_surface(r, surface, default_surface)
             });
@@ -395,11 +412,25 @@ fn route_belongs_to_surface(route: &ResolvedRoute, surface: &str, default_surfac
     }
 }
 
+/// Convert an arbitrary string to a valid Rust identifier by replacing
+/// every non-alphanumeric, non-underscore character with `_`.
+fn to_rust_ident(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 /// Convert a route path to a valid Rust function identifier.
 ///
 /// `/api/fleet/dispatch` → `api_fleet_dispatch`
 fn route_to_handler_ident(route_path: &str) -> String {
-    route_path.trim_start_matches('/').replace(['/', '-'], "_")
+    to_rust_ident(route_path.trim_start_matches('/'))
 }
 
 /// Quote a string as a Rust string literal.
@@ -795,5 +826,90 @@ mod tests {
             route_to_handler_ident("/api/fleet-ops/dispatch"),
             "api_fleet_ops_dispatch"
         );
+    }
+
+    #[test]
+    fn to_rust_ident_sanitises_non_identifier_chars() {
+        assert_eq!(to_rust_ident("qa.v2"), "qa_v2");
+        assert_eq!(to_rust_ident("admin ui"), "admin_ui");
+        assert_eq!(to_rust_ident("foo-bar_baz"), "foo_bar_baz");
+        assert_eq!(to_rust_ident("plain"), "plain");
+    }
+
+    #[test]
+    fn resolve_errors_on_handler_ident_collision() {
+        // api/foo/bar.rs and api/foo_bar.rs both map to `api_foo_bar`.
+        let scanned = scan_api_routes(&["api/foo/bar.rs", "api/foo_bar.rs"]);
+        let handlers = vec![
+            HandlerMeta {
+                name: "bar_handler".into(),
+                module_path: "my_game::api::foo::bar".into(),
+                request_type: "BarCmd".into(),
+                response_type: "()".into(),
+                error_type: "String".into(),
+            },
+            HandlerMeta {
+                name: "foo_bar_handler".into(),
+                module_path: "my_game::api::foo_bar".into(),
+                request_type: "FooBarCmd".into(),
+                response_type: "()".into(),
+                error_type: "String".into(),
+            },
+        ];
+        let manifest = ProtocolManifest {
+            manifest_version: "2".into(),
+            protocol_version: "test@0.1".into(),
+            default_surface: "default".into(),
+            surfaces: vec!["default".into()],
+            commands: vec![
+                ManifestEntry {
+                    name: "BarCmd".into(),
+                    kind: ProtocolKind::Command,
+                    fields: vec![],
+                    doc: "".into(),
+                    surfaces: vec![],
+                },
+                ManifestEntry {
+                    name: "FooBarCmd".into(),
+                    kind: ProtocolKind::Command,
+                    fields: vec![],
+                    doc: "".into(),
+                    surfaces: vec![],
+                },
+            ],
+            queries: vec![],
+            events: vec![],
+            dtos: vec![],
+        };
+
+        let err = resolve_routes(&scanned, &handlers, &manifest).unwrap_err();
+        assert_eq!(err.len(), 1);
+        assert!(err[0].contains("collision"));
+        assert!(err[0].contains("api_foo_bar"));
+    }
+
+    #[test]
+    fn generate_routes_multi_surface_sanitises_surface_names() {
+        let manifest = ProtocolManifest {
+            manifest_version: "2".into(),
+            protocol_version: "test@0.1".into(),
+            default_surface: "qa.v2".into(),
+            surfaces: vec!["qa.v2".into()],
+            commands: vec![],
+            queries: vec![],
+            events: vec![],
+            dtos: vec![],
+        };
+
+        // Two surfaces needed for multi-surface codegen path.
+        let mut manifest_multi = manifest.clone();
+        manifest_multi.surfaces = vec!["qa.v2".into(), "admin ui".into()];
+
+        let code = generate_axum_routes(&[], &manifest_multi);
+        assert!(code.contains("pub fn qa_v2_router()"));
+        assert!(code.contains("pub fn admin_ui_router()"));
+        // No raw dots or spaces in function names.
+        assert!(!code.contains("pub fn qa.v2"));
+        assert!(!code.contains("pub fn admin ui"));
     }
 }
