@@ -362,7 +362,10 @@ fn generate_routes(args: &[String], manifest: &ProtocolManifest) -> String {
     });
 
     // T4: Generate axum glue code.
-    generate_axum_routes(&resolved, manifest)
+    generate_axum_routes(&resolved, manifest).unwrap_or_else(|e| {
+        eprintln!("route codegen error: {e}");
+        process::exit(1);
+    })
 }
 "#;
     template.replace(
