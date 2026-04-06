@@ -18,6 +18,8 @@ pub enum GenerateCommand {
     Manifest(GenerateArgs),
     /// Emit protocol descriptors as pretty JSON
     Descriptors(GenerateArgs),
+    /// Emit filesystem-routed axum glue from the api/ directory
+    Routes(GenerateArgs),
 }
 
 #[derive(Args, Clone, Debug)]
@@ -32,6 +34,7 @@ enum ArtifactKind {
     Ts,
     Manifest,
     Descriptors,
+    Routes,
 }
 
 impl ArtifactKind {
@@ -40,6 +43,7 @@ impl ArtifactKind {
             Self::Ts => "ts",
             Self::Manifest => "manifest",
             Self::Descriptors => "descriptors",
+            Self::Routes => "routes",
         }
     }
 
@@ -48,6 +52,7 @@ impl ArtifactKind {
             Self::Ts => root.join("generated").join("types.ts"),
             Self::Manifest => root.join("generated").join("manifest.json"),
             Self::Descriptors => root.join("generated").join("descriptors.json"),
+            Self::Routes => root.join("generated").join("routes.rs"),
         }
     }
 }
@@ -155,6 +160,7 @@ pub fn run(command: GenerateCommand) -> Result<PathBuf, String> {
         GenerateCommand::Ts(args) => (ArtifactKind::Ts, args),
         GenerateCommand::Manifest(args) => (ArtifactKind::Manifest, args),
         GenerateCommand::Descriptors(args) => (ArtifactKind::Descriptors, args),
+        GenerateCommand::Routes(args) => (ArtifactKind::Routes, args),
     };
     run_from_dir(kind, args.out.as_deref(), &start_dir)
 }
@@ -165,7 +171,18 @@ fn run_from_dir(
     start_dir: &Path,
 ) -> Result<PathBuf, String> {
     let context = ProjectContext::discover(start_dir)?;
-    let artifact = execute_reflection_helper(&context, kind)?;
+
+    // For routes, scan the api/ directory and pass paths to the helper.
+    let extra_args = if kind == ArtifactKind::Routes {
+        let api_paths = scan_api_directory(&context.protocol_dir)?;
+        let json = serde_json::to_string(&api_paths)
+            .map_err(|e| format!("failed to serialize api paths: {e}"))?;
+        vec!["--api-paths".to_string(), json]
+    } else {
+        vec![]
+    };
+
+    let artifact = execute_reflection_helper(&context, kind, &extra_args)?;
     let output_path = out
         .map(PathBuf::from)
         .unwrap_or_else(|| kind.default_output_path(&context.root));
@@ -173,9 +190,43 @@ fn run_from_dir(
     Ok(output_path)
 }
 
+/// Walk the `api/` directory under the protocol crate and collect relative paths.
+///
+/// Returns paths relative to the protocol crate root (e.g., `"api/fleet/dispatch.rs"`),
+/// using forward slashes on all platforms.
+fn scan_api_directory(protocol_dir: &Path) -> Result<Vec<String>, String> {
+    let api_dir = protocol_dir.join("src").join("api");
+    if !api_dir.exists() {
+        return Ok(vec![]);
+    }
+    let mut paths = Vec::new();
+    collect_rs_files(&api_dir, &protocol_dir.join("src"), &mut paths)?;
+    paths.sort();
+    Ok(paths)
+}
+
+fn collect_rs_files(dir: &Path, base: &Path, out: &mut Vec<String>) -> Result<(), String> {
+    let entries =
+        fs::read_dir(dir).map_err(|e| format!("failed to read {}: {e}", dir.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("failed to read dir entry: {e}"))?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_rs_files(&path, base, out)?;
+        } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+            let relative = path
+                .strip_prefix(base)
+                .map_err(|e| format!("path prefix error: {e}"))?;
+            out.push(relative.to_string_lossy().replace('\\', "/"));
+        }
+    }
+    Ok(())
+}
+
 fn execute_reflection_helper(
     context: &ProjectContext,
     kind: ArtifactKind,
+    extra_args: &[String],
 ) -> Result<String, String> {
     let helper_dir = TempDir::new().map_err(|e| format!("failed to create helper dir: {e}"))?;
     let helper_manifest = helper_dir.path().join("Cargo.toml");
@@ -195,15 +246,19 @@ fn execute_reflection_helper(
     )
     .map_err(|e| format!("failed to write helper main.rs: {e}"))?;
 
-    let output = Command::new("cargo")
-        .arg("run")
+    let mut cmd = Command::new("cargo");
+    cmd.arg("run")
         .arg("--quiet")
         .arg("--manifest-path")
         .arg(&helper_manifest)
         .arg("--target-dir")
         .arg(context.root.join("target").join("galeon-generate"))
         .arg("--")
-        .arg(kind.as_cli_arg())
+        .arg(kind.as_cli_arg());
+    for arg in extra_args {
+        cmd.arg(arg);
+    }
+    let output = cmd
         .current_dir(&context.root)
         .output()
         .map_err(|e| format!("failed to launch cargo for reflection helper: {e}"))?;
@@ -254,11 +309,15 @@ fn helper_main_source(protocol_version: &str) -> String {
 
 use std::process;
 
-use galeon_engine::{generate_descriptors, generate_typescript, ProtocolManifest};
+use galeon_engine::{
+    generate_axum_routes, generate_descriptors, generate_typescript, resolve_routes,
+    scan_api_routes, HandlerMeta, ProtocolManifest,
+};
 use target_protocol as _;
 
 fn main() {
-    let kind = std::env::args().nth(1).unwrap_or_else(|| {
+    let args: Vec<String> = std::env::args().collect();
+    let kind = args.get(1).cloned().unwrap_or_else(|| {
         eprintln!("missing artifact kind");
         process::exit(2);
     });
@@ -268,12 +327,42 @@ fn main() {
         "manifest" => manifest.to_json_pretty().expect("manifest json generation should succeed"),
         "descriptors" => serde_json::to_string_pretty(&generate_descriptors(&manifest))
             .expect("descriptor json generation should succeed"),
+        "routes" => generate_routes(&args, &manifest),
         other => {
             eprintln!("unknown artifact kind: {other}");
             process::exit(2);
         }
     };
     print!("{output}");
+}
+
+fn generate_routes(args: &[String], manifest: &ProtocolManifest) -> String {
+    // Parse --api-paths JSON from CLI args.
+    let api_paths_json = args
+        .windows(2)
+        .find(|pair| pair[0] == "--api-paths")
+        .map(|pair| pair[1].as_str())
+        .unwrap_or("[]");
+    let api_paths: Vec<String> =
+        serde_json::from_str(api_paths_json).expect("failed to parse --api-paths JSON");
+    let path_refs: Vec<&str> = api_paths.iter().map(String::as_str).collect();
+
+    // T1: Scan filesystem paths into route entries.
+    let scanned = scan_api_routes(&path_refs);
+
+    // T2: Collect handler metadata from inventory.
+    let handlers = HandlerMeta::collect_all();
+
+    // T3: Resolve routes against handlers and manifest.
+    let resolved = resolve_routes(&scanned, &handlers, manifest).unwrap_or_else(|errors| {
+        for error in &errors {
+            eprintln!("route resolution error: {error}");
+        }
+        process::exit(1);
+    });
+
+    // T4: Generate axum glue code.
+    generate_axum_routes(&resolved, &manifest.protocol_version)
 }
 "#;
     template.replace(
@@ -596,5 +685,185 @@ preset = "local-first"
         let temp = TempDir::new().unwrap();
         let error = run_from_dir(ArtifactKind::Manifest, None, temp.path()).unwrap_err();
         assert!(error.contains("could not find galeon.toml"));
+    }
+
+    // -- Routes generation (T5) --
+
+    fn fixture_routes_protocol_source() -> String {
+        r#"// SPDX-License-Identifier: AGPL-3.0-only OR Commercial
+
+#[galeon_engine::command]
+pub struct SpawnUnit {
+    pub unit_id: u64,
+}
+
+#[galeon_engine::query]
+pub struct GetWorldSnapshot;
+
+#[galeon_engine::dto]
+pub struct UnitSummary {
+    pub unit_id: u64,
+}
+
+pub mod api {
+    pub mod fleet {
+        pub mod dispatch;
+        pub mod snapshot;
+    }
+}
+"#
+        .to_string()
+    }
+
+    fn fixture_handler_dispatch() -> String {
+        r#"// SPDX-License-Identifier: AGPL-3.0-only OR Commercial
+
+#[galeon_engine::handler]
+pub fn dispatch_fleet(cmd: crate::SpawnUnit) -> Result<(), String> {
+    let _ = cmd;
+    Ok(())
+}
+"#
+        .to_string()
+    }
+
+    fn fixture_handler_snapshot() -> String {
+        r#"// SPDX-License-Identifier: AGPL-3.0-only OR Commercial
+
+#[galeon_engine::handler]
+pub fn fleet_snapshot(query: crate::GetWorldSnapshot) -> Result<crate::UnitSummary, String> {
+    let _ = query;
+    Ok(crate::UnitSummary { unit_id: 0 })
+}
+"#
+        .to_string()
+    }
+
+    fn fixture_helper_types() -> String {
+        r#"// SPDX-License-Identifier: AGPL-3.0-only OR Commercial
+
+/// Shared types — this file is _-prefixed, so it must NOT become a route.
+pub type FleetId = u64;
+"#
+        .to_string()
+    }
+
+    fn create_fixture_routes_project() -> TempDir {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        let engine_path = repo_root().join("crates").join("engine");
+        let engine_dependency = format!(
+            "{{ path = {} }}",
+            render_toml_string(&engine_path.to_string_lossy())
+        );
+
+        write_file(
+            &root.join("galeon.toml"),
+            r#"[project]
+name = "fixture-routes"
+engine = "0.2"
+preset = "server-authoritative"
+"#,
+        );
+        write_file(
+            &root.join("crates").join("protocol").join("Cargo.toml"),
+            &fixture_protocol_manifest(&engine_dependency),
+        );
+        write_file(
+            &root
+                .join("crates")
+                .join("protocol")
+                .join("src")
+                .join("lib.rs"),
+            &fixture_routes_protocol_source(),
+        );
+        write_file(
+            &root
+                .join("crates")
+                .join("protocol")
+                .join("src")
+                .join("api")
+                .join("fleet")
+                .join("dispatch.rs"),
+            &fixture_handler_dispatch(),
+        );
+        write_file(
+            &root
+                .join("crates")
+                .join("protocol")
+                .join("src")
+                .join("api")
+                .join("fleet")
+                .join("snapshot.rs"),
+            &fixture_handler_snapshot(),
+        );
+        write_file(
+            &root
+                .join("crates")
+                .join("protocol")
+                .join("src")
+                .join("api")
+                .join("_types.rs"),
+            &fixture_helper_types(),
+        );
+
+        temp
+    }
+
+    #[test]
+    fn generate_routes_produces_axum_glue() {
+        let temp = create_fixture_routes_project();
+
+        let routes_path = run_from_dir(ArtifactKind::Routes, None, temp.path()).unwrap();
+
+        assert_eq!(routes_path, temp.path().join("generated").join("routes.rs"));
+
+        let routes = fs::read_to_string(routes_path).unwrap();
+
+        // Header present.
+        assert!(routes.contains("Auto-generated by Galeon Engine"));
+        assert!(routes.contains("fixture-protocol@0.3.1"));
+
+        // Command route is POST.
+        assert!(routes.contains("\"/api/fleet/dispatch\""));
+        assert!(routes.contains("routing::post(api_fleet_dispatch)"));
+        assert!(routes.contains("dispatch_command_json"));
+        assert!(routes.contains("\"SpawnUnit\""));
+
+        // Query route is GET (unit struct, no fields).
+        assert!(routes.contains("\"/api/fleet/snapshot\""));
+        assert!(routes.contains("routing::get(api_fleet_snapshot)"));
+        assert!(routes.contains("dispatch_query_json"));
+        assert!(routes.contains("\"GetWorldSnapshot\""));
+
+        // _types.rs must NOT appear as a route.
+        assert!(!routes.contains("_types"));
+        assert!(!routes.contains("api_types"));
+    }
+
+    #[test]
+    fn generate_routes_no_api_directory_produces_empty_router() {
+        // Use the basic fixture (no api/ directory).
+        let temp = create_fixture_project();
+
+        let routes_path = run_from_dir(ArtifactKind::Routes, None, temp.path()).unwrap();
+        let routes = fs::read_to_string(routes_path).unwrap();
+
+        assert!(routes.contains("Router::new()"));
+        // No .route() calls — empty router.
+        assert!(!routes.contains(".route("));
+    }
+
+    #[test]
+    fn scan_api_directory_collects_rs_files() {
+        let temp = create_fixture_routes_project();
+        let protocol_dir = temp.path().join("crates").join("protocol");
+
+        let paths = scan_api_directory(&protocol_dir).unwrap();
+
+        // Should find dispatch.rs, snapshot.rs, and _types.rs (scanner skips _ later).
+        assert!(paths.contains(&"api/fleet/dispatch.rs".to_string()));
+        assert!(paths.contains(&"api/fleet/snapshot.rs".to_string()));
+        assert!(paths.contains(&"api/_types.rs".to_string()));
     }
 }

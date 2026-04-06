@@ -9,6 +9,15 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Filesystem-routed axum glue generation (#164)** — `galeon generate routes`
+  scans the protocol crate's `api/` directory, matches route files to
+  `#[handler]` registrations via module path, and emits `generated/routes.rs` —
+  an axum `Router` that delegates through `HandlerRegistry` JSON dispatch.
+  Files prefixed with `_` are skipped (helpers, not routes). Commands become
+  `POST` routes; field-less queries become `GET` routes. The scanner, resolver,
+  and codegen are fully unit-tested; the CLI pipeline has an end-to-end
+  integration test with a fixture project.
+
 - **`galeon generate` CLI artifact commands (#77)** — `galeon generate ts`,
   `galeon generate manifest`, and `galeon generate descriptors` now emit
   protocol artifacts from a Galeon project directory. The CLI walks up to
