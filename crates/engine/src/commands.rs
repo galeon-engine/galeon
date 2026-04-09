@@ -9,7 +9,7 @@ use crate::system_param::Access;
 use crate::world::{Bundle, UnsafeWorldCell, World};
 
 /// A boxed, type-erased command closure.
-type BoxedCommand = Box<dyn FnOnce(&mut World)>;
+type BoxedCommand = Box<dyn FnOnce(&mut World) + Send>;
 
 // =============================================================================
 // CommandBuffer — internal queue of deferred world mutations
@@ -29,7 +29,7 @@ impl CommandBuffer {
     }
 
     /// Push a type-erased command onto the buffer.
-    fn push(&mut self, cmd: impl FnOnce(&mut World) + 'static) {
+    fn push(&mut self, cmd: impl FnOnce(&mut World) + Send + 'static) {
         self.queue.push(Box::new(cmd));
     }
 

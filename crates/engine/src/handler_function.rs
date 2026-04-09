@@ -171,8 +171,12 @@ where
 /// JSON boundary helper for any function that implements [`IntoHandler`].
 ///
 /// Builds a fresh boxed handler from `f` each call (same cost model as
-/// per-request `into_handler` in generated glue). `Req`, `Resp`, and `Params`
-/// are inferred from the concrete function item type passed as `f`.
+/// per-request `into_handler` in generated glue). When `f` is a concrete
+/// function item, `Req`, `Resp`, and `Params` are inferred from its type.
+///
+/// Generated axum routes use the `#[handler]`-emitted `{name}__galeon_axum_json`
+/// shim for handlers with ECS [`SystemParam`] extras, because bare
+/// `.into_handler(...)` on a function path often cannot infer `Params`.
 pub fn run_json_handler_function<F, Req, Resp, Params>(
     f: F,
     handler_name: &'static str,

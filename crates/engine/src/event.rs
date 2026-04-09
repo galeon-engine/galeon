@@ -112,11 +112,11 @@ impl<T: 'static> Default for Events<T> {
 ///     writer.send(CannonFired { power: 9000 });
 /// }
 /// ```
-pub struct EventWriter<'w, T: 'static> {
+pub struct EventWriter<'w, T: Send + 'static> {
     events: &'w mut Events<T>,
 }
 
-impl<'w, T: 'static> EventWriter<'w, T> {
+impl<'w, T: Send + 'static> EventWriter<'w, T> {
     /// Send an event. Readable by `EventReader<T>` systems on the next tick.
     pub fn send(&mut self, event: T) {
         self.events.send(event);
@@ -125,7 +125,7 @@ impl<'w, T: 'static> EventWriter<'w, T> {
 
 // SAFETY: access() reports ResWrite(Events<T>). fetch() only touches the
 // Events<T> resource field via get_resource_mut — no other field is accessed.
-unsafe impl<T: 'static> SystemParam for EventWriter<'_, T> {
+unsafe impl<T: Send + 'static> SystemParam for EventWriter<'_, T> {
     type Item<'w> = EventWriter<'w, T>;
 
     fn access() -> Vec<Access> {
@@ -154,11 +154,11 @@ unsafe impl<T: 'static> SystemParam for EventWriter<'_, T> {
 ///     }
 /// }
 /// ```
-pub struct EventReader<'w, T: 'static> {
+pub struct EventReader<'w, T: Send + 'static> {
     events: &'w Events<T>,
 }
 
-impl<'w, T: 'static> EventReader<'w, T> {
+impl<'w, T: Send + 'static> EventReader<'w, T> {
     /// Iterate over events from the previous tick.
     pub fn read(&self) -> impl Iterator<Item = &T> {
         self.events.read()
@@ -177,7 +177,7 @@ impl<'w, T: 'static> EventReader<'w, T> {
 
 // SAFETY: access() reports ResRead(Events<T>). fetch() only reads the
 // Events<T> resource via get_resource — no mutation occurs.
-unsafe impl<T: 'static> SystemParam for EventReader<'_, T> {
+unsafe impl<T: Send + 'static> SystemParam for EventReader<'_, T> {
     type Item<'w> = EventReader<'w, T>;
 
     fn access() -> Vec<Access> {

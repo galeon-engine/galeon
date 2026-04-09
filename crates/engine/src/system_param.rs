@@ -94,11 +94,11 @@ pub unsafe trait SystemParam {
 // =============================================================================
 
 /// Shared read access to a world resource.
-pub struct Res<'w, T: 'static> {
+pub struct Res<'w, T: Send + 'static> {
     value: &'w T,
 }
 
-impl<T: 'static> Deref for Res<'_, T> {
+impl<T: Send + 'static> Deref for Res<'_, T> {
     type Target = T;
     fn deref(&self) -> &T {
         self.value
@@ -106,7 +106,7 @@ impl<T: 'static> Deref for Res<'_, T> {
 }
 
 // SAFETY: access() correctly reports ResRead. fetch() only reads the resource.
-unsafe impl<T: 'static> SystemParam for Res<'_, T> {
+unsafe impl<T: Send + 'static> SystemParam for Res<'_, T> {
     type Item<'w> = Res<'w, T>;
 
     fn access() -> Vec<Access> {
@@ -125,25 +125,25 @@ unsafe impl<T: 'static> SystemParam for Res<'_, T> {
 // =============================================================================
 
 /// Exclusive write access to a world resource.
-pub struct ResMut<'w, T: 'static> {
+pub struct ResMut<'w, T: Send + 'static> {
     value: &'w mut T,
 }
 
-impl<T: 'static> Deref for ResMut<'_, T> {
+impl<T: Send + 'static> Deref for ResMut<'_, T> {
     type Target = T;
     fn deref(&self) -> &T {
         self.value
     }
 }
 
-impl<T: 'static> DerefMut for ResMut<'_, T> {
+impl<T: Send + 'static> DerefMut for ResMut<'_, T> {
     fn deref_mut(&mut self) -> &mut T {
         self.value
     }
 }
 
 // SAFETY: access() correctly reports ResWrite. fetch() only mutates this resource.
-unsafe impl<T: 'static> SystemParam for ResMut<'_, T> {
+unsafe impl<T: Send + 'static> SystemParam for ResMut<'_, T> {
     type Item<'w> = ResMut<'w, T>;
 
     fn access() -> Vec<Access> {

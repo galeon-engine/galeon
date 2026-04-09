@@ -831,6 +831,7 @@ preset = "server-authoritative"
         assert!(routes.contains("\"/api/fleet/dispatch\""));
         assert!(routes.contains("routing::post(api_fleet_dispatch)"));
         assert!(routes.contains("__galeon_axum_json"));
+        assert!(routes.contains("crate::api::fleet::dispatch::dispatch_fleet__galeon_axum_json"));
         assert!(routes.contains("// protocol: SpawnUnit"));
 
         // Query route is POST (all routes use POST to avoid unit-struct
@@ -838,6 +839,7 @@ preset = "server-authoritative"
         assert!(routes.contains("\"/api/fleet/snapshot\""));
         assert!(routes.contains("routing::post(api_fleet_snapshot)"));
         assert!(routes.contains("__galeon_axum_json"));
+        assert!(routes.contains("crate::api::fleet::snapshot::fleet_snapshot__galeon_axum_json"));
         assert!(routes.contains("// protocol: GetWorldSnapshot"));
 
         // _types.rs must NOT appear as a route.
