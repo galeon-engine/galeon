@@ -84,7 +84,7 @@ impl Timestamp {
 /// Implement this trait to control how the scheduler determines "now".
 /// The engine provides [`SystemClock`] (real time) and [`TestClock`]
 /// (manually controllable).
-pub trait Clock: 'static {
+pub trait Clock: Send + Sync + 'static {
     /// Returns the current time.
     fn now(&self) -> Timestamp;
 }

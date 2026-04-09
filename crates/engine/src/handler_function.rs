@@ -150,11 +150,34 @@ where
     serde_json::to_string(&response).map_err(|e| e.to_string())
 }
 
+/// Deserialize JSON, run a [`Handler`], and return the response as [`serde_json::Value`].
+///
+/// Same as [`run_json_handler`], but avoids a serialize-then-parse round trip
+/// when the transport layer needs a JSON value (for example axum `Json<Value>`).
+pub fn run_json_handler_value<Req, Resp>(
+    handler: &mut dyn Handler<Req, Resp>,
+    json_body: &str,
+    world: &mut World,
+) -> Result<serde_json::Value, String>
+where
+    Req: DeserializeOwned,
+    Resp: Serialize,
+{
+    let request: Req = serde_json::from_str(json_body).map_err(|e| e.to_string())?;
+    let response = run_handler(handler, request, world)?;
+    serde_json::to_value(&response).map_err(|e| e.to_string())
+}
+
 /// JSON boundary helper for any function that implements [`IntoHandler`].
 ///
 /// Builds a fresh boxed handler from `f` each call (same cost model as
-/// per-request `into_handler` in generated glue). Type parameters are inferred
-/// from `f`, so generated code does not need explicit turbofish tuples.
+/// per-request `into_handler` in generated glue).
+///
+/// For handlers with extra [`SystemParam`] arguments, Rust may fail to infer
+/// the `Params` type tuple when this helper is called indirectly. Prefer
+/// [`IntoHandler::into_handler`] plus [`run_json_handler`] or
+/// [`run_json_handler_value`] in a scoped function (generated axum glue uses
+/// this pattern).
 pub fn run_json_handler_function<F, Req, Resp, Params>(
     f: F,
     handler_name: &'static str,

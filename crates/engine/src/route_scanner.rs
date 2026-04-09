@@ -6,8 +6,9 @@
 //! [`HandlerRegistration`] entries collected via `inventory`, and emits
 //! `generated/routes.rs` — an axum `Router` that delegates through the
 //! discovered `#[handler]` functions with JSON bodies against
-//! `Arc<std::sync::Mutex<galeon_engine::World>>` state via
-//! [`run_json_handler_function`][crate::handler_function::run_json_handler_function].
+//! `Arc<std::sync::Mutex<galeon_engine::World>>` state via a per-route shim
+//! that calls [`IntoHandler::into_handler`][crate::handler_function::IntoHandler]
+//! and [`run_json_handler_value`][crate::run_json_handler_value].
 //!
 //! # Data flow
 //!
@@ -310,6 +311,20 @@ pub fn strip_type_prefix(qualified: &str) -> &str {
     qualified.rsplit("::").next().unwrap_or(qualified)
 }
 
+/// Build a `crate::...::fn_name` path for generated `routes.rs` included in the protocol crate.
+///
+/// [`HandlerRegistration::module_path`] comes from `module_path!()` (for example
+/// `my_game::api::fleet::dispatch`). The generated file is `include!`'d next to
+/// those modules, so the crate prefix is rewritten to `crate::`.
+pub fn crate_relative_handler_fn_path(module_path: &str, fn_name: &str) -> String {
+    const MARKER: &str = "::api::";
+    if let Some(pos) = module_path.find(MARKER) {
+        format!("crate::{}::{}", &module_path[pos + 2..], fn_name)
+    } else {
+        format!("{}::{}", module_path, fn_name)
+    }
+}
+
 // =============================================================================
 // T4: Axum glue code generation
 // =============================================================================
@@ -318,8 +333,10 @@ pub fn strip_type_prefix(qualified: &str) -> &str {
 ///
 /// The generated code creates per-surface axum `Router` functions with
 /// `Arc<std::sync::Mutex<galeon_engine::World>>` as state. Each route uses POST,
-/// deserializes JSON, and invokes the resolved `#[handler]` function via
-/// [`run_json_handler_function`][crate::handler_function::run_json_handler_function].
+/// deserializes JSON, and invokes the resolved `#[handler]` through
+/// [`IntoHandler::into_handler`][crate::handler_function::IntoHandler] plus
+/// [`run_json_handler_value`][crate::run_json_handler_value] inside a small sync
+/// helper (so `Params` inference succeeds for handlers with ECS parameters).
 ///
 /// All routes are POST — the manifest cannot distinguish unit structs
 /// (`null`) from empty named structs (`{}`), so GET with a hardcoded
@@ -382,32 +399,37 @@ pub fn generate_axum_routes(
         if !emitted.insert(handler_name.clone()) {
             continue;
         }
-        let handler_fn_path = format!("{}::{}", route.handler_module_path, route.handler_fn_name);
+        let handler_fn_path =
+            crate_relative_handler_fn_path(&route.handler_module_path, &route.handler_fn_name);
         let handler_name_lit = quote_str(&route.handler_fn_name);
 
         out.push_str(&format!(
-            "// protocol: {} ({:?})\n\
+            "// protocol: {proto} ({kind:?})\n\
+             fn {handler_name}_json(\n\
+             \x20   json: &str,\n\
+             \x20   world: &mut galeon_engine::World,\n\
+             ) -> Result<serde_json::Value, String> {{\n\
+             \x20   use galeon_engine::handler_function::IntoHandler;\n\
+             \x20   let mut h = {fn_path}.into_handler({name_lit});\n\
+             \x20   galeon_engine::run_json_handler_value(&mut *h, json, world)\n\
+             }}\n\
              async fn {handler_name}(\n\
              \x20   State(world): State<Arc<Mutex<World>>>,\n\
              \x20   Json(body): Json<serde_json::Value>,\n\
-             ) -> Result<String, (StatusCode, String)> {{\n\
+             ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {{\n\
              \x20   let json = body.to_string();\n\
              \x20   let mut guard = world\n\
              \x20       .lock()\n\
              \x20       .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;\n\
-             \x20   galeon_engine::handler_function::run_json_handler_function(\n\
-             \x20       {handler_fn_path},\n\
-             \x20       {handler_name_lit},\n\
-             \x20       &json,\n\
-             \x20       &mut *guard,\n\
-             \x20   )\n\
-             \x20   .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))\n\
+             \x20   let v = {handler_name}_json(&json, &mut *guard)\n\
+             \x20       .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;\n\
+             \x20   Ok(Json(v))\n\
              }}\n\n",
-            route.protocol_name,
-            route.kind,
+            proto = route.protocol_name,
+            kind = route.kind,
             handler_name = handler_name,
-            handler_fn_path = handler_fn_path,
-            handler_name_lit = handler_name_lit,
+            fn_path = handler_fn_path,
+            name_lit = handler_name_lit,
         ));
     }
 
@@ -732,10 +754,12 @@ mod tests {
         assert!(code.contains("routing::post(api_fleet_dispatch)"));
         assert!(code.contains("\"/api/fleet/dispatch\""));
         assert!(code.contains("Router<Arc<Mutex<World>>>"));
-        assert!(code.contains("handler_function::run_json_handler_function"));
+        assert!(code.contains("run_json_handler_value"));
         assert!(code.contains("// protocol: DispatchFleetCmd"));
-        assert!(code.contains("my_game::api::fleet::dispatch::dispatch_fleet"));
+        assert!(code.contains("crate::api::fleet::dispatch::dispatch_fleet"));
         assert!(code.contains("Json(body): Json<serde_json::Value>"));
+        assert!(code.contains("Result<Json<serde_json::Value>"));
+        assert!(code.contains("fn api_fleet_dispatch_json"));
     }
 
     #[test]
@@ -753,8 +777,8 @@ mod tests {
         let code = generate_axum_routes(&routes, &manifest).unwrap();
         // All routes are POST — avoids unit-struct vs empty-named-struct ambiguity.
         assert!(code.contains("routing::post(api_fleet_snapshot)"));
-        assert!(code.contains("handler_function::run_json_handler_function"));
-        assert!(code.contains("my_game::api::fleet::snapshot::fleet_snapshot"));
+        assert!(code.contains("run_json_handler_value"));
+        assert!(code.contains("crate::api::fleet::snapshot::fleet_snapshot"));
         assert!(code.contains("Json(body): Json<serde_json::Value>"));
         assert!(!code.contains("\"null\""));
     }
@@ -871,6 +895,18 @@ mod tests {
         // gameplay_router contains only DispatchFleetCmd
         assert!(gameplay_body.contains("api_fleet_dispatch"));
         assert!(!gameplay_body.contains("api_admin_reset"));
+    }
+
+    #[test]
+    fn crate_relative_handler_fn_path_rewrites_api_modules() {
+        assert_eq!(
+            crate_relative_handler_fn_path("my_game::api::fleet::dispatch", "dispatch_fleet"),
+            "crate::api::fleet::dispatch::dispatch_fleet"
+        );
+        assert_eq!(
+            crate_relative_handler_fn_path("crate::api::admin::reset", "admin_reset"),
+            "crate::api::admin::reset::admin_reset"
+        );
     }
 
     #[test]

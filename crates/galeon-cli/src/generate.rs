@@ -830,16 +830,16 @@ preset = "server-authoritative"
         // Command route is POST.
         assert!(routes.contains("\"/api/fleet/dispatch\""));
         assert!(routes.contains("routing::post(api_fleet_dispatch)"));
-        assert!(routes.contains("handler_function::run_json_handler_function"));
-        assert!(routes.contains("api::fleet::dispatch::dispatch_fleet"));
+        assert!(routes.contains("run_json_handler_value"));
+        assert!(routes.contains("crate::api::fleet::dispatch::dispatch_fleet"));
         assert!(routes.contains("// protocol: SpawnUnit"));
 
         // Query route is POST (all routes use POST to avoid unit-struct
         // vs empty-named-struct deserialization ambiguity).
         assert!(routes.contains("\"/api/fleet/snapshot\""));
         assert!(routes.contains("routing::post(api_fleet_snapshot)"));
-        assert!(routes.contains("handler_function::run_json_handler_function"));
-        assert!(routes.contains("api::fleet::snapshot::fleet_snapshot"));
+        assert!(routes.contains("run_json_handler_value"));
+        assert!(routes.contains("crate::api::fleet::snapshot::fleet_snapshot"));
         assert!(routes.contains("// protocol: GetWorldSnapshot"));
 
         // _types.rs must NOT appear as a route.

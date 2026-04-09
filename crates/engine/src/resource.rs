@@ -12,7 +12,7 @@ use std::collections::HashMap;
 /// Stacked Borrows aliasing UB when `UnsafeWorldCell` accesses different
 /// resources concurrently (e.g., `Res<A>` + `ResMut<B>`).
 pub(crate) struct Resources {
-    map: HashMap<TypeId, UnsafeCell<Box<dyn Any>>>,
+    map: HashMap<TypeId, UnsafeCell<Box<dyn Any + Send>>>,
 }
 
 #[allow(dead_code)]
@@ -24,31 +24,31 @@ impl Resources {
     }
 
     /// Insert a resource, replacing any previous value of the same type.
-    pub fn insert<T: 'static>(&mut self, value: T) {
+    pub fn insert<T: Send + 'static>(&mut self, value: T) {
         self.map
             .insert(TypeId::of::<T>(), UnsafeCell::new(Box::new(value)));
     }
 
     /// Get a reference to a resource. Panics if not present.
-    pub fn get<T: 'static>(&self) -> &T {
+    pub fn get<T: Send + 'static>(&self) -> &T {
         let cell = self
             .map
             .get(&TypeId::of::<T>())
             .unwrap_or_else(|| panic!("resource not found: {}", type_name::<T>()));
         // SAFETY: We hold `&self`, so no `&mut self` exists — no other code
         // can create a mutable reference through UnsafeCell concurrently.
-        let boxed: &Box<dyn Any> = unsafe { &*cell.get() };
+        let boxed: &Box<dyn Any + Send> = unsafe { &*cell.get() };
         boxed.downcast_ref::<T>().unwrap()
     }
 
     /// Get a mutable reference to a resource. Panics if not present.
-    pub fn get_mut<T: 'static>(&mut self) -> &mut T {
+    pub fn get_mut<T: Send + 'static>(&mut self) -> &mut T {
         let cell = self
             .map
             .get(&TypeId::of::<T>())
             .unwrap_or_else(|| panic!("resource not found: {}", type_name::<T>()));
         // SAFETY: We hold `&mut self`, so exclusive access is guaranteed.
-        let boxed: &mut Box<dyn Any> = unsafe { &mut *cell.get() };
+        let boxed: &mut Box<dyn Any + Send> = unsafe { &mut *cell.get() };
         boxed.downcast_mut::<T>().unwrap()
     }
 
@@ -62,7 +62,7 @@ impl Resources {
     ///
     /// - The resource of type `T` must exist.
     /// - No mutable reference to the same resource may exist concurrently.
-    pub(crate) unsafe fn get_unchecked<T: 'static>(&self) -> &T {
+    pub(crate) unsafe fn get_unchecked<T: Send + 'static>(&self) -> &T {
         let cell = self
             .map
             .get(&TypeId::of::<T>())
@@ -83,7 +83,7 @@ impl Resources {
     /// - No other reference (shared or mutable) to the same resource may
     ///   exist concurrently.
     #[allow(clippy::mut_from_ref)] // Intentional: UnsafeCell interior mutability
-    pub(crate) unsafe fn get_mut_unchecked<T: 'static>(&self) -> &mut T {
+    pub(crate) unsafe fn get_mut_unchecked<T: Send + 'static>(&self) -> &mut T {
         let cell = self
             .map
             .get(&TypeId::of::<T>())
@@ -94,15 +94,15 @@ impl Resources {
     }
 
     /// Try to get a reference to a resource. Returns `None` if not present.
-    pub fn try_get<T: 'static>(&self) -> Option<&T> {
+    pub fn try_get<T: Send + 'static>(&self) -> Option<&T> {
         let cell = self.map.get(&TypeId::of::<T>())?;
         // SAFETY: We hold `&self`, so no mutable access exists.
-        let boxed: &Box<dyn Any> = unsafe { &*cell.get() };
+        let boxed: &Box<dyn Any + Send> = unsafe { &*cell.get() };
         boxed.downcast_ref::<T>()
     }
 
     /// Remove and return a resource. Panics if not present.
-    pub fn take<T: 'static>(&mut self) -> T {
+    pub fn take<T: Send + 'static>(&mut self) -> T {
         *self
             .map
             .remove(&TypeId::of::<T>())
@@ -113,7 +113,7 @@ impl Resources {
     }
 
     /// Try to remove and return a resource. Returns `None` if not present.
-    pub fn try_take<T: 'static>(&mut self) -> Option<T> {
+    pub fn try_take<T: Send + 'static>(&mut self) -> Option<T> {
         self.map
             .remove(&TypeId::of::<T>())
             .and_then(|cell| cell.into_inner().downcast::<T>().ok())
@@ -121,7 +121,7 @@ impl Resources {
     }
 
     /// Returns `true` if the resource exists.
-    pub fn contains<T: 'static>(&self) -> bool {
+    pub fn contains<T: Send + 'static>(&self) -> bool {
         self.map.contains_key(&TypeId::of::<T>())
     }
 }
