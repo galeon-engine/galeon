@@ -52,7 +52,9 @@ pub use function_system::{IntoSystem, System};
 pub use galeon_engine_macros::{Component, command, dto, event, handler, query};
 pub use game_loop::FixedTimestep;
 pub use handler::HandlerRegistry;
-pub use handler_function::{Handler, IntoHandler, run_handler};
+pub use handler_function::{
+    Handler, IntoHandler, run_handler, run_json_handler, run_json_handler_function,
+};
 pub use manifest::{
     FieldEntry, HandlerRegistration, ManifestEntry, ManifestField, ProtocolManifest,
     ProtocolRegistration,

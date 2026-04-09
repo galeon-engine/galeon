@@ -9,15 +9,23 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **Filesystem-routed axum glue generation (#164)** — `galeon generate routes`
+- **Filesystem-routed axum glue generation (#164, #173)** — `galeon generate routes`
   scans the protocol crate's `api/` directory, matches route files to
   `#[handler]` registrations via module path, and emits `generated/routes.rs` —
-  per-surface axum `Router` functions that delegate through `HandlerRegistry`
-  JSON dispatch. Files prefixed with `_` are skipped (helpers, not routes).
-  All routes use POST to avoid unit-struct vs empty-named-struct deserialization
-  ambiguity. Multi-surface manifests emit separate router functions per surface.
-  The scanner, resolver, and codegen are fully unit-tested; the CLI pipeline
-  has an end-to-end integration test with a fixture project.
+  per-surface axum `Router` functions with `Arc<Mutex<World>>` state that invoke
+  each resolved handler through `run_json_handler_function` (JSON in/out, ECS
+  injection). Route resolution carries `handler_module_path` for a stable
+  `{module_path}::{fn_name}` call target. Files prefixed with `_` are skipped
+  (helpers, not routes). All routes use POST to avoid unit-struct vs
+  empty-named-struct deserialization ambiguity. Multi-surface manifests emit
+  separate router functions per surface. The scanner, resolver, and codegen are
+  fully unit-tested; the CLI pipeline has an end-to-end integration test with a
+  fixture project.
+
+- **JSON handler boundary helpers (#173)** — `run_json_handler` and
+  `run_json_handler_function` deserialize JSON, run `Handler` / `IntoHandler`
+  targets on a `World`, and serialize the response for HTTP boundaries and
+  generated axum glue.
 
 - **`galeon generate` CLI artifact commands (#77)** — `galeon generate ts`,
   `galeon generate manifest`, and `galeon generate descriptors` now emit

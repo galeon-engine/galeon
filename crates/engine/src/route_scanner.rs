@@ -5,7 +5,9 @@
 //! Walks an `api/` directory to discover route files, matches them against
 //! [`HandlerRegistration`] entries collected via `inventory`, and emits
 //! `generated/routes.rs` — an axum `Router` that delegates through the
-//! [`HandlerRegistry`] JSON dispatch boundary.
+//! discovered `#[handler]` functions with JSON bodies against
+//! `Arc<std::sync::Mutex<galeon_engine::World>>` state via
+//! [`run_json_handler_function`][crate::handler_function::run_json_handler_function].
 //!
 //! # Data flow
 //!
@@ -24,9 +26,11 @@
 //!                   generated/routes.rs
 //! ```
 //!
-//! Schema always comes from [`ProtocolManifest`]; execution always goes
-//! through [`HandlerRegistry`]. The scanner discovers *exposure* — which
-//! handlers are reachable via HTTP — without re-deriving protocol schema.
+//! Schema always comes from [`ProtocolManifest`]; HTTP execution calls the
+//! resolved handler function directly instead of routing through
+//! [`HandlerRegistry`][crate::handler::HandlerRegistry]. The scanner discovers
+//! *exposure* — which handlers are reachable via HTTP — without re-deriving
+//! protocol schema.
 
 use crate::manifest::{HandlerRegistration, ProtocolManifest};
 use crate::protocol::ProtocolKind;
@@ -153,11 +157,13 @@ impl HandlerMeta {
 pub struct ResolvedRoute {
     /// HTTP route path (e.g., `"/api/fleet/dispatch"`).
     pub route_path: String,
+    /// `module_path!()` at the `#[handler]` site (e.g., `"crate::api::fleet::dispatch"`).
+    pub handler_module_path: String,
     /// Handler function name (e.g., `"dispatch_fleet"`).
     pub handler_fn_name: String,
     /// Protocol name of the request type (e.g., `"DispatchFleetCmd"`).
     pub protocol_name: String,
-    /// Protocol kind — determines dispatch method.
+    /// Protocol kind — command vs query (metadata; handlers are invoked directly).
     pub kind: ProtocolKind,
     /// Explicit surface memberships from the manifest entry.
     /// Empty means "default surface only" — same semantics as [`ManifestEntry::surfaces`].
@@ -227,6 +233,7 @@ pub fn resolve_routes(
 
         resolved.push(ResolvedRoute {
             route_path: route.route_path.clone(),
+            handler_module_path: handler.module_path.clone(),
             handler_fn_name: handler.name.clone(),
             protocol_name,
             kind,
@@ -310,10 +317,9 @@ pub fn strip_type_prefix(qualified: &str) -> &str {
 /// Generate the `routes.rs` axum glue source code from resolved routes.
 ///
 /// The generated code creates per-surface axum `Router` functions with
-/// `Arc<HandlerRegistry>` as state. Each route uses POST and delegates to
-/// [`HandlerRegistry::dispatch_command_json`] or
-/// [`HandlerRegistry::dispatch_query_json`] using the protocol name
-/// from the manifest.
+/// `Arc<std::sync::Mutex<galeon_engine::World>>` as state. Each route uses POST,
+/// deserializes JSON, and invokes the resolved `#[handler]` function via
+/// [`run_json_handler_function`][crate::handler_function::run_json_handler_function].
 ///
 /// All routes are POST — the manifest cannot distinguish unit structs
 /// (`null`) from empty named structs (`{}`), so GET with a hardcoded
@@ -334,8 +340,8 @@ pub fn generate_axum_routes(
     out.push_str("use axum::extract::State;\n");
     out.push_str("use axum::http::StatusCode;\n");
     out.push_str("use axum::{Json, Router, routing};\n");
-    out.push_str("use galeon_engine::HandlerRegistry;\n");
-    out.push_str("use std::sync::Arc;\n");
+    out.push_str("use galeon_engine::World;\n");
+    out.push_str("use std::sync::{Arc, Mutex};\n");
     out.push('\n');
 
     // Per-surface router functions.
@@ -376,23 +382,32 @@ pub fn generate_axum_routes(
         if !emitted.insert(handler_name.clone()) {
             continue;
         }
-        let dispatch_method = match route.kind {
-            ProtocolKind::Command => "dispatch_command_json",
-            ProtocolKind::Query => "dispatch_query_json",
-            _ => "dispatch_command_json",
-        };
+        let handler_fn_path = format!("{}::{}", route.handler_module_path, route.handler_fn_name);
+        let handler_name_lit = quote_str(&route.handler_fn_name);
 
         out.push_str(&format!(
-            "async fn {handler_name}(\n\
-             \x20   State(registry): State<Arc<HandlerRegistry>>,\n\
+            "// protocol: {} ({:?})\n\
+             async fn {handler_name}(\n\
+             \x20   State(world): State<Arc<Mutex<World>>>,\n\
              \x20   Json(body): Json<serde_json::Value>,\n\
              ) -> Result<String, (StatusCode, String)> {{\n\
              \x20   let json = body.to_string();\n\
-             \x20   registry\n\
-             \x20       .{dispatch_method}({}, &json)\n\
-             \x20       .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))\n\
+             \x20   let mut guard = world\n\
+             \x20       .lock()\n\
+             \x20       .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;\n\
+             \x20   galeon_engine::handler_function::run_json_handler_function(\n\
+             \x20       {handler_fn_path},\n\
+             \x20       {handler_name_lit},\n\
+             \x20       &json,\n\
+             \x20       &mut *guard,\n\
+             \x20   )\n\
+             \x20   .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))\n\
              }}\n\n",
-            quote_str(&route.protocol_name),
+            route.protocol_name,
+            route.kind,
+            handler_name = handler_name,
+            handler_fn_path = handler_fn_path,
+            handler_name_lit = handler_name_lit,
         ));
     }
 
@@ -407,7 +422,7 @@ fn emit_router_fn(
     filter: impl Fn(&ResolvedRoute) -> bool,
 ) {
     out.push_str(&format!(
-        "pub fn {fn_name}() -> Router<Arc<HandlerRegistry>> {{\n"
+        "pub fn {fn_name}() -> Router<Arc<Mutex<World>>> {{\n"
     ));
     out.push_str("    Router::new()\n");
     for route in routes.iter().filter(|r| filter(r)) {
@@ -607,12 +622,20 @@ mod tests {
         assert_eq!(resolved.len(), 2);
 
         assert_eq!(resolved[0].route_path, "/api/fleet/dispatch");
+        assert_eq!(
+            resolved[0].handler_module_path,
+            "my_game::api::fleet::dispatch"
+        );
         assert_eq!(resolved[0].handler_fn_name, "dispatch_fleet");
         assert_eq!(resolved[0].protocol_name, "DispatchFleetCmd");
         assert_eq!(resolved[0].kind, ProtocolKind::Command);
         assert!(resolved[0].surfaces.is_empty()); // inherits default
 
         assert_eq!(resolved[1].route_path, "/api/fleet/snapshot");
+        assert_eq!(
+            resolved[1].handler_module_path,
+            "my_game::api::fleet::snapshot"
+        );
         assert_eq!(resolved[1].handler_fn_name, "fleet_snapshot");
         assert_eq!(resolved[1].protocol_name, "GetFleetSnapshot");
         assert_eq!(resolved[1].kind, ProtocolKind::Query);
@@ -698,6 +721,7 @@ mod tests {
         let manifest = sample_manifest_single_surface();
         let routes = vec![ResolvedRoute {
             route_path: "/api/fleet/dispatch".into(),
+            handler_module_path: "my_game::api::fleet::dispatch".into(),
             handler_fn_name: "dispatch_fleet".into(),
             protocol_name: "DispatchFleetCmd".into(),
             kind: ProtocolKind::Command,
@@ -707,8 +731,10 @@ mod tests {
         let code = generate_axum_routes(&routes, &manifest).unwrap();
         assert!(code.contains("routing::post(api_fleet_dispatch)"));
         assert!(code.contains("\"/api/fleet/dispatch\""));
-        assert!(code.contains("dispatch_command_json"));
-        assert!(code.contains("\"DispatchFleetCmd\""));
+        assert!(code.contains("Router<Arc<Mutex<World>>>"));
+        assert!(code.contains("handler_function::run_json_handler_function"));
+        assert!(code.contains("// protocol: DispatchFleetCmd"));
+        assert!(code.contains("my_game::api::fleet::dispatch::dispatch_fleet"));
         assert!(code.contains("Json(body): Json<serde_json::Value>"));
     }
 
@@ -717,6 +743,7 @@ mod tests {
         let manifest = sample_manifest_single_surface();
         let routes = vec![ResolvedRoute {
             route_path: "/api/fleet/snapshot".into(),
+            handler_module_path: "my_game::api::fleet::snapshot".into(),
             handler_fn_name: "fleet_snapshot".into(),
             protocol_name: "GetFleetSnapshot".into(),
             kind: ProtocolKind::Query,
@@ -726,7 +753,8 @@ mod tests {
         let code = generate_axum_routes(&routes, &manifest).unwrap();
         // All routes are POST — avoids unit-struct vs empty-named-struct ambiguity.
         assert!(code.contains("routing::post(api_fleet_snapshot)"));
-        assert!(code.contains("dispatch_query_json"));
+        assert!(code.contains("handler_function::run_json_handler_function"));
+        assert!(code.contains("my_game::api::fleet::snapshot::fleet_snapshot"));
         assert!(code.contains("Json(body): Json<serde_json::Value>"));
         assert!(!code.contains("\"null\""));
     }
@@ -737,6 +765,7 @@ mod tests {
         let routes = vec![
             ResolvedRoute {
                 route_path: "/api/fleet/dispatch".into(),
+                handler_module_path: "my_game::api::fleet::dispatch".into(),
                 handler_fn_name: "dispatch_fleet".into(),
                 protocol_name: "DispatchFleetCmd".into(),
                 kind: ProtocolKind::Command,
@@ -744,6 +773,7 @@ mod tests {
             },
             ResolvedRoute {
                 route_path: "/api/fleet/snapshot".into(),
+                handler_module_path: "my_game::api::fleet::snapshot".into(),
                 handler_fn_name: "fleet_snapshot".into(),
                 protocol_name: "GetFleetSnapshot".into(),
                 kind: ProtocolKind::Query,
@@ -771,6 +801,7 @@ mod tests {
         let manifest = sample_manifest_single_surface();
         let routes = vec![ResolvedRoute {
             route_path: "/api/fleet/dispatch".into(),
+            handler_module_path: "my_game::api::fleet::dispatch".into(),
             handler_fn_name: "dispatch_fleet".into(),
             protocol_name: "DispatchFleetCmd".into(),
             kind: ProtocolKind::Command,
@@ -798,6 +829,7 @@ mod tests {
         let routes = vec![
             ResolvedRoute {
                 route_path: "/api/fleet/dispatch".into(),
+                handler_module_path: "my_game::api::fleet::dispatch".into(),
                 handler_fn_name: "dispatch_fleet".into(),
                 protocol_name: "DispatchFleetCmd".into(),
                 kind: ProtocolKind::Command,
@@ -805,6 +837,7 @@ mod tests {
             },
             ResolvedRoute {
                 route_path: "/api/admin/reset".into(),
+                handler_module_path: "my_game::api::admin::reset".into(),
                 handler_fn_name: "admin_reset".into(),
                 protocol_name: "AdminReset".into(),
                 kind: ProtocolKind::Command,
