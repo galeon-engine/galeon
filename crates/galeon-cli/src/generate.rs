@@ -35,6 +35,7 @@ enum ArtifactKind {
     Manifest,
     Descriptors,
     Routes,
+    InspectRoutes,
 }
 
 impl ArtifactKind {
@@ -44,6 +45,7 @@ impl ArtifactKind {
             Self::Manifest => "manifest",
             Self::Descriptors => "descriptors",
             Self::Routes => "routes",
+            Self::InspectRoutes => "inspect-routes",
         }
     }
 
@@ -53,6 +55,7 @@ impl ArtifactKind {
             Self::Manifest => root.join("generated").join("manifest.json"),
             Self::Descriptors => root.join("generated").join("descriptors.json"),
             Self::Routes => root.join("generated").join("routes.rs"),
+            Self::InspectRoutes => root.join("generated").join("routes-inspect.json"),
         }
     }
 }
@@ -172,8 +175,8 @@ fn run_from_dir(
 ) -> Result<PathBuf, String> {
     let context = ProjectContext::discover(start_dir)?;
 
-    // For routes, scan the api/ directory and pass paths to the helper.
-    let extra_args = if kind == ArtifactKind::Routes {
+    // For routes and inspect-routes, scan the api/ directory and pass paths to the helper.
+    let extra_args = if kind == ArtifactKind::Routes || kind == ArtifactKind::InspectRoutes {
         let api_paths = scan_api_directory(&context.protocol_dir)?;
         let json = serde_json::to_string(&api_paths)
             .map_err(|e| format!("failed to serialize api paths: {e}"))?;
@@ -188,6 +191,18 @@ fn run_from_dir(
         .unwrap_or_else(|| kind.default_output_path(&context.root));
     write_artifact(&output_path, artifact.as_bytes())?;
     Ok(output_path)
+}
+
+/// Run the reflection helper in inspect mode and return resolved routes as JSON
+/// along with the protocol version string.
+pub(crate) fn inspect_routes_json(start_dir: &Path) -> Result<(String, String), String> {
+    let context = ProjectContext::discover(start_dir)?;
+    let api_paths = scan_api_directory(&context.protocol_dir)?;
+    let json = serde_json::to_string(&api_paths)
+        .map_err(|e| format!("failed to serialize api paths: {e}"))?;
+    let extra_args = vec!["--api-paths".to_string(), json];
+    let artifact = execute_reflection_helper(&context, ArtifactKind::InspectRoutes, &extra_args)?;
+    Ok((artifact, context.protocol_version()))
 }
 
 /// Walk the `api/` directory under the protocol crate and collect relative paths.
@@ -311,7 +326,7 @@ use std::process;
 
 use galeon_engine::{
     generate_axum_routes, generate_descriptors, generate_typescript, resolve_routes,
-    scan_api_routes, HandlerMeta, ProtocolManifest,
+    scan_api_routes, HandlerMeta, ProtocolManifest, ResolvedRoute,
 };
 use target_protocol as _;
 
@@ -328,6 +343,7 @@ fn main() {
         "descriptors" => serde_json::to_string_pretty(&generate_descriptors(&manifest))
             .expect("descriptor json generation should succeed"),
         "routes" => generate_routes(&args, &manifest),
+        "inspect-routes" => inspect_routes(&args, &manifest),
         other => {
             eprintln!("unknown artifact kind: {other}");
             process::exit(2);
@@ -336,8 +352,7 @@ fn main() {
     print!("{output}");
 }
 
-fn generate_routes(args: &[String], manifest: &ProtocolManifest) -> String {
-    // Parse --api-paths JSON from CLI args.
+fn resolve_from_args(args: &[String], manifest: &ProtocolManifest) -> Vec<ResolvedRoute> {
     let api_paths_json = args
         .windows(2)
         .find(|pair| pair[0] == "--api-paths")
@@ -347,25 +362,30 @@ fn generate_routes(args: &[String], manifest: &ProtocolManifest) -> String {
         serde_json::from_str(api_paths_json).expect("failed to parse --api-paths JSON");
     let path_refs: Vec<&str> = api_paths.iter().map(String::as_str).collect();
 
-    // T1: Scan filesystem paths into route entries.
     let scanned = scan_api_routes(&path_refs);
-
-    // T2: Collect handler metadata from inventory.
     let handlers = HandlerMeta::collect_all();
-
-    // T3: Resolve routes against handlers and manifest.
-    let resolved = resolve_routes(&scanned, &handlers, manifest).unwrap_or_else(|errors| {
+    resolve_routes(&scanned, &handlers, manifest).unwrap_or_else(|errors| {
         for error in &errors {
             eprintln!("route resolution error: {error}");
         }
         process::exit(1);
-    });
+    })
+}
 
-    // T4: Generate axum glue code.
+fn generate_routes(args: &[String], manifest: &ProtocolManifest) -> String {
+    let resolved = resolve_from_args(args, manifest);
     generate_axum_routes(&resolved, manifest).unwrap_or_else(|e| {
         eprintln!("route codegen error: {e}");
         process::exit(1);
     })
+}
+
+fn inspect_routes(args: &[String], manifest: &ProtocolManifest) -> String {
+    let resolved = resolve_from_args(args, manifest);
+    serde_json::to_string(&serde_json::json!({
+        "default_surface": manifest.default_surface,
+        "routes": resolved,
+    })).expect("failed to serialize resolved routes")
 }
 "#;
     template.replace(
@@ -858,6 +878,45 @@ preset = "server-authoritative"
         assert!(routes.contains("Router::new()"));
         // No .route() calls — empty router.
         assert!(!routes.contains(".route("));
+    }
+
+    // -- Inspect routes (T5) --
+
+    #[test]
+    fn inspect_routes_returns_envelope_with_default_surface() {
+        let temp = create_fixture_routes_project();
+
+        let (json, protocol_version) = inspect_routes_json(temp.path()).unwrap();
+
+        assert_eq!(protocol_version, "fixture-protocol@0.3.1");
+
+        let envelope: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(envelope["default_surface"], "default");
+
+        let entries = envelope["routes"].as_array().unwrap();
+        assert_eq!(entries.len(), 2);
+
+        // Sorted by route_path — dispatch before snapshot.
+        assert_eq!(entries[0]["route_path"], "/api/fleet/dispatch");
+        assert_eq!(entries[0]["handler_fn_name"], "dispatch_fleet");
+        assert_eq!(entries[0]["protocol_name"], "SpawnUnit");
+        assert_eq!(entries[0]["kind"], "Command");
+        assert!(entries[0]["surfaces"].as_array().unwrap().is_empty());
+
+        assert_eq!(entries[1]["route_path"], "/api/fleet/snapshot");
+        assert_eq!(entries[1]["handler_fn_name"], "fleet_snapshot");
+        assert_eq!(entries[1]["protocol_name"], "GetWorldSnapshot");
+        assert_eq!(entries[1]["kind"], "Query");
+    }
+
+    #[test]
+    fn inspect_routes_empty_project_returns_empty_routes() {
+        // Use the basic fixture (no api/ directory).
+        let temp = create_fixture_project();
+
+        let (json, _) = inspect_routes_json(temp.path()).unwrap();
+        let envelope: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(envelope["routes"].as_array().unwrap().is_empty());
     }
 
     #[test]
