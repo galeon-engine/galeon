@@ -140,7 +140,7 @@ impl UnsafeWorldCell {
     /// - The resource of type `T` must exist in the world.
     /// - No mutable reference to the same resource may exist concurrently.
     #[inline]
-    pub unsafe fn get_resource<'w, T: 'static>(self) -> &'w T {
+    pub unsafe fn get_resource<'w, T: Send + 'static>(self) -> &'w T {
         // SAFETY: addr_of! avoids creating &World. The resulting &Resources
         // is shared — combined with get_unchecked (which also uses &self),
         // no &mut Resources is ever created on this path.
@@ -164,7 +164,7 @@ impl UnsafeWorldCell {
     /// - No other reference (shared or mutable) to the same resource may
     ///   exist concurrently.
     #[inline]
-    pub unsafe fn get_resource_mut<'w, T: 'static>(self) -> &'w mut T {
+    pub unsafe fn get_resource_mut<'w, T: Send + 'static>(self) -> &'w mut T {
         // SAFETY: addr_of! avoids creating &World or &mut World. We create
         // only &Resources (shared). get_mut_unchecked uses UnsafeCell for
         // interior mutability — caller guarantees exclusive resource access.
@@ -246,10 +246,10 @@ impl UnsafeWorldCell {
 // =============================================================================
 
 /// Type-erased closure that advances a single `Events<T>` double buffer.
-type EventUpdater = Box<dyn Fn(&mut World)>;
+type EventUpdater = Box<dyn Fn(&mut World) + Send>;
 
 /// Type-erased closure that drains overdue deadlines for a single `Deadlines<T>`.
-type DeadlineDrainer = Box<dyn Fn(&mut World, Timestamp)>;
+type DeadlineDrainer = Box<dyn Fn(&mut World, Timestamp) + Send>;
 
 /// The ECS world: owns entities, archetype storage, resources, and commands.
 pub struct World {
@@ -393,32 +393,32 @@ impl World {
     // -------------------------------------------------------------------------
 
     /// Insert a resource (world-global singleton).
-    pub fn insert_resource<T: 'static>(&mut self, value: T) {
+    pub fn insert_resource<T: Send + 'static>(&mut self, value: T) {
         self.resources.insert(value);
     }
 
     /// Get a reference to a resource. Panics if not present.
-    pub fn resource<T: 'static>(&self) -> &T {
+    pub fn resource<T: Send + 'static>(&self) -> &T {
         self.resources.get::<T>()
     }
 
     /// Get a mutable reference to a resource. Panics if not present.
-    pub fn resource_mut<T: 'static>(&mut self) -> &mut T {
+    pub fn resource_mut<T: Send + 'static>(&mut self) -> &mut T {
         self.resources.get_mut::<T>()
     }
 
     /// Try to get a reference to a resource. Returns `None` if not present.
-    pub fn try_resource<T: 'static>(&self) -> Option<&T> {
+    pub fn try_resource<T: Send + 'static>(&self) -> Option<&T> {
         self.resources.try_get::<T>()
     }
 
     /// Remove and return a resource. Panics if not present.
-    pub fn take_resource<T: 'static>(&mut self) -> T {
+    pub fn take_resource<T: Send + 'static>(&mut self) -> T {
         self.resources.take::<T>()
     }
 
     /// Try to remove and return a resource. Returns `None` if not present.
-    pub fn try_take_resource<T: 'static>(&mut self) -> Option<T> {
+    pub fn try_take_resource<T: Send + 'static>(&mut self) -> Option<T> {
         self.resources.try_take::<T>()
     }
 
@@ -462,7 +462,7 @@ impl World {
     ///   queued events or duplicate the updater.
     /// - **Re-call after resource removal**: restores a fresh `Events<T>`
     ///   resource without duplicating the updater.
-    pub fn add_event<T: 'static>(&mut self) {
+    pub fn add_event<T: Send + 'static>(&mut self) {
         if self.registered_events.insert(TypeId::of::<Events<T>>()) {
             // First registration: insert resource + updater.
             self.resources.insert(Events::<T>::new());
@@ -531,7 +531,7 @@ impl World {
     /// Must be called before scheduling deadlines of type `T`. Idempotent.
     /// Registers a drainer closure so that [`drain_all_deadlines()`](World::drain_all_deadlines)
     /// automatically fires overdue deadlines of this type.
-    pub fn add_deadline_type<T: 'static>(&mut self) {
+    pub fn add_deadline_type<T: Send + 'static>(&mut self) {
         if self.try_resource::<Deadlines<T>>().is_none() {
             self.insert_resource(Deadlines::<T>::new());
         }
@@ -557,7 +557,11 @@ impl World {
     /// # Panics
     ///
     /// Panics if `Deadlines<T>` has not been registered.
-    pub fn schedule_deadline<T: 'static>(&mut self, deadline: Timestamp, event: T) -> DeadlineId {
+    pub fn schedule_deadline<T: Send + 'static>(
+        &mut self,
+        deadline: Timestamp,
+        event: T,
+    ) -> DeadlineId {
         self.resource_mut::<Deadlines<T>>()
             .schedule(deadline, event)
     }
@@ -569,7 +573,7 @@ impl World {
     /// # Panics
     ///
     /// Panics if `Deadlines<T>` has not been registered.
-    pub fn cancel_deadline<T: 'static>(&mut self, id: DeadlineId) -> bool {
+    pub fn cancel_deadline<T: Send + 'static>(&mut self, id: DeadlineId) -> bool {
         self.resource_mut::<Deadlines<T>>().cancel(id)
     }
 
@@ -583,7 +587,7 @@ impl World {
     /// # Panics
     ///
     /// Panics if `Deadlines<T>` or `Events<T>` has not been registered.
-    pub fn drain_deadlines<T: 'static>(&mut self, now: Timestamp) {
+    pub fn drain_deadlines<T: Send + 'static>(&mut self, now: Timestamp) {
         let fired = self.resource_mut::<Deadlines<T>>().drain_overdue(now);
         let events = self.resource_mut::<Events<T>>();
         for event in fired {
@@ -992,6 +996,12 @@ mod tests {
     impl Component for Health {}
 
     // -- Original tests (behavioral equivalence) --
+
+    #[test]
+    fn world_is_send() {
+        fn assert_send<T: Send>() {}
+        assert_send::<World>();
+    }
 
     #[test]
     fn spawn_and_get() {

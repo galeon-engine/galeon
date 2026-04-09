@@ -107,7 +107,7 @@ impl Engine {
     ///
     /// Delegates to [`World::insert_resource`]. Returns `&mut Self` for
     /// chaining.
-    pub fn insert_resource<T: 'static>(&mut self, value: T) -> &mut Self {
+    pub fn insert_resource<T: Send + 'static>(&mut self, value: T) -> &mut Self {
         self.world.insert_resource(value);
         self
     }

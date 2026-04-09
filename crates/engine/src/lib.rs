@@ -38,6 +38,8 @@ pub mod world;
 pub use inventory;
 #[doc(hidden)]
 pub use serde;
+#[doc(hidden)]
+pub use serde_json;
 
 // Re-exports for ergonomic API.
 pub use codegen::{generate_descriptors, generate_typescript};
@@ -52,7 +54,10 @@ pub use function_system::{IntoSystem, System};
 pub use galeon_engine_macros::{Component, command, dto, event, handler, query};
 pub use game_loop::FixedTimestep;
 pub use handler::HandlerRegistry;
-pub use handler_function::{Handler, IntoHandler, run_handler};
+pub use handler_function::{
+    Handler, IntoHandler, run_handler, run_json_handler, run_json_handler_function,
+    run_json_handler_value,
+};
 pub use manifest::{
     FieldEntry, HandlerRegistration, ManifestEntry, ManifestField, ProtocolManifest,
     ProtocolRegistration,
@@ -66,8 +71,8 @@ pub use render::{MaterialHandle, MeshHandle, ObjectType, ParentEntity, Transform
 pub use render_channel::{ChannelRegistration, ExtractToFloats, RenderChannelRegistry};
 pub use render_event::{FrameEvent, RenderEvent, RenderEventRegistry};
 pub use route_scanner::{
-    HandlerMeta, ResolvedRoute, ScannedRoute, generate_axum_routes, resolve_routes,
-    scan_api_routes, strip_type_prefix,
+    HandlerMeta, ResolvedRoute, ScannedRoute, crate_relative_handler_fn_path, generate_axum_routes,
+    resolve_routes, scan_api_routes, strip_type_prefix,
 };
 pub use schedule::Schedule;
 pub use system_param::{Access, Query, QueryMut, Res, ResMut, SystemParam};
