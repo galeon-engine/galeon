@@ -127,6 +127,32 @@ fn handler_function_still_callable() {
 }
 
 #[test]
+fn handler_axum_json_shim_round_trips() {
+    let mut world = galeon_engine::World::new();
+    let v = dispatch_fleet__galeon_axum_json(r#"{"fleet_id":3,"destination_id":9}"#, &mut world)
+        .unwrap();
+    assert_eq!(
+        v,
+        galeon_engine::serde_json::json!({"fleet_id":3,"ok":true})
+    );
+}
+
+#[test]
+fn handler_with_system_param_axum_json_shim_compiles() {
+    let mut world = galeon_engine::World::new();
+    world.insert_resource(FleetConfig { max_fleet_size: 10 });
+    let v = handler_with_system_param__galeon_axum_json(
+        r#"{"fleet_id":1,"destination_id":2}"#,
+        &mut world,
+    )
+    .unwrap();
+    assert_eq!(
+        v,
+        galeon_engine::serde_json::json!({"fleet_id":1,"ok":true})
+    );
+}
+
+#[test]
 fn validate_handlers_passes_for_protocol_request_types() {
     // All handlers in this test file use DispatchFleet (command) or
     // GetFleetStatus (query) as request types — both are registered

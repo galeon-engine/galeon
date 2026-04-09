@@ -2,6 +2,9 @@
 
 use std::marker::PhantomData;
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+
 use crate::system_param::{Access, SystemParam};
 use crate::world::{UnsafeWorldCell, World};
 
@@ -125,6 +128,67 @@ pub fn run_handler<Req, Resp>(
 }
 
 // =============================================================================
+// JSON boundary — serde at the transport edge (#173)
+// =============================================================================
+
+/// Deserialize JSON, run a [`Handler`], serialize the response as JSON.
+///
+/// Transport adapters (for example generated axum routes) use this at the
+/// HTTP boundary while keeping handler execution on [`World`] via
+/// [`run_handler`].
+pub fn run_json_handler<Req, Resp>(
+    handler: &mut dyn Handler<Req, Resp>,
+    json_body: &str,
+    world: &mut World,
+) -> Result<String, String>
+where
+    Req: DeserializeOwned,
+    Resp: Serialize,
+{
+    let request: Req = serde_json::from_str(json_body).map_err(|e| e.to_string())?;
+    let response = run_handler(handler, request, world)?;
+    serde_json::to_string(&response).map_err(|e| e.to_string())
+}
+
+/// Deserialize JSON, run a [`Handler`], and return the response as [`serde_json::Value`].
+///
+/// Same as [`run_json_handler`], but avoids a serialize-then-parse round trip
+/// when the transport layer needs a JSON value (for example axum `Json<Value>`).
+pub fn run_json_handler_value<Req, Resp>(
+    handler: &mut dyn Handler<Req, Resp>,
+    json_body: &str,
+    world: &mut World,
+) -> Result<serde_json::Value, String>
+where
+    Req: DeserializeOwned,
+    Resp: Serialize,
+{
+    let request: Req = serde_json::from_str(json_body).map_err(|e| e.to_string())?;
+    let response = run_handler(handler, request, world)?;
+    serde_json::to_value(&response).map_err(|e| e.to_string())
+}
+
+/// JSON boundary helper for any function that implements [`IntoHandler`].
+///
+/// Builds a fresh boxed handler from `f` each call (same cost model as
+/// per-request `into_handler` in generated glue). `Req`, `Resp`, and `Params`
+/// are inferred from the concrete function item type passed as `f`.
+pub fn run_json_handler_function<F, Req, Resp, Params>(
+    f: F,
+    handler_name: &'static str,
+    json_body: &str,
+    world: &mut World,
+) -> Result<String, String>
+where
+    F: IntoHandler<Req, Resp, Params>,
+    Req: DeserializeOwned + 'static,
+    Resp: Serialize + 'static,
+{
+    let mut handler = f.into_handler(handler_name);
+    run_json_handler(&mut *handler, json_body, world)
+}
+
+// =============================================================================
 // Zero-param impl — fn(Req) -> Result<Resp, E> where E: ToString
 // =============================================================================
 
@@ -229,6 +293,7 @@ mod tests {
     use super::*;
     use crate::component::Component;
     use crate::system_param::{Query, QueryMut, Res, ResMut};
+    use serde::{Deserialize, Serialize};
 
     // -------------------------------------------------------------------------
     // Test types
@@ -242,11 +307,12 @@ mod tests {
         multiplier: f32,
     }
 
+    #[derive(Debug, Deserialize)]
     struct SpawnRequest {
         unit_id: u64,
     }
 
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
     struct SpawnResponse {
         ok: bool,
     }
@@ -413,6 +479,61 @@ mod tests {
         let mut world = World::new();
         let result = run_handler(&mut *handler, SpawnRequest { unit_id: 99 }, &mut world);
         assert_eq!(result.unwrap(), SpawnResponse { ok: true });
+    }
+
+    #[test]
+    fn run_json_handler_round_trip() {
+        let mut handler: Box<dyn Handler<SpawnRequest, SpawnResponse>> =
+            IntoHandler::<SpawnRequest, SpawnResponse, ()>::into_handler(
+                spawn_no_params,
+                "json_round_trip",
+            );
+        let mut world = World::new();
+        let out = run_json_handler(&mut *handler, r#"{"unit_id":3}"#, &mut world).unwrap();
+        assert_eq!(out, r#"{"ok":true}"#);
+    }
+
+    #[test]
+    fn run_json_handler_function_infers_types() {
+        let mut world = World::new();
+        let out =
+            run_json_handler_function(spawn_no_params, "json_fn", r#"{"unit_id":5}"#, &mut world)
+                .unwrap();
+        assert_eq!(out, r#"{"ok":true}"#);
+    }
+
+    fn json_round_trip_res_mut(
+        req: SpawnRequest,
+        mut cfg: ResMut<'_, Config>,
+    ) -> Result<SpawnResponse, String> {
+        cfg.multiplier = req.unit_id as f32;
+        Ok(SpawnResponse { ok: true })
+    }
+
+    #[test]
+    fn run_json_handler_res_mut_round_trip() {
+        let mut handler: Box<dyn Handler<SpawnRequest, SpawnResponse>> =
+            IntoHandler::<SpawnRequest, SpawnResponse, (ResMut<'_, Config>,)>::into_handler(
+                json_round_trip_res_mut,
+                "res_mut_json",
+            );
+        let mut world = World::new();
+        world.insert_resource(Config { multiplier: 0.0 });
+        let out = run_json_handler(&mut *handler, r#"{"unit_id":7}"#, &mut world).unwrap();
+        assert_eq!(out, r#"{"ok":true}"#);
+        assert!((world.resource::<Config>().multiplier - 7.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn run_json_handler_rejects_bad_json() {
+        let mut handler: Box<dyn Handler<SpawnRequest, SpawnResponse>> =
+            IntoHandler::<SpawnRequest, SpawnResponse, ()>::into_handler(
+                spawn_no_params,
+                "bad_json",
+            );
+        let mut world = World::new();
+        let err = run_json_handler(&mut *handler, "not json", &mut world).unwrap_err();
+        assert!(!err.is_empty());
     }
 
     // -------------------------------------------------------------------------

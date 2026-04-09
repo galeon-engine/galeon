@@ -8,6 +8,7 @@ pub struct MyRequest {
     pub id: u64,
 }
 
+#[derive(galeon_engine::serde::Serialize)]
 pub struct MyResponse {
     pub ok: bool,
 }

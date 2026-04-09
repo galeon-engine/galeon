@@ -830,15 +830,15 @@ preset = "server-authoritative"
         // Command route is POST.
         assert!(routes.contains("\"/api/fleet/dispatch\""));
         assert!(routes.contains("routing::post(api_fleet_dispatch)"));
-        assert!(routes.contains("dispatch_command_json"));
-        assert!(routes.contains("\"SpawnUnit\""));
+        assert!(routes.contains("__galeon_axum_json"));
+        assert!(routes.contains("// protocol: SpawnUnit"));
 
         // Query route is POST (all routes use POST to avoid unit-struct
         // vs empty-named-struct deserialization ambiguity).
         assert!(routes.contains("\"/api/fleet/snapshot\""));
         assert!(routes.contains("routing::post(api_fleet_snapshot)"));
-        assert!(routes.contains("dispatch_query_json"));
-        assert!(routes.contains("\"GetWorldSnapshot\""));
+        assert!(routes.contains("__galeon_axum_json"));
+        assert!(routes.contains("// protocol: GetWorldSnapshot"));
 
         // _types.rs must NOT appear as a route.
         assert!(!routes.contains("_types"));
