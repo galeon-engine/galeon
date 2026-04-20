@@ -257,7 +257,7 @@ fn execute_reflection_helper(
     .map_err(|e| format!("failed to write helper Cargo.toml: {e}"))?;
     fs::write(
         &helper_main,
-        helper_main_source(&context.protocol_version()).as_bytes(),
+        helper_main_source(kind, &context.protocol_version()).as_bytes(),
     )
     .map_err(|e| format!("failed to write helper main.rs: {e}"))?;
 
@@ -319,36 +319,64 @@ target_protocol = {{ path = {protocol_path}, package = {protocol_package} }}
     )
 }
 
-fn helper_main_source(protocol_version: &str) -> String {
-    let template = r#"// SPDX-License-Identifier: AGPL-3.0-only OR Commercial
+fn helper_main_source(kind: ArtifactKind, protocol_version: &str) -> String {
+    let template = match kind {
+        ArtifactKind::Ts => {
+            r#"// SPDX-License-Identifier: AGPL-3.0-only OR Commercial
+
+use galeon_engine::{generate_typescript, ProtocolManifest};
+use target_protocol as _;
+
+fn main() {
+    let manifest = ProtocolManifest::collect(__PROTOCOL_VERSION__);
+    print!("{}", generate_typescript(&manifest));
+}
+"#
+        }
+        ArtifactKind::Manifest => {
+            r#"// SPDX-License-Identifier: AGPL-3.0-only OR Commercial
+
+use galeon_engine::ProtocolManifest;
+use target_protocol as _;
+
+fn main() {
+    let manifest = ProtocolManifest::collect(__PROTOCOL_VERSION__);
+    let output = manifest
+        .to_json_pretty()
+        .expect("manifest json generation should succeed");
+    print!("{output}");
+}
+"#
+        }
+        ArtifactKind::Descriptors => {
+            r#"// SPDX-License-Identifier: AGPL-3.0-only OR Commercial
+
+use galeon_engine::{generate_descriptors, ProtocolManifest};
+use target_protocol as _;
+
+fn main() {
+    let manifest = ProtocolManifest::collect(__PROTOCOL_VERSION__);
+    let output = serde_json::to_string_pretty(&generate_descriptors(&manifest))
+        .expect("descriptor json generation should succeed");
+    print!("{output}");
+}
+"#
+        }
+        ArtifactKind::Routes => {
+            r#"// SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
 use std::process;
 
 use galeon_engine::{
-    generate_axum_routes, generate_descriptors, generate_typescript, resolve_routes,
-    scan_api_routes, HandlerMeta, ProtocolManifest, ResolvedRoute,
+    generate_axum_routes, resolve_routes, scan_api_routes, HandlerMeta, ProtocolManifest,
+    ResolvedRoute,
 };
 use target_protocol as _;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let kind = args.get(1).cloned().unwrap_or_else(|| {
-        eprintln!("missing artifact kind");
-        process::exit(2);
-    });
     let manifest = ProtocolManifest::collect(__PROTOCOL_VERSION__);
-    let output = match kind.as_str() {
-        "ts" => generate_typescript(&manifest),
-        "manifest" => manifest.to_json_pretty().expect("manifest json generation should succeed"),
-        "descriptors" => serde_json::to_string_pretty(&generate_descriptors(&manifest))
-            .expect("descriptor json generation should succeed"),
-        "routes" => generate_routes(&args, &manifest),
-        "inspect-routes" => inspect_routes(&args, &manifest),
-        other => {
-            eprintln!("unknown artifact kind: {other}");
-            process::exit(2);
-        }
-    };
+    let output = generate_routes(&args, &manifest);
     print!("{output}");
 }
 
@@ -379,6 +407,42 @@ fn generate_routes(args: &[String], manifest: &ProtocolManifest) -> String {
         process::exit(1);
     })
 }
+"#
+        }
+        ArtifactKind::InspectRoutes => {
+            r#"// SPDX-License-Identifier: AGPL-3.0-only OR Commercial
+
+use std::process;
+
+use galeon_engine::{resolve_routes, scan_api_routes, HandlerMeta, ProtocolManifest, ResolvedRoute};
+use target_protocol as _;
+
+fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    let manifest = ProtocolManifest::collect(__PROTOCOL_VERSION__);
+    let output = inspect_routes(&args, &manifest);
+    print!("{output}");
+}
+
+fn resolve_from_args(args: &[String], manifest: &ProtocolManifest) -> Vec<ResolvedRoute> {
+    let api_paths_json = args
+        .windows(2)
+        .find(|pair| pair[0] == "--api-paths")
+        .map(|pair| pair[1].as_str())
+        .unwrap_or("[]");
+    let api_paths: Vec<String> =
+        serde_json::from_str(api_paths_json).expect("failed to parse --api-paths JSON");
+    let path_refs: Vec<&str> = api_paths.iter().map(String::as_str).collect();
+
+    let scanned = scan_api_routes(&path_refs);
+    let handlers = HandlerMeta::collect_all();
+    resolve_routes(&scanned, &handlers, manifest).unwrap_or_else(|errors| {
+        for error in &errors {
+            eprintln!("route resolution error: {error}");
+        }
+        process::exit(1);
+    })
+}
 
 fn inspect_routes(args: &[String], manifest: &ProtocolManifest) -> String {
     let resolved = resolve_from_args(args, manifest);
@@ -387,7 +451,9 @@ fn inspect_routes(args: &[String], manifest: &ProtocolManifest) -> String {
         "routes": resolved,
     })).expect("failed to serialize resolved routes")
 }
-"#;
+"#
+        }
+    };
     template.replace(
         "__PROTOCOL_VERSION__",
         &render_rust_string(protocol_version),
@@ -621,6 +687,99 @@ preset = "local-first"
         temp
     }
 
+    fn fixture_empty_protocol_source() -> String {
+        r#"// SPDX-License-Identifier: AGPL-3.0-only OR Commercial
+"#
+        .to_string()
+    }
+
+    fn fixture_minimal_engine_source() -> String {
+        r#"// SPDX-License-Identifier: AGPL-3.0-only OR Commercial
+
+pub struct ProtocolManifest {
+    pub default_surface: &'static str,
+    protocol_version: String,
+}
+
+impl ProtocolManifest {
+    pub fn collect(version: &str) -> Self {
+        Self {
+            default_surface: "default",
+            protocol_version: version.to_string(),
+        }
+    }
+
+    pub fn to_json_pretty(&self) -> Result<String, String> {
+        Ok(format!(
+            "{{\n  \"protocol_version\": \"{}\"\n}}",
+            self.protocol_version
+        ))
+    }
+}
+
+pub fn generate_typescript(_manifest: &ProtocolManifest) -> String {
+    "export interface Placeholder {}".to_string()
+}
+
+pub fn generate_descriptors(_manifest: &ProtocolManifest) -> Vec<serde_json::Value> {
+    vec![serde_json::json!({
+        "route": "/placeholder",
+        "name": "Placeholder",
+    })]
+}
+"#
+        .to_string()
+    }
+
+    fn create_fixture_project_with_minimal_engine_surface() -> TempDir {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path();
+        let engine_dir = root.join("engine-stub");
+        let engine_dependency = format!(
+            "{{ path = {} }}",
+            render_toml_string(&engine_dir.to_string_lossy())
+        );
+
+        write_file(
+            &engine_dir.join("Cargo.toml"),
+            r#"[package]
+name = "galeon-engine"
+version = "0.0.0"
+edition = "2024"
+
+[dependencies]
+serde_json = "1"
+"#,
+        );
+        write_file(
+            &engine_dir.join("src").join("lib.rs"),
+            &fixture_minimal_engine_source(),
+        );
+
+        write_file(
+            &root.join("galeon.toml"),
+            r#"[project]
+name = "fixture-minimal"
+engine = "0.2"
+preset = "local-first"
+"#,
+        );
+        write_file(
+            &root.join("crates").join("protocol").join("Cargo.toml"),
+            &fixture_protocol_manifest(&engine_dependency),
+        );
+        write_file(
+            &root
+                .join("crates")
+                .join("protocol")
+                .join("src")
+                .join("lib.rs"),
+            &fixture_empty_protocol_source(),
+        );
+
+        temp
+    }
+
     #[test]
     fn discover_project_from_nested_directory() {
         let temp = create_fixture_project();
@@ -701,6 +860,53 @@ preset = "local-first"
         let manifest = helper_manifest_contents(&context);
         assert!(manifest.contains("target_protocol"));
         assert!(manifest.contains("fixture-protocol"));
+    }
+
+    #[test]
+    fn helper_main_source_scopes_route_apis_to_route_artifacts() {
+        for kind in [
+            ArtifactKind::Ts,
+            ArtifactKind::Manifest,
+            ArtifactKind::Descriptors,
+        ] {
+            let source = helper_main_source(kind, "fixture-protocol@0.3.1");
+            assert!(!source.contains("generate_axum_routes"));
+            assert!(!source.contains("resolve_routes"));
+            assert!(!source.contains("scan_api_routes"));
+            assert!(!source.contains("HandlerMeta"));
+            assert!(!source.contains("ResolvedRoute"));
+        }
+
+        let routes_source = helper_main_source(ArtifactKind::Routes, "fixture-protocol@0.3.1");
+        assert!(routes_source.contains("generate_axum_routes"));
+        assert!(routes_source.contains("resolve_routes"));
+        assert!(routes_source.contains("scan_api_routes"));
+        assert!(routes_source.contains("HandlerMeta"));
+
+        let inspect_source =
+            helper_main_source(ArtifactKind::InspectRoutes, "fixture-protocol@0.3.1");
+        assert!(inspect_source.contains("resolve_routes"));
+        assert!(inspect_source.contains("scan_api_routes"));
+        assert!(inspect_source.contains("HandlerMeta"));
+    }
+
+    #[test]
+    fn generate_non_route_commands_work_with_minimal_engine_surface() {
+        let temp = create_fixture_project_with_minimal_engine_surface();
+
+        let manifest_path = run_from_dir(ArtifactKind::Manifest, None, temp.path()).unwrap();
+        let ts_path = run_from_dir(ArtifactKind::Ts, None, temp.path()).unwrap();
+        let descriptors_path = run_from_dir(ArtifactKind::Descriptors, None, temp.path()).unwrap();
+
+        let manifest = fs::read_to_string(manifest_path).unwrap();
+        assert!(manifest.contains(r#""protocol_version": "fixture-protocol@0.3.1""#));
+
+        let typescript = fs::read_to_string(ts_path).unwrap();
+        assert!(typescript.contains("export interface Placeholder {}"));
+
+        let descriptors = fs::read_to_string(descriptors_path).unwrap();
+        assert!(descriptors.contains(r#""route": "/placeholder""#));
+        assert!(descriptors.contains(r#""name": "Placeholder""#));
     }
 
     #[test]
