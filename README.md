@@ -131,9 +131,9 @@ crates/
   galeon-cli/          CLI binary (galeon new / generate / routes)
 
 packages/
-  runtime/             @galeon/runtime — JS/WASM glue
-  engine-ts/           @galeon/engine-ts — Three.js RendererCache
-  shell/               @galeon/shell — editor UI (Solid.js, planned)
+  runtime/             @galeon/runtime — JS/WASM glue (workspace + npm package)
+  engine-ts/           @galeon/engine-ts — Three.js RendererCache (workspace + npm package)
+  shell/               @galeon/shell — editor UI package (workspace + npm package, experimental)
 ```
 
 Crate dependency graph:
@@ -171,10 +171,18 @@ bun install
 bun run check    # Type-check all packages (tsc --build)
 ```
 
+The Bun workspace in this repository is the checked-in `packages/*` tree:
+`packages/runtime`, `packages/engine-ts`, and `packages/shell`. These are the
+same packages that publish to npm under the `@galeon/*` scope; they are not a
+separate publish-only surface outside this checkout.
+
 ## Public Packages
 
 Galeon publishes **three Rust crates** to [crates.io](https://crates.io) and
 **three TypeScript packages** to [npm](https://www.npmjs.com).
+
+The TypeScript packages listed here are also checked into this repository under
+`packages/*` and are the packages targeted by the root Bun workspace commands.
 
 ### Rust crates
 
@@ -190,7 +198,7 @@ Galeon publishes **three Rust crates** to [crates.io](https://crates.io) and
 |---------|-----|-------------|
 | `@galeon/runtime` | [![npm](https://img.shields.io/npm/v/@galeon/runtime)](https://www.npmjs.com/package/@galeon/runtime) | JS &harr; WASM glue |
 | `@galeon/engine-ts` | [![npm](https://img.shields.io/npm/v/@galeon/engine-ts)](https://www.npmjs.com/package/@galeon/engine-ts) | Three.js RendererCache |
-| `@galeon/shell` | [![npm](https://img.shields.io/npm/v/@galeon/shell)](https://www.npmjs.com/package/@galeon/shell) | Editor UI (Solid.js, planned) |
+| `@galeon/shell` | [![npm](https://img.shields.io/npm/v/@galeon/shell)](https://www.npmjs.com/package/@galeon/shell) | Editor UI package (experimental) |
 
 ### Not published
 

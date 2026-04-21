@@ -7,6 +7,10 @@
 Galeon publishes **three Rust crates** to crates.io and **three TypeScript
 packages** to npm. Everything else in the workspace is internal.
 
+The npm packages in this guide are the checked-in workspace packages under
+`packages/runtime`, `packages/engine-ts`, and `packages/shell`. They are not a
+separate external-only package surface.
+
 ## Publish surfaces
 
 ### Rust crates (crates.io)
@@ -93,6 +97,9 @@ npm pack --dry-run --workspace=packages/engine-ts
 npm pack --dry-run --workspace=packages/shell
 ```
 
+At the repo root, `bun run check` and `bun run build` both run `tsc --build`
+across these same checked-in workspace packages.
+
 ## Release procedure
 
 1. Run `bash scripts/bump-version.sh A.B.C` (see version bump checklist above).
@@ -163,3 +170,15 @@ and pin to it. Read the [changelog](../../CHANGELOG.md) on each upgrade.
   under the `alpha` npm dist-tag.
 
 For the full stability statement, see the [README](../../README.md#stability).
+
+## Package Surface Maintenance Rule
+
+If the TypeScript package surface changes in a way contributors can see
+(package added, removed, renamed, moved out of `packages/*`, or changed between
+published and internal), update these surfaces in the same PR:
+
+1. root `package.json` workspace entries
+2. `tsconfig.base.json` path aliases
+3. README architecture, TypeScript build, and public package sections
+4. this publishing guide
+5. CI/release workflow references if publishability changed

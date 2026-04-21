@@ -58,6 +58,13 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and `hybrid` still stop at project structure, and link the planned generic
   `galeon dev` / watch workflow issues (#74, #165).
 
+- **Package/workspace docs now match the checked-in TS surface (#184)** —
+  README and the publishing guide now state explicitly that
+  `packages/runtime`, `packages/engine-ts`, and `packages/shell` are checked-in
+  workspace packages and also the published `@galeon/*` npm surface, clarify
+  what the root Bun commands operate on, and add a package-surface maintenance
+  rule to keep workspace docs aligned with the repository layout.
+
 - **`World` is `Send` for axum shared state (#173)** — Resources store
   `Box<dyn Any + Send>`; deferred commands and event/deadline callbacks are
   `Send`; `Clock` is `Send + Sync`; `Res`/`ResMut` and `EventReader`/`EventWriter`
