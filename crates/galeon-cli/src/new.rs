@@ -281,6 +281,10 @@ mod template_dep_tests {
         let protocol = templates::protocol_cargo_toml("testgame");
         let domain = templates::domain_cargo_toml("testgame");
         let server = templates::server_cargo_toml("testgame");
+        let local_first_pkg = templates::local_first_package_json("testgame");
+        let local_first_client = templates::local_first_client_cargo_toml("testgame");
+        let galeon_version = templates::galeon_release_version();
+        let galeon_minor = templates::galeon_minor_version();
 
         for (label, content) in [
             ("protocol", &protocol),
@@ -288,7 +292,7 @@ mod template_dep_tests {
             ("server", &server),
         ] {
             assert!(
-                content.contains(r#"galeon-engine = "0.2.0""#),
+                content.contains(&format!(r#"galeon-engine = "{galeon_version}""#)),
                 "{label} template missing published crate dependency"
             );
             assert!(
@@ -296,5 +300,24 @@ mod template_dep_tests {
                 "{label} template still references git URL"
             );
         }
+
+        assert!(
+            local_first_client.contains(&format!(r#"galeon-engine = "{galeon_version}""#)),
+            "local-first client template missing engine dependency pinned to CLI release"
+        );
+        assert!(
+            local_first_client
+                .contains(&format!(r#"galeon-engine-three-sync = "{galeon_version}""#)),
+            "local-first client template missing three-sync dependency pinned to CLI release"
+        );
+        assert!(
+            local_first_pkg.contains(&format!(r#""@galeon/engine-ts": "^{galeon_version}""#)),
+            "local-first package.json missing engine-ts dependency pinned to CLI release"
+        );
+        assert!(
+            templates::galeon_toml("testgame", "local-first")
+                .contains(&format!(r#"engine = "{galeon_minor}""#)),
+            "galeon.toml should record the CLI major.minor engine line"
+        );
     }
 }

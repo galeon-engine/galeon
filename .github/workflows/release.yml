@@ -185,20 +185,55 @@ jobs:
           cd packages/shell
           npm publish --access public --tag "$NPM_DIST_TAG" --provenance
 
+  publish-cli:
+    if: github.event_name != 'workflow_dispatch'
+    needs: [publish-crates, publish-npm]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Publish galeon-cli
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set +e
+          output="$(cargo publish -p galeon-cli 2>&1)"
+          status=$?
+          set -e
+          echo "$output"
+          if [ $status -eq 0 ]; then exit 0; fi
+          if [[ "$output" == *"already exists on crates.io index"* ]]; then
+            echo "galeon-cli already published; skipping."
+            exit 0
+          fi
+          exit $status
+
   verify-publish:
     name: Verify Published Artifacts
-    needs: [publish-npm, publish-crates]
+    needs: [publish-npm, publish-crates, publish-cli]
     if: >-
       always() && !cancelled() && (
         github.event_name == 'workflow_dispatch' ||
-        (needs.publish-npm.result == 'success' && needs.publish-crates.result == 'success')
+        (
+          needs.publish-npm.result == 'success' &&
+          needs.publish-crates.result == 'success' &&
+          needs.publish-cli.result == 'success'
+        )
       )
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
 
       - name: Resolve version
         run: |
@@ -230,15 +265,26 @@ jobs:
           npm install "@galeon/runtime@${VERSION}"
           node -e "import('@galeon/runtime').then(() => console.log('@galeon/runtime OK'))"
 
+      - name: Verify CLI — installed binary starter bootstrap
+        run: |
+          : "${VERSION:?Resolve version step did not set VERSION}"
+          export GALEON_REQUIRE_PUBLISHED=1
+          export GALEON_INSTALL_VERSION="${VERSION}"
+          bash tests/local-first-starter-smoke.sh
+
   release-evidence:
     name: Release Evidence Bundle
-    needs: [publish-npm, publish-crates, verify-publish]
+    needs: [publish-npm, publish-crates, publish-cli, verify-publish]
     if: >-
       always() && !cancelled() &&
       needs.verify-publish.result == 'success' &&
       (
         github.event_name == 'workflow_dispatch' ||
-        (needs.publish-npm.result == 'success' && needs.publish-crates.result == 'success')
+        (
+          needs.publish-npm.result == 'success' &&
+          needs.publish-crates.result == 'success' &&
+          needs.publish-cli.result == 'success'
+        )
       )
     runs-on: ubuntu-latest
     steps:
@@ -253,6 +299,7 @@ jobs:
 
       - name: Build evidence markdown
         env:
+          PUBLISH_CLI_RESULT: ${{ needs.publish-cli.result }}
           PUBLISH_NPM_RESULT: ${{ needs.publish-npm.result }}
           PUBLISH_CRATES_RESULT: ${{ needs.publish-crates.result }}
           VERIFY_RESULT: ${{ needs.verify-publish.result }}
@@ -266,6 +313,7 @@ jobs:
           - Run URL: ${run_url}
           - publish-crates: ${PUBLISH_CRATES_RESULT}
           - publish-npm: ${PUBLISH_NPM_RESULT}
+          - publish-cli: ${PUBLISH_CLI_RESULT}
           - verify-publish: ${VERIFY_RESULT}
 
           ## References
@@ -283,12 +331,13 @@ jobs:
 
   github-release:
     name: GitHub Release
-    needs: [publish-npm, publish-crates, verify-publish, release-evidence]
+    needs: [publish-npm, publish-crates, publish-cli, verify-publish, release-evidence]
     if: >-
       github.event_name != 'workflow_dispatch' &&
       !cancelled() &&
       needs.publish-npm.result == 'success' &&
       needs.publish-crates.result == 'success' &&
+      needs.publish-cli.result == 'success' &&
       needs.verify-publish.result == 'success' &&
       needs.release-evidence.result == 'success'
     runs-on: ubuntu-latest

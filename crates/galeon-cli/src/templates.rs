@@ -1,5 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
+pub(crate) fn galeon_release_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
+pub(crate) fn galeon_minor_version() -> String {
+    let version = galeon_release_version();
+    let mut parts = version.split('.');
+    let major = parts
+        .next()
+        .expect("galeon-cli version must include a major semver component");
+    let minor = parts
+        .next()
+        .expect("galeon-cli version must include a minor semver component");
+    format!("{major}.{minor}")
+}
+
 /// Root `Cargo.toml` for the generated workspace.
 pub fn workspace_cargo_toml() -> String {
     r#"[workspace]
@@ -17,9 +33,10 @@ pub fn galeon_toml(name: &str, preset: &str) -> String {
     format!(
         r#"[project]
 name = "{name}"
-engine = "0.2"
+engine = "{}"
 preset = "{preset}"
-"#
+"#,
+        galeon_minor_version(),
     )
 }
 
@@ -36,8 +53,9 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
-galeon-engine = "0.2.0"
-"#
+galeon-engine = "{}"
+"#,
+        galeon_release_version(),
     )
 }
 
@@ -63,9 +81,10 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
-galeon-engine = "0.2.0"
+galeon-engine = "{}"
 {name}-protocol = {{ path = "../protocol" }}
-"#
+"#,
+        galeon_release_version(),
     )
 }
 
@@ -116,12 +135,13 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
-galeon-engine = "0.2.0"
+galeon-engine = "{}"
 {name}-protocol = {{ path = "../protocol" }}
 {name}-domain = {{ path = "../domain" }}
 axum = "0.8"
 tokio = {{ version = "1", features = ["full"] }}
-"#
+"#,
+        galeon_release_version(),
     )
 }
 
@@ -207,7 +227,7 @@ pub fn local_first_package_json(name: &str) -> String {
     "check": "bun run wasm && bunx tsc --project client/tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@galeon/engine-ts": "^0.2.0",
+    "@galeon/engine-ts": "^__GALEON_VERSION__",
     "three": "^0.183.2"
   },
   "devDependencies": {
@@ -218,6 +238,7 @@ pub fn local_first_package_json(name: &str) -> String {
 }
 "#
         .replace("__NAME__", name)
+        .replace("__GALEON_VERSION__", galeon_release_version())
 }
 
 /// Starter `README.md` for the local-first preset.
@@ -534,11 +555,12 @@ edition.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-galeon-engine = "0.2.0"
-galeon-engine-three-sync = "0.2.0"
+galeon-engine = "{version}"
+galeon-engine-three-sync = "{version}"
 wasm-bindgen = "0.2"
 {name}-domain = {{ path = "../domain" }}
-"#
+"#,
+        version = galeon_release_version(),
     )
 }
 

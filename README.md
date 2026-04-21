@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/galeon-engine/galeon/actions/workflows/ci.yml/badge.svg)](https://github.com/galeon-engine/galeon/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/galeon-engine)](https://crates.io/crates/galeon-engine)
+[![cli](https://img.shields.io/crates/v/galeon-cli)](https://crates.io/crates/galeon-cli)
 [![npm](https://img.shields.io/npm/v/@galeon/engine-ts)](https://www.npmjs.com/package/@galeon/engine-ts)
 [![license](https://img.shields.io/crates/l/galeon-engine)](https://github.com/galeon-engine/galeon/blob/master/LICENSE-AGPL)
 
@@ -66,6 +67,8 @@ the engine itself is shell-agnostic.
 - Fallback geometry for missing assets
 
 **CLI**
+- `cargo install --locked galeon-cli` is the supported way to install the
+  scaffolding/codegen CLI
 - `galeon new <name> --preset <preset>` scaffolds a preset-specific Galeon project
 - Presets: `server-authoritative`, `local-first`, `hybrid`
 - `local-first` is the only preset that currently scaffolds a runnable web
@@ -75,6 +78,17 @@ the engine itself is shell-agnostic.
   and client seams, not a ready-to-run shell
 - `galeon generate <ts|manifest|descriptors|routes>` emits project artifacts
 - `galeon routes` prints the effective route table for the current project
+
+## Install CLI
+
+```bash
+cargo install --locked galeon-cli
+galeon --help
+```
+
+`galeon-cli` moves in lockstep with the published Galeon engine release. An
+installed `galeon-cli` scaffolds the matching Galeon crate/package version for
+that release.
 
 ## CLI Getting Started
 
@@ -178,7 +192,7 @@ separate publish-only surface outside this checkout.
 
 ## Public Packages
 
-Galeon publishes **three Rust crates** to [crates.io](https://crates.io) and
+Galeon publishes **four Rust packages** to [crates.io](https://crates.io) and
 **three TypeScript packages** to [npm](https://www.npmjs.com).
 
 The TypeScript packages listed here are also checked into this repository under
@@ -192,6 +206,12 @@ The TypeScript packages listed here are also checked into this repository under
 | `galeon-engine` | [![crates.io](https://img.shields.io/crates/v/galeon-engine)](https://crates.io/crates/galeon-engine) | Core ECS, scheduler, protocol, data loading |
 | `galeon-engine-three-sync` | [![crates.io](https://img.shields.io/crates/v/galeon-engine-three-sync)](https://crates.io/crates/galeon-engine-three-sync) | WASM bridge (ECS snapshots &rarr; Three.js) |
 
+### CLI binary
+
+| Package | crates.io | Description |
+|---------|-----------|-------------|
+| `galeon-cli` | [![crates.io](https://img.shields.io/crates/v/galeon-cli)](https://crates.io/crates/galeon-cli) | Install surface for `galeon new`, `galeon generate`, and `galeon routes` |
+
 ### TypeScript packages
 
 | Package | npm | Description |
@@ -204,13 +224,13 @@ The TypeScript packages listed here are also checked into this repository under
 
 The following workspace members are internal and not published to any registry:
 
-- `galeon-cli` &mdash; CLI binary (deferred)
 - `galeon-protocol-rename-test`, `galeon-protocol-consumer-test` &mdash; integration test crates
 
 ## Versioning
 
-All Rust crates and TypeScript packages move in **lockstep** &mdash; every release
-bumps all six packages to the same version number.
+All four Rust packages and three TypeScript packages move in **lockstep**
+&mdash; every release bumps all seven published artifacts to the same version
+number.
 
 ### Pre-1.0 policy
 
@@ -236,6 +256,11 @@ galeon-engine = "0.1"
 "@galeon/engine-ts": "^0.1.0"
 ```
 
+```bash
+# Install the matching Galeon CLI release
+cargo install --locked galeon-cli
+```
+
 See [docs/guide/publishing.md](docs/guide/publishing.md) for the full release
 procedure and version bump checklist.
 
@@ -247,6 +272,8 @@ means for adopters:
 **What you can rely on today:**
 - The core engine crates (`galeon-engine`, `galeon-engine-macros`) are published,
   tested (350+ tests), and intended for evaluation and early adoption.
+- `galeon-cli` is published and supported for project scaffolding, protocol
+  artifact generation, and route inspection.
 - The ECS, scheduler, protocol layer, and WASM bridge are functional and
   cover real use cases.
 - Lockstep versioning means all packages stay in sync &mdash; no version matrix to
