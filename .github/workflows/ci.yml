@@ -43,3 +43,22 @@ jobs:
       - run: npm pack --dry-run --workspace=packages/runtime
       - run: npm pack --dry-run --workspace=packages/engine-ts
       - run: npm pack --dry-run --workspace=packages/shell
+
+  starter-smoke:
+    name: Starter Smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: cargo install wasm-pack --locked
+      - run: bash tests/local-first-starter-smoke.sh

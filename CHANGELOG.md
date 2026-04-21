@@ -9,6 +9,15 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Local-first starter scaffold (#187)** — `galeon new --preset local-first`
+  now generates a minimal runnable web starter: a Rust `crates/client` WASM
+  wrapper around `galeon-engine-three-sync`, a Rust-owned `StarterPlugin` in
+  `crates/domain` that guarantees a first renderable entity, a `client/`
+  Three.js app that consumes `@galeon/engine-ts`, and root Bun scripts for
+  `wasm`, `dev`, `build`, and `check`. CI now includes a starter smoke test
+  that scaffolds a fresh project and verifies the generated `bun run check` /
+  `bun run build` path end to end.
+
 - **`galeon routes` inspection command (#166)** — New top-level `galeon routes`
   command prints a deterministic route table for a Galeon project. Reuses the
   same scan → collect → resolve pipeline as `galeon generate routes` via a new

@@ -17,10 +17,14 @@ pub fn galeon_toml(name: &str, preset: &str) -> String {
     format!(
         r#"[project]
 name = "{name}"
-engine = "0.1"
+engine = "0.2"
 preset = "{preset}"
 "#
     )
+}
+
+fn rust_crate_ident(name: &str) -> String {
+    name.replace('-', "_")
 }
 
 /// `crates/protocol/Cargo.toml`.
@@ -73,6 +77,34 @@ pub fn domain_lib_rs(name: &str) -> String {
 //! Game systems and handlers for {name}.
 "#
     )
+}
+
+/// `crates/domain/src/lib.rs` for the local-first starter preset.
+pub fn local_first_domain_lib_rs() -> String {
+    r#"// SPDX-License-Identifier: AGPL-3.0-only OR Commercial
+
+use galeon_engine::{Engine, MaterialHandle, MeshHandle, Plugin, Transform, Visibility};
+
+/// Minimal starter plugin that guarantees a first renderable entity.
+pub struct StarterPlugin;
+
+impl Plugin for StarterPlugin {
+    fn build(&self, engine: &mut Engine) {
+        engine.set_tick_rate(60.0);
+        engine.world_mut().spawn((
+            Transform {
+                position: [0.0, 0.35, 0.0],
+                rotation: [0.0, 0.0, 0.0, 1.0],
+                scale: [2.2, 0.7, 1.6],
+            },
+            Visibility { visible: true },
+            MeshHandle { id: 1 },
+            MaterialHandle { id: 1 },
+        ));
+    }
+}
+"#
+    .to_owned()
 }
 
 /// `crates/server/Cargo.toml` (server-authoritative and hybrid presets).
@@ -147,5 +179,409 @@ pub fn docker_compose_yml(name: &str) -> String {
 volumes:
   pgdata:
 "#
+    )
+}
+
+/// Root `.gitignore` for generated projects.
+pub fn project_gitignore() -> String {
+    r#"node_modules/
+target/
+dist/
+client/dist/
+client/pkg/
+"#
+    .to_owned()
+}
+
+/// Root `package.json` for the local-first starter preset.
+pub fn local_first_package_json(name: &str) -> String {
+    r#"{
+  "name": "__NAME__",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "wasm": "wasm-pack build crates/client --target web --out-dir ../../client/pkg --out-name starter",
+    "dev": "bun run wasm && vite client",
+    "build": "bun run wasm && vite build client",
+    "preview": "vite preview client",
+    "check": "bun run wasm && bunx tsc --project client/tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@galeon/engine-ts": "^0.2.0",
+    "three": "^0.183.2"
+  },
+  "devDependencies": {
+    "@types/three": "^0.183.1",
+    "typescript": "^5",
+    "vite": "^7"
+  }
+}
+"#
+        .replace("__NAME__", name)
+}
+
+/// Starter `README.md` for the local-first preset.
+pub fn local_first_readme_md(name: &str) -> String {
+    r#"# __NAME__
+
+Local-first Galeon starter project.
+
+## Prerequisites
+
+- Rust stable with `wasm32-unknown-unknown`
+- `wasm-pack`
+- Bun
+
+## Commands
+
+```bash
+bun install
+bun run dev
+```
+
+This builds the Rust WASM client crate into `client/pkg/` and starts a Vite dev
+server for the generated web starter.
+
+Production build:
+
+```bash
+bun run build
+```
+
+If you change Rust code while the dev server is running, rerun:
+
+```bash
+bun run wasm
+```
+
+## Project Layout
+
+- `crates/domain` — Rust-owned starter plugin and future game logic
+- `crates/client` — WASM wrapper exposed to the browser
+- `client/` — Three.js web client that consumes the extracted frame data
+- `crates/protocol` — protocol types for future commands/queries/events
+"#
+    .replace("__NAME__", name)
+}
+
+/// `client/tsconfig.json` for the local-first starter preset.
+pub fn local_first_client_tsconfig_json() -> String {
+    r#"{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noEmit": true,
+    "types": ["vite/client"]
+  },
+  "include": ["src"]
+}
+"#
+    .to_owned()
+}
+
+/// `client/index.html` for the local-first starter preset.
+pub fn local_first_client_index_html(name: &str) -> String {
+    r#"<!-- SPDX-License-Identifier: AGPL-3.0-only OR Commercial -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>__NAME__ | Galeon Starter</title>
+  </head>
+  <body>
+    <div class="shell">
+      <canvas id="viewport"></canvas>
+      <aside class="hud">
+        <p class="eyebrow">Galeon starter</p>
+        <h1>__NAME__</h1>
+        <p class="copy">
+          The first renderable entity comes from Rust. Three.js only owns the
+          scene graph and camera.
+        </p>
+        <dl class="commands">
+          <div>
+            <dt>Dev</dt>
+            <dd><code>bun run dev</code></dd>
+          </div>
+          <div>
+            <dt>Build</dt>
+            <dd><code>bun run build</code></dd>
+          </div>
+        </dl>
+      </aside>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
+"#
+    .replace("__NAME__", name)
+}
+
+/// `client/src/main.ts` for the local-first starter preset.
+pub fn local_first_client_main_ts() -> String {
+    r##"// SPDX-License-Identifier: AGPL-3.0-only OR Commercial
+
+import "./style.css";
+import { RendererCache } from "@galeon/engine-ts";
+import * as THREE from "three";
+import init, { StarterWasmEngine } from "../pkg/starter.js";
+
+const canvas = document.querySelector<HTMLCanvasElement>("#viewport");
+if (!canvas) {
+  throw new Error("missing #viewport canvas");
+}
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x08111f);
+scene.fog = new THREE.Fog(0x08111f, 9, 22);
+
+const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 100);
+camera.position.set(5.5, 4.2, 6.5);
+camera.lookAt(0, 0.5, 0);
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+const ambient = new THREE.AmbientLight(0xf5f7ff, 0.65);
+scene.add(ambient);
+
+const sun = new THREE.DirectionalLight(0xfff1bf, 1.2);
+sun.position.set(6, 8, 4);
+scene.add(sun);
+
+const grid = new THREE.GridHelper(18, 18, 0x4f46e5, 0x1e293b);
+grid.position.y = -0.01;
+scene.add(grid);
+
+const cache = new RendererCache(scene);
+cache.registerGeometry(1, new THREE.BoxGeometry(1, 1, 1));
+cache.registerMaterial(
+  1,
+  new THREE.MeshStandardMaterial({
+    color: 0x38bdf8,
+    roughness: 0.45,
+    metalness: 0.08,
+  }),
+);
+
+function resizeRenderer(): void {
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  renderer.setSize(width, height, false);
+  camera.aspect = width / height;
+  camera.updateProjectionMatrix();
+  renderer.render(scene, camera);
+}
+
+window.addEventListener("resize", resizeRenderer);
+
+await init();
+const engine = new StarterWasmEngine();
+
+cache.applyFrame(engine.extract_frame());
+resizeRenderer();
+
+let lastFrame = performance.now();
+function frame(now: number): void {
+  const elapsed = Math.min((now - lastFrame) / 1000, 0.25);
+  lastFrame = now;
+
+  engine.tick(elapsed);
+  cache.applyFrame(engine.extract_frame());
+
+  if (cache.needsRender) {
+    renderer.render(scene, camera);
+  }
+
+  requestAnimationFrame(frame);
+}
+
+requestAnimationFrame(frame);
+"##
+    .to_owned()
+}
+
+/// `client/src/style.css` for the local-first starter preset.
+pub fn local_first_client_style_css() -> String {
+    r#"/* SPDX-License-Identifier: AGPL-3.0-only OR Commercial */
+
+:root {
+  color-scheme: dark;
+  --bg: #050b15;
+  --panel: rgba(8, 17, 31, 0.84);
+  --line: rgba(148, 163, 184, 0.18);
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --accent: #38bdf8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(circle at top, rgba(56, 189, 248, 0.18), transparent 36%),
+    linear-gradient(180deg, #07101d 0%, var(--bg) 100%);
+  color: var(--text);
+  font-family: "Segoe UI", "Inter", sans-serif;
+}
+
+body {
+  min-height: 100vh;
+}
+
+.shell {
+  position: relative;
+  min-height: 100vh;
+}
+
+#viewport {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+
+.hud {
+  position: absolute;
+  top: 24px;
+  left: 24px;
+  width: min(360px, calc(100vw - 48px));
+  padding: 20px 22px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 24px 60px rgba(3, 8, 18, 0.45);
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+  color: var(--accent);
+}
+
+.hud h1 {
+  margin: 0;
+  font-size: clamp(1.8rem, 4vw, 2.4rem);
+}
+
+.copy {
+  margin: 12px 0 18px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.commands {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.commands div {
+  display: grid;
+  gap: 4px;
+}
+
+.commands dt {
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.commands dd {
+  margin: 0;
+}
+
+code {
+  font-family: "Cascadia Code", "JetBrains Mono", monospace;
+  font-size: 0.95rem;
+  color: #f8fafc;
+}
+
+@media (max-width: 640px) {
+  .hud {
+    top: auto;
+    bottom: 18px;
+    left: 18px;
+    width: calc(100vw - 36px);
+    padding: 18px;
+  }
+}
+"#
+    .to_owned()
+}
+
+/// `crates/client/Cargo.toml` for the local-first starter preset.
+pub fn local_first_client_cargo_toml(name: &str) -> String {
+    format!(
+        r#"[package]
+name = "{name}-client"
+version = "0.1.0"
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+galeon-engine = "0.2.0"
+galeon-engine-three-sync = "0.2.0"
+wasm-bindgen = "0.2"
+{name}-domain = {{ path = "../domain" }}
+"#
+    )
+}
+
+/// `crates/client/src/lib.rs` for the local-first starter preset.
+pub fn local_first_client_lib_rs(name: &str) -> String {
+    r#"// SPDX-License-Identifier: AGPL-3.0-only OR Commercial
+
+use __DOMAIN_CRATE__::StarterPlugin;
+use galeon_engine::Engine;
+use galeon_engine_three_sync::{WasmEngine, WasmFramePacket};
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+pub struct StarterWasmEngine {
+    inner: WasmEngine,
+}
+
+#[wasm_bindgen]
+impl StarterWasmEngine {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        let mut engine = Engine::new();
+        engine.add_plugin(StarterPlugin);
+        Self {
+            inner: WasmEngine::from_engine(engine),
+        }
+    }
+
+    pub fn tick(&mut self, elapsed: f64) -> u32 {
+        self.inner.tick(elapsed)
+    }
+
+    pub fn extract_frame(&self) -> WasmFramePacket {
+        self.inner.extract_frame()
+    }
+
+    pub fn debug_snapshot(&self) -> String {
+        self.inner.debug_snapshot()
+    }
+}
+"#
+    .replace(
+        "__DOMAIN_CRATE__",
+        &rust_crate_ident(&format!("{name}-domain")),
     )
 }
