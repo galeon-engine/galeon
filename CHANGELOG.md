@@ -95,6 +95,16 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **TypeScript workspace `bun run check` (#194)** — Added `DOM` and
+  `DOM.Iterable` to `tsconfig.base.json`'s `lib` array so browser globals
+  used by `@galeon/engine-ts` (`console.warn` in `renderer-cache.ts`, and the
+  Three.js / Web types consumed transitively) are declared intentionally
+  instead of relying on the ambient `@types/bun` declarations. The `three`
+  dependency is declared correctly in `packages/engine-ts/package.json` and
+  resolves via `bun install`; the reported failure was an unconfigured lib
+  surface, not a missing dep. `bun run check` now passes cleanly from the
+  repo root after `bun install`.
+
 - **Shiplog label drift (#103)** — Audited all open issues and backfilled
   lifecycle labels (`shiplog/ready`, `shiplog/in-progress`) to match envelope
   `readiness` fields. Added `docs/guide/shiplog-labels.md` with the label
