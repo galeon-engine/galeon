@@ -51,6 +51,13 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Honest CLI getting-started docs (#185)** — README and
+  `docs/guide/cli-getting-started.md` now document the current CLI surface
+  (`new`, `generate`, `routes`), explain that only `local-first` currently
+  scaffolds a runnable `bun run dev` path, clarify that `server-authoritative`
+  and `hybrid` still stop at project structure, and link the planned generic
+  `galeon dev` / watch workflow issues (#74, #165).
+
 - **`World` is `Send` for axum shared state (#173)** — Resources store
   `Box<dyn Any + Send>`; deferred commands and event/deadline callbacks are
   `Send`; `Clock` is `Send + Sync`; `Res`/`ResMut` and `EventReader`/`EventWriter`

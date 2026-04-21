@@ -5,6 +5,9 @@
 `galeon new <name> --preset local-first` now scaffolds a minimal web starter
 that can reach a first rendered frame without manual assembly.
 
+For the full CLI surface, the non-runnable presets, and the current codegen
+commands, see [cli-getting-started.md](cli-getting-started.md).
+
 ## What the Scaffold Includes
 
 - `crates/domain` with a Rust-owned `StarterPlugin` that spawns the first
@@ -13,6 +16,7 @@ that can reach a first rendered frame without manual assembly.
   `galeon-engine-three-sync::WasmEngine`
 - `client/` as a Vite + Three.js web app that consumes `@galeon/engine-ts`
 - root `package.json` scripts for `wasm`, `dev`, `build`, and `check`
+- a generated project `README.md` that repeats the starter commands
 
 The starter is intentionally narrow: one mesh, one camera, a small Three.js
 scene, and a documented build loop. It is a first runnable path, not an editor
