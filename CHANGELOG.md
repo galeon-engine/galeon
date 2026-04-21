@@ -9,6 +9,14 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Published `galeon-cli` install surface (#197)** — `galeon-cli` is now part
+  of the supported crates.io surface. The CLI inherits the workspace release
+  version, scaffolds the matching Galeon crate/package version from the
+  installed binary instead of hardcoded template versions, CI now runs
+  `cargo publish --dry-run -p galeon-cli`, the starter smoke test installs the
+  CLI before scaffolding, and the release workflow publishes/verifies the CLI
+  after the library and npm starter artifacts.
+
 - **Local-first starter scaffold (#187)** — `galeon new --preset local-first`
   now generates a minimal runnable web starter: a Rust `crates/client` WASM
   wrapper around `galeon-engine-three-sync`, a Rust-owned `StarterPlugin` in

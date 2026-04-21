@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 #
-# bump-version.sh — Update all 6 lockstep version sources with rollback on failure.
+# bump-version.sh — Update the shared version sources for Galeon's 7 lockstep published artifacts.
 #
 # Usage: scripts/bump-version.sh X.Y.Z
 #
 # Validates semver format, checks current versions are consistent,
-# then updates all 7 locations across 6 files. Fails fast on any
-# inconsistency or missing file.
+# then updates all 7 versioned locations across 6 files. `galeon-cli`
+# inherits the workspace version, so it needs no separate bump file.
+# Fails fast on any inconsistency or missing file.
 
 set -euo pipefail
 
@@ -55,7 +56,7 @@ NEW_VERSION="${1:-}"
 if [[ -z "$NEW_VERSION" ]]; then
   echo "Usage: scripts/bump-version.sh X.Y.Z"
   echo ""
-  echo "Updates all 6 lockstep version sources (7 edits)."
+  echo "Updates Galeon's shared version sources (7 edits across 6 files)."
   exit 1
 fi
 

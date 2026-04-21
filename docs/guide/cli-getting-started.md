@@ -7,6 +7,23 @@ Galeon can scaffold projects, generate protocol artifacts, and inspect resolved
 routes. It does not yet expose a universal `galeon dev`, `galeon run`, or
 `galeon build` command.
 
+## Install The CLI
+
+```bash
+cargo install --locked galeon-cli
+galeon --help
+```
+
+`galeon-cli` moves in lockstep with the Galeon release it scaffolds. An
+installed `galeon-cli 0.2.x` emits a project wired to Galeon `0.2.x`, not a
+hardcoded older template version.
+
+For prereleases, install the exact version you want to evaluate:
+
+```bash
+cargo install --locked galeon-cli --version 0.2.0-alpha.1
+```
+
 ## Current Commands
 
 ```bash
@@ -45,6 +62,7 @@ you still add the runtime shell, transport glue, and app-specific boot flow.
 Use `local-first` when you want the shortest path to a first rendered frame:
 
 ```bash
+cargo install --locked galeon-cli
 galeon new my-game --preset local-first
 cd my-game
 bun install

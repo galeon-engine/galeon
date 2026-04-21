@@ -4,7 +4,7 @@
 > to install and what stability to expect. This guide covers the release
 > procedure for maintainers.
 
-Galeon publishes **three Rust crates** to crates.io and **three TypeScript
+Galeon publishes **four Rust packages** to crates.io and **three TypeScript
 packages** to npm. Everything else in the workspace is internal.
 
 The npm packages in this guide are the checked-in workspace packages under
@@ -13,13 +13,19 @@ separate external-only package surface.
 
 ## Publish surfaces
 
-### Rust crates (crates.io)
+### Rust library crates (crates.io)
 
 | Crate | Package name | Order |
 |-------|-------------|-------|
 | Macros | `galeon-engine-macros` | 1 — publish first |
 | Core engine | `galeon-engine` | 2 — depends on macros |
 | Three.js sync | `galeon-engine-three-sync` | 3 — depends on engine |
+
+### CLI binary (crates.io)
+
+| Artifact | Package name | Order |
+|----------|--------------|-------|
+| CLI install surface | `galeon-cli` | 4 — publish after the libraries and npm starter deps |
 
 ### TypeScript packages (npm)
 
@@ -31,16 +37,15 @@ separate external-only package surface.
 
 ### Not published
 
-- `galeon-cli` — `publish = false` (deferred)
 - `galeon-protocol-rename-test`, `galeon-protocol-consumer-test` — `publish = false` (integration tests)
 
 ## Versioning
 
-All Rust crates and all TypeScript packages move in **lockstep**. The Rust
+All four Rust packages and all TypeScript packages move in **lockstep**. The Rust
 workspace version lives in `Cargo.toml` → `[workspace.package] version` and is
-inherited by publishable crates via `version.workspace = true`. npm package
-versions are kept in sync manually. Internal dependencies use exact pins
-(`=X.Y.Z`) to enforce lockstep.
+inherited by publishable crates via `version.workspace = true`, including
+`galeon-cli`. npm package versions are kept in sync manually. Internal
+dependencies use exact pins (`=X.Y.Z`) to enforce lockstep.
 
 ### Version bump checklist
 
@@ -51,8 +56,10 @@ bash scripts/bump-version.sh A.B.C
 ```
 
 This updates all 6 files (7 edits) after verifying the current versions are
-consistent, and rolls back if verification fails. It supports prerelease and
-build metadata tags (`0.2.0-alpha.1`, `0.2.0-alpha-1+build-7`).
+consistent, and rolls back if verification fails. `galeon-cli` inherits the
+workspace version automatically, so it does not need a separate version edit.
+The script supports prerelease and build metadata tags
+(`0.2.0-alpha.1`, `0.2.0-alpha-1+build-7`).
 
 The script edits these locations:
 
@@ -83,10 +90,17 @@ Cargo strips `path` for published tarballs.
 
 ```bash
 cargo publish -p galeon-engine-macros --dry-run
+cargo publish -p galeon-cli --dry-run
 ```
 
 `galeon-engine` and `galeon-engine-three-sync` dry-runs only pass after their
 dependencies exist on crates.io at the pinned version.
+
+To validate the supported installed-binary bootstrap flow from source, run:
+
+```bash
+bash tests/local-first-starter-smoke.sh
+```
 
 ### TypeScript
 
@@ -109,7 +123,8 @@ across these same checked-in workspace packages.
    - CI runs first (reused via `workflow_call`)
    - Crates publish in order with `cargo search` propagation polling
    - npm packages publish with skip-if-exists guards
-   - Post-publish verification installs from registries
+   - `galeon-cli` publishes after the starter's crate/npm dependencies exist
+   - Post-publish verification installs from registries, including the CLI starter flow
    - Evidence bundle uploaded as workflow artifact
    - GitHub Release created from the pushed tag, with prerelease tags marked as prereleases and the evidence markdown attached as a release asset
 
@@ -140,6 +155,12 @@ cd packages/engine-ts && npm publish --access public && cd ../..
 cd packages/shell    && npm publish --access public && cd ../..
 ```
 
+**CLI (after crates + npm packages):**
+
+```bash
+cargo publish -p galeon-cli
+```
+
 After the first publish, enable trusted publishing on npm for each package
 (link to the `galeon-engine/galeon` GitHub repo). Subsequent releases use
 OIDC provenance from GitHub Actions — no token needed.
@@ -161,10 +182,12 @@ OIDC provenance from GitHub Actions — no token needed.
 
 ## Consumer guidance
 
-Galeon is pre-1.0. All six packages move in lockstep &mdash; pick a minor version
-and pin to it. Read the [changelog](../../CHANGELOG.md) on each upgrade.
+Galeon is pre-1.0. All seven published artifacts move in lockstep &mdash; pick a
+minor version and pin to it. Read the [changelog](../../CHANGELOG.md) on each
+upgrade.
 
 - Core engine crates are published and intended for evaluation and early use.
+- `galeon-cli` is the supported install surface for scaffolding and codegen.
 - `@galeon/shell` is published but experimental &mdash; expect churn.
 - Prerelease tags (`alpha`, `beta`, `rc`) are published to both registries
   under the `alpha` npm dist-tag.

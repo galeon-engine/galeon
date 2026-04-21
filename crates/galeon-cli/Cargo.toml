@@ -1,10 +1,12 @@
 [package]
 name = "galeon-cli"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-publish = false
+description = "Project scaffolding, code generation, and route inspection CLI for Galeon."
+keywords = ["galeon", "cli", "game-engine", "codegen"]
+categories = ["command-line-utilities", "game-development"]
 
 [[bin]]
 name = "galeon"
