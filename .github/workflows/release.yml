@@ -266,9 +266,11 @@ jobs:
           node -e "import('@galeon/runtime').then(() => console.log('@galeon/runtime OK'))"
 
       - name: Verify CLI — installed binary starter bootstrap
-        env:
-          GALEON_INSTALL_VERSION: ${{ env.VERSION }}
-        run: bash tests/local-first-starter-smoke.sh
+        run: |
+          : "${VERSION:?Resolve version step did not set VERSION}"
+          export GALEON_REQUIRE_PUBLISHED=1
+          export GALEON_INSTALL_VERSION="${VERSION}"
+          bash tests/local-first-starter-smoke.sh
 
   release-evidence:
     name: Release Evidence Bundle

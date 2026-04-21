@@ -91,6 +91,11 @@ cleanup() {
 trap cleanup EXIT
 
 install_galeon_cli() {
+  if [[ -n "${GALEON_REQUIRE_PUBLISHED:-}" ]] && [[ -z "${GALEON_INSTALL_VERSION:-}" ]]; then
+    echo "GALEON_REQUIRE_PUBLISHED requires GALEON_INSTALL_VERSION to be set" >&2
+    return 1
+  fi
+
   if [[ -n "${GALEON_INSTALL_VERSION:-}" ]]; then
     local attempt
     for attempt in $(seq 1 20); do
