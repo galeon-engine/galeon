@@ -68,6 +68,8 @@ the engine itself is shell-agnostic.
 **CLI**
 - `galeon new <name> --preset <preset>` scaffolds a complete game project
 - Presets: `server-authoritative`, `local-first`, `hybrid`
+- `local-first` now scaffolds a minimal web starter with `bun run dev` /
+  `bun run build`; see [docs/guide/local-first-starter.md](docs/guide/local-first-starter.md)
 
 ## Quick Example
 

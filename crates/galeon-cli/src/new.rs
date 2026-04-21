@@ -23,6 +23,7 @@ pub fn scaffold(base: &Path, name: &str, preset: &Preset) -> Result<(), io::Erro
     let include_server = matches!(preset, Preset::ServerAuthoritative | Preset::Hybrid);
     let include_db = matches!(preset, Preset::ServerAuthoritative);
     let include_docker = matches!(preset, Preset::ServerAuthoritative);
+    let include_local_first_starter = matches!(preset, Preset::LocalFirst);
 
     // Root workspace files
     fs::create_dir_all(&root)?;
@@ -31,11 +32,43 @@ pub fn scaffold(base: &Path, name: &str, preset: &Preset) -> Result<(), io::Erro
         root.join("galeon.toml"),
         templates::galeon_toml(name, preset_str),
     )?;
+    fs::write(root.join(".gitignore"), templates::project_gitignore())?;
+    if include_local_first_starter {
+        fs::write(
+            root.join("package.json"),
+            templates::local_first_package_json(name),
+        )?;
+        fs::write(
+            root.join("README.md"),
+            templates::local_first_readme_md(name),
+        )?;
+    }
 
-    // client/ placeholder
+    // client/ web starter (local-first) or placeholder
     let client_dir = root.join("client");
     fs::create_dir_all(&client_dir)?;
-    fs::write(client_dir.join(".gitkeep"), "")?;
+    if include_local_first_starter {
+        let client_src = client_dir.join("src");
+        fs::create_dir_all(&client_src)?;
+        fs::write(
+            client_dir.join("tsconfig.json"),
+            templates::local_first_client_tsconfig_json(),
+        )?;
+        fs::write(
+            client_dir.join("index.html"),
+            templates::local_first_client_index_html(name),
+        )?;
+        fs::write(
+            client_src.join("main.ts"),
+            templates::local_first_client_main_ts(),
+        )?;
+        fs::write(
+            client_src.join("style.css"),
+            templates::local_first_client_style_css(),
+        )?;
+    } else {
+        fs::write(client_dir.join(".gitkeep"), "")?;
+    }
 
     // crates/protocol
     let protocol_src = root.join("crates").join("protocol").join("src");
@@ -56,7 +89,28 @@ pub fn scaffold(base: &Path, name: &str, preset: &Preset) -> Result<(), io::Erro
         root.join("crates").join("domain").join("Cargo.toml"),
         templates::domain_cargo_toml(name),
     )?;
-    fs::write(domain_src.join("lib.rs"), templates::domain_lib_rs(name))?;
+    if include_local_first_starter {
+        fs::write(
+            domain_src.join("lib.rs"),
+            templates::local_first_domain_lib_rs(),
+        )?;
+    } else {
+        fs::write(domain_src.join("lib.rs"), templates::domain_lib_rs(name))?;
+    }
+
+    // crates/client (local-first)
+    if include_local_first_starter {
+        let wasm_src = root.join("crates").join("client").join("src");
+        fs::create_dir_all(&wasm_src)?;
+        fs::write(
+            root.join("crates").join("client").join("Cargo.toml"),
+            templates::local_first_client_cargo_toml(name),
+        )?;
+        fs::write(
+            wasm_src.join("lib.rs"),
+            templates::local_first_client_lib_rs(name),
+        )?;
+    }
 
     // crates/server (server-authoritative + hybrid)
     if include_server {
@@ -136,17 +190,52 @@ mod tests {
     fn test_scaffold_local_first() {
         let (_tmp, root) = run_scaffold("localgame", Preset::LocalFirst);
 
+        assert_file(&root, ".gitignore");
         assert_file(&root, "Cargo.toml");
         assert_file(&root, "galeon.toml");
-        assert_file(&root, "client/.gitkeep");
+        assert_file(&root, "package.json");
+        assert_file(&root, "README.md");
+        assert_file(&root, "client/index.html");
+        assert_file(&root, "client/tsconfig.json");
+        assert_file(&root, "client/src/main.ts");
+        assert_file(&root, "client/src/style.css");
         assert_file(&root, "crates/protocol/Cargo.toml");
         assert_file(&root, "crates/protocol/src/lib.rs");
         assert_file(&root, "crates/domain/Cargo.toml");
         assert_file(&root, "crates/domain/src/lib.rs");
+        assert_file(&root, "crates/client/Cargo.toml");
+        assert_file(&root, "crates/client/src/lib.rs");
 
         assert_no_file(&root, "crates/server/Cargo.toml");
         assert_no_file(&root, "crates/db/Cargo.toml");
         assert_no_file(&root, "docker-compose.yml");
+        assert_no_file(&root, "client/.gitkeep");
+
+        let package_json = fs::read_to_string(root.join("package.json")).unwrap();
+        assert!(package_json.contains(r#""dev": "bun run wasm && vite client""#));
+        assert!(package_json.contains(r#""build": "bun run wasm && vite build client""#));
+
+        let readme = fs::read_to_string(root.join("README.md")).unwrap();
+        assert!(readme.contains("bun run dev"));
+        assert!(readme.contains("bun run build"));
+
+        let domain = fs::read_to_string(
+            root.join("crates")
+                .join("domain")
+                .join("src")
+                .join("lib.rs"),
+        )
+        .unwrap();
+        assert!(domain.contains("StarterPlugin"));
+
+        let wasm_client = fs::read_to_string(
+            root.join("crates")
+                .join("client")
+                .join("src")
+                .join("lib.rs"),
+        )
+        .unwrap();
+        assert!(wasm_client.contains("StarterWasmEngine"));
     }
 
     #[test]
