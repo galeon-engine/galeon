@@ -66,10 +66,35 @@ the engine itself is shell-agnostic.
 - Fallback geometry for missing assets
 
 **CLI**
-- `galeon new <name> --preset <preset>` scaffolds a complete game project
+- `galeon new <name> --preset <preset>` scaffolds a preset-specific Galeon project
 - Presets: `server-authoritative`, `local-first`, `hybrid`
-- `local-first` now scaffolds a minimal web starter with `bun run dev` /
-  `bun run build`; see [docs/guide/local-first-starter.md](docs/guide/local-first-starter.md)
+- `local-first` is the only preset that currently scaffolds a runnable web
+  starter with `bun run dev` / `bun run build`; see
+  [docs/guide/local-first-starter.md](docs/guide/local-first-starter.md)
+- `server-authoritative` and `hybrid` scaffold Rust-first workspace structure
+  and client seams, not a ready-to-run shell
+- `galeon generate <ts|manifest|descriptors|routes>` emits project artifacts
+- `galeon routes` prints the effective route table for the current project
+
+## CLI Getting Started
+
+Today Galeon's CLI covers scaffolding, artifact generation, and route
+inspection. It does not yet provide a universal `galeon dev`, `galeon run`, or
+`galeon build` entrypoint.
+
+For the current preset-by-preset flow:
+
+- start with
+  [docs/guide/cli-getting-started.md](docs/guide/cli-getting-started.md)
+- use
+  [docs/guide/local-first-starter.md](docs/guide/local-first-starter.md) for
+  the runnable `local-first` starter
+- use [docs/guide/protocol.md](docs/guide/protocol.md) for
+  `galeon generate` outputs and protocol boundary details
+
+Roadmap for the missing generic dev/watch workflow lives in
+[#74](https://github.com/galeon-engine/galeon/issues/74) and
+[#165](https://github.com/galeon-engine/galeon/issues/165).
 
 ## Quick Example
 
@@ -103,7 +128,7 @@ crates/
   engine-macros/       Proc-macro crate (#[derive(Component)], #[command], etc.)
   engine/              Core ECS, scheduler, protocol, data loading
   engine-three-sync/   WASM bridge — packed ECS snapshots to Three.js
-  galeon-cli/          CLI binary (galeon new)
+  galeon-cli/          CLI binary (galeon new / generate / routes)
 
 packages/
   runtime/             @galeon/runtime — JS/WASM glue
