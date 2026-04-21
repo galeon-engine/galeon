@@ -95,6 +95,19 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **TypeScript workspace `bun run check` (#194)** — Declared workspace type
+  surface intentionally in `tsconfig.base.json`: added `DOM` and
+  `DOM.Iterable` to `lib` (for `console.warn` in `renderer-cache.ts` and the
+  Web/Canvas types Three.js pulls in), and set `types: []` so TypeScript no
+  longer auto-loads every `@types/*` package (previously `@types/bun`'s
+  ambient declarations silently satisfied `console`). `three` and
+  `@types/three` are declared in `packages/engine-ts/package.json` and
+  resolve via `bun install` through normal module resolution; the reported
+  `TS2307` reproduces only without a prior install. `bun run check` now
+  passes cleanly from the repo root, and `tsc --explainFiles` confirms the
+  engine-ts build pulls in `lib.dom*.d.ts` from `compilerOptions` and no
+  ambient `@types/*`.
+
 - **Shiplog label drift (#103)** — Audited all open issues and backfilled
   lifecycle labels (`shiplog/ready`, `shiplog/in-progress`) to match envelope
   `readiness` fields. Added `docs/guide/shiplog-labels.md` with the label
