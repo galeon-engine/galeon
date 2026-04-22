@@ -205,7 +205,7 @@ const runtime = process.env.RUNTIME_FILE_DEP;
 const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
 pkg.dependencies["@galeon/engine-ts"] = engineTs;
 pkg.dependencies["@galeon/runtime"] = runtime;
-// Bun still resolves engine-ts's exact @galeon/runtime subdependency from the
+// Bun still resolves the exact @galeon/runtime subdependency from engine-ts via
 // registry unless the generated starter overrides it locally in source mode.
 pkg.overrides ??= {};
 pkg.overrides["@galeon/runtime"] = runtime;
