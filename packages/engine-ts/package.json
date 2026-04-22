@@ -1,6 +1,6 @@
 {
   "name": "@galeon/engine-ts",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Galeon Engine TypeScript layer — Three.js sync consumer for WASM extraction snapshots",
   "type": "module",
   "main": "dist/index.js",
@@ -23,7 +23,7 @@
     "prepublishOnly": "tsc --build"
   },
   "dependencies": {
-    "@galeon/runtime": "=0.2.0",
+    "@galeon/runtime": "=0.3.0",
     "three": "^0.183.2"
   },
   "devDependencies": {

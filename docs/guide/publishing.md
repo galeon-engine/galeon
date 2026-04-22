@@ -59,7 +59,7 @@ This updates all 6 files (7 edits) after verifying the current versions are
 consistent, and rolls back if verification fails. `galeon-cli` inherits the
 workspace version automatically, so it does not need a separate version edit.
 The script supports prerelease and build metadata tags
-(`0.2.0-alpha.1`, `0.2.0-alpha-1+build-7`).
+(`0.3.0-alpha.1`, `0.3.0-alpha-1+build-7`).
 
 The script edits these locations:
 
@@ -79,7 +79,7 @@ After running, manually update the changelog:
 Workspace crates use **path + pinned version**:
 
 ```toml
-galeon-engine-macros = { path = "../engine-macros", version = "=0.1.0" }
+galeon-engine-macros = { path = "../engine-macros", version = "=0.3.0" }
 ```
 
 Cargo strips `path` for published tarballs.

@@ -12,7 +12,7 @@ categories = ["game-development", "wasm"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-galeon-engine = { path = "../engine", version = "=0.2.0" }
+galeon-engine = { path = "../engine", version = "=0.3.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 wasm-bindgen = { workspace = true }
