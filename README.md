@@ -238,23 +238,23 @@ number.
 Galeon follows [Semantic Versioning 2.0.0](https://semver.org/). During the
 pre-1.0 phase:
 
-- **Minor bumps** (`0.1 &rarr; 0.2`) may contain breaking API changes.
-- **Patch bumps** (`0.1.0 &rarr; 0.1.1`) are backward-compatible bug fixes and
+- **Minor bumps** (`0.2 &rarr; 0.3`) may contain breaking API changes.
+- **Patch bumps** (`0.3.0 &rarr; 0.3.1`) are backward-compatible bug fixes and
   additions.
-- **Prerelease tags** (`0.2.0-alpha.1`, `0.2.0-beta.1`, `0.2.0-rc.1`) are
+- **Prerelease tags** (`0.3.0-alpha.1`, `0.3.0-beta.1`, `0.3.0-rc.1`) are
   published to crates.io and npm under the `alpha` dist-tag. Use these
   preview upcoming releases.
 
 ### How to depend on Galeon
 
 ```toml
-# In your Cargo.toml — matches any 0.1.x release
-galeon-engine = "0.1"
+# In your Cargo.toml — matches any 0.3.x release
+galeon-engine = "0.3"
 ```
 
 ```json
-// In your package.json — matches any 0.1.x release
-"@galeon/engine-ts": "^0.1.0"
+// In your package.json — matches any 0.3.x release
+"@galeon/engine-ts": "^0.3.0"
 ```
 
 ```bash
@@ -286,7 +286,7 @@ means for adopters:
 - CLI commands and codegen output formats are still evolving.
 
 **How to upgrade safely:**
-- Pin to a specific minor range (e.g., `"0.1"` in Cargo, `"^0.1.0"` in npm).
+- Pin to a specific minor range (e.g., `"0.3"` in Cargo, `"^0.3.0"` in npm).
 - Read the [changelog](CHANGELOG.md) before upgrading &mdash; breaking changes are
   always documented.
 - Prerelease tags (`alpha`, `beta`, `rc`) let you test upcoming versions before

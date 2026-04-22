@@ -15,13 +15,13 @@ galeon --help
 ```
 
 `galeon-cli` moves in lockstep with the Galeon release it scaffolds. An
-installed `galeon-cli 0.2.x` emits a project wired to Galeon `0.2.x`, not a
+installed `galeon-cli X.Y.x` emits a project wired to Galeon `X.Y.x`, not a
 hardcoded older template version.
 
 For prereleases, install the exact version you want to evaluate:
 
 ```bash
-cargo install --locked galeon-cli --version 0.2.0-alpha.1
+cargo install --locked galeon-cli --version 0.3.0-alpha.1
 ```
 
 ## Current Commands

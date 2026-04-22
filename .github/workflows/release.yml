@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to verify (e.g. 0.2.0). Skips publish, runs verification only.'
+        description: 'Version to verify (e.g. 0.3.0). Skips publish, runs verification only.'
         required: true
 
 jobs:

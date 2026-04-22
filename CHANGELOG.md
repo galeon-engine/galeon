@@ -7,6 +7,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0]
+
 ### Added
 
 - **Published `galeon-cli` install surface (#197)** — `galeon-cli` is now part
