@@ -205,6 +205,10 @@ const runtime = process.env.RUNTIME_FILE_DEP;
 const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
 pkg.dependencies["@galeon/engine-ts"] = engineTs;
 pkg.dependencies["@galeon/runtime"] = runtime;
+// Bun still resolves engine-ts's exact @galeon/runtime subdependency from the
+// registry unless the generated starter overrides it locally in source mode.
+pkg.overrides ??= {};
+pkg.overrides["@galeon/runtime"] = runtime;
 fs.writeFileSync(file, `${JSON.stringify(pkg, null, 2)}\n`);
 '
 
@@ -212,6 +216,7 @@ fs.writeFileSync(file, `${JSON.stringify(pkg, null, 2)}\n`);
   assert_file_contains "$PROJECT_DIR/crates/client/Cargo.toml" 'galeon-engine-three-sync = { path = "'
   assert_file_contains "$PROJECT_DIR/package.json" '"@galeon/engine-ts": "file:'
   assert_file_contains "$PROJECT_DIR/package.json" '"@galeon/runtime": "file:'
+  assert_file_contains "$PROJECT_DIR/package.json" '"overrides": {'
 }
 
 install_galeon_cli
