@@ -41,6 +41,10 @@ galeon routes
   under `generated/` by default
 - `galeon routes` prints the effective route table for the current project
 
+Project names for `galeon new` are intentionally strict: use lowercase ASCII
+letters, digits, and single hyphens, start with a letter, and avoid reserved
+Windows names such as `aux` and `con`. Example: `my-game-2`.
+
 `galeon generate` and `galeon routes` both walk up from the current working
 directory until they find `galeon.toml`, so you can run them from the project
 root or from a nested crate directory.

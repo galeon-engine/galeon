@@ -7,11 +7,18 @@ use std::path::Path;
 use crate::Preset;
 use crate::templates;
 
+const WINDOWS_RESERVED_NAMES: &[&str] = &[
+    "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8",
+    "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+];
+
 /// Scaffold a new Galeon game project at `<base>/<name>/`.
 ///
 /// `base` is the directory in which the project folder is created.
 /// Pass `Path::new(".")` (or the current directory) for the typical CLI case.
 pub fn scaffold(base: &Path, name: &str, preset: &Preset) -> Result<(), io::Error> {
+    validate_project_name(name)?;
+
     let root = base.join(name);
 
     let preset_str = match preset {
@@ -145,6 +152,75 @@ pub fn scaffold(base: &Path, name: &str, preset: &Preset) -> Result<(), io::Erro
     Ok(())
 }
 
+fn validate_project_name(name: &str) -> Result<(), io::Error> {
+    if name.is_empty() {
+        return Err(invalid_project_name(
+            name,
+            "project names must start with a lowercase ASCII letter",
+        ));
+    }
+
+    let first = name
+        .chars()
+        .next()
+        .expect("empty project name handled above");
+    if !first.is_ascii_lowercase() {
+        return Err(invalid_project_name(
+            name,
+            "project names must start with a lowercase ASCII letter",
+        ));
+    }
+
+    let last = name
+        .chars()
+        .last()
+        .expect("empty project name handled above");
+    if !last.is_ascii_lowercase() && !last.is_ascii_digit() {
+        return Err(invalid_project_name(
+            name,
+            "project names must end with a lowercase ASCII letter or digit",
+        ));
+    }
+
+    let mut prev_hyphen = false;
+    for ch in name.chars() {
+        match ch {
+            'a'..='z' | '0'..='9' => prev_hyphen = false,
+            '-' => {
+                if prev_hyphen {
+                    return Err(invalid_project_name(
+                        name,
+                        "project names may only use single hyphens between segments",
+                    ));
+                }
+                prev_hyphen = true;
+            }
+            _ => {
+                return Err(invalid_project_name(
+                    name,
+                    "project names may only use lowercase ASCII letters, digits, and hyphens",
+                ));
+            }
+        }
+    }
+
+    if WINDOWS_RESERVED_NAMES.contains(&name) {
+        return Err(invalid_project_name(
+            name,
+            "project names cannot use reserved Windows filenames like `aux` or `con`",
+        ));
+    }
+
+    Ok(())
+}
+
+fn invalid_project_name(name: &str, reason: &str) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!("invalid project name `{name}`: {reason}. Examples: `my-game`, `game2`, `game-2`"),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -269,6 +345,43 @@ mod tests {
             content.contains("preset = \"server-authoritative\""),
             "galeon.toml missing preset"
         );
+    }
+
+    #[test]
+    fn test_accepts_lowercase_kebab_case_project_names() {
+        let (_tmp, root) = run_scaffold("my-game-2", Preset::LocalFirst);
+
+        assert_file(&root, "package.json");
+        assert_file(&root, "crates/domain/Cargo.toml");
+        assert_file(&root, "crates/client/Cargo.toml");
+    }
+
+    #[test]
+    fn test_rejects_invalid_project_names_before_writing_files() {
+        let cases = [
+            ("", "start with a lowercase ASCII letter"),
+            ("123game", "start with a lowercase ASCII letter"),
+            ("Game", "start with a lowercase ASCII letter"),
+            ("game name", "lowercase ASCII letters, digits, and hyphens"),
+            ("game_name", "lowercase ASCII letters, digits, and hyphens"),
+            ("game--name", "single hyphens between segments"),
+            ("game-", "end with a lowercase ASCII letter or digit"),
+            ("aux", "reserved Windows filenames"),
+        ];
+
+        for (name, expected_message) in cases {
+            let tmp = TempDir::new().unwrap();
+            let err = scaffold(tmp.path(), name, &Preset::LocalFirst).unwrap_err();
+
+            assert!(
+                err.to_string().contains(expected_message),
+                "unexpected error for `{name}`: {err}"
+            );
+            assert!(
+                fs::read_dir(tmp.path()).unwrap().next().is_none(),
+                "scaffold wrote files for invalid project name `{name}`"
+            );
+        }
     }
 }
 

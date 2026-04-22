@@ -103,6 +103,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **CLI scaffold rejects invalid project names before writing files (#190)** —
+  `galeon new` now enforces a cross-surface-safe project-name grammar:
+  lowercase ASCII letters, digits, and single hyphens only, starting with a
+  letter and excluding reserved Windows filenames.
+
 - **TypeScript workspace `bun run check` (#194)** — Declared workspace type
   surface intentionally in `tsconfig.base.json`: added `DOM` and
   `DOM.Iterable` to `lib` (for `console.warn` in `renderer-cache.ts` and the
