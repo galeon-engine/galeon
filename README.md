@@ -70,6 +70,7 @@ the engine itself is shell-agnostic.
 - `cargo install --locked galeon-cli` is the supported way to install the
   scaffolding/codegen CLI
 - `galeon new <name> --preset <preset>` scaffolds a preset-specific Galeon project
+  and requires `name` to use lowercase letters, digits, and single hyphens
 - Presets: `server-authoritative`, `local-first`, `hybrid`
 - `local-first` is the only preset that currently scaffolds a runnable web
   starter with `bun run dev` / `bun run build`; see

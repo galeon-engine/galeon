@@ -18,7 +18,7 @@ struct Cli {
 enum CliCommand {
     /// Scaffold a new Galeon game project
     New {
-        /// Project name
+        /// Project name (lowercase letters, numbers, and single hyphens)
         name: String,
         /// Project preset
         #[arg(long, default_value = "server-authoritative")]
