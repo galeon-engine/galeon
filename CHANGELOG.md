@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Framework-neutral render adapter guidance (#205)** — Documented when to use
+  the imperative Three adapter versus the R3F adapter, including the non-goals
+  that keep Galeon core independent from React and keep hot transform updates
+  out of per-entity React state.
+
 ## [0.3.0]
 
 ### Added

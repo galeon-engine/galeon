@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
 use galeon_engine::{Engine, MaterialHandle, MeshHandle, Plugin, Transform, Visibility};
-use galeon_engine_three_sync::{WasmEngine, WasmFramePacket};
+use galeon_engine_three_sync::{RENDER_CONTRACT_VERSION, WasmEngine, WasmFramePacket};
 
 const TEST_MESH_ID: u32 = 7;
 const TEST_MATERIAL_ID: u32 = 11;
@@ -38,6 +38,7 @@ impl DemoWasmEngine {
 }
 
 fn assert_bootstrap_frame(frame: WasmFramePacket) {
+    assert_eq!(frame.contract_version(), RENDER_CONTRACT_VERSION);
     assert_eq!(frame.entity_count(), 1);
     assert_eq!(frame.mesh_handles(), vec![TEST_MESH_ID]);
     assert_eq!(frame.material_handles(), vec![TEST_MATERIAL_ID]);

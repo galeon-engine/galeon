@@ -8,10 +8,5 @@
     "rootDir": "src",
     "outDir": "dist"
   },
-  "include": ["src"],
-  "references": [
-    { "path": "../runtime" },
-    { "path": "../render-core" },
-    { "path": "../three" }
-  ]
+  "include": ["src"]
 }

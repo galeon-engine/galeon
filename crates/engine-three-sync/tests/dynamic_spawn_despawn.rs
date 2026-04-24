@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
 use galeon_engine::{Engine, MaterialHandle, MeshHandle, Plugin, Transform, Visibility};
-use galeon_engine_three_sync::WasmEngine;
+use galeon_engine_three_sync::{RENDER_CONTRACT_VERSION, WasmEngine};
 
 const PLUGIN_MESH: u32 = 7;
 const PLUGIN_MATERIAL: u32 = 11;
@@ -67,6 +67,7 @@ fn spawn_entity_appears_in_extract_frame() {
     w.spawn_entity(DYNAMIC_MESH, DYNAMIC_MATERIAL, &xform, 0);
 
     let frame = w.extract_frame();
+    assert_eq!(frame.contract_version(), RENDER_CONTRACT_VERSION);
     assert_eq!(frame.entity_count(), 1);
     assert_eq!(frame.mesh_handles(), vec![DYNAMIC_MESH]);
     assert_eq!(frame.material_handles(), vec![DYNAMIC_MATERIAL]);

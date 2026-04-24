@@ -24,6 +24,8 @@ pub struct ChannelData {
 /// Transform data is packed as 10 contiguous floats per entity:
 /// `[pos.x, pos.y, pos.z, rot.x, rot.y, rot.z, rot.w, scale.x, scale.y, scale.z]`
 pub struct FramePacket {
+    /// Snapshot contract version shared with TS adapters.
+    pub contract_version: u32,
     pub entity_ids: Vec<u32>,
     pub entity_generations: Vec<u32>,
     pub transforms: Vec<f32>,
@@ -62,11 +64,14 @@ pub const SCENE_ROOT: u32 = u32::MAX;
 
 /// Number of f32 values per entity in the transforms array.
 pub const TRANSFORM_STRIDE: usize = 10;
+/// Version of the packed render snapshot contract.
+pub const RENDER_CONTRACT_VERSION: u32 = 1;
 
 impl FramePacket {
     /// Create an empty frame packet.
     pub fn new() -> Self {
         Self {
+            contract_version: RENDER_CONTRACT_VERSION,
             entity_ids: Vec::new(),
             entity_generations: Vec::new(),
             transforms: Vec::new(),
@@ -85,6 +90,7 @@ impl FramePacket {
     /// Create a frame packet with pre-allocated capacity.
     pub fn with_capacity(entity_count: usize) -> Self {
         Self {
+            contract_version: RENDER_CONTRACT_VERSION,
             entity_ids: Vec::with_capacity(entity_count),
             entity_generations: Vec::with_capacity(entity_count),
             transforms: Vec::with_capacity(entity_count * TRANSFORM_STRIDE),
@@ -319,8 +325,10 @@ mod tests {
     #[test]
     fn new_packet_has_frame_version_zero() {
         let p = FramePacket::new();
+        assert_eq!(p.contract_version, RENDER_CONTRACT_VERSION);
         assert_eq!(p.frame_version, 0);
         let p2 = FramePacket::with_capacity(10);
+        assert_eq!(p2.contract_version, RENDER_CONTRACT_VERSION);
         assert_eq!(p2.frame_version, 0);
     }
 
