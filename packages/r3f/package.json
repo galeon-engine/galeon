@@ -1,7 +1,7 @@
 {
-  "name": "@galeon/engine-ts",
+  "name": "@galeon/r3f",
   "version": "0.3.0",
-  "description": "Galeon Engine TypeScript layer — Three.js sync consumer for WASM extraction snapshots",
+  "description": "React Three Fiber adapter for Galeon render snapshots",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -12,27 +12,35 @@
     }
   },
   "files": ["dist", "src"],
-  "keywords": ["galeon", "game-engine", "threejs", "wasm", "ecs"],
+  "keywords": ["galeon", "game-engine", "react", "r3f"],
   "license": "AGPL-3.0-only OR LicenseRef-Commercial",
   "repository": {
     "type": "git",
     "url": "https://github.com/galeon-engine/galeon.git",
-    "directory": "packages/engine-ts"
+    "directory": "packages/r3f"
   },
   "scripts": {
     "prepublishOnly": "tsc --build"
   },
   "dependencies": {
     "@galeon/render-core": "=0.3.0",
-    "@galeon/runtime": "=0.3.0",
-    "@galeon/three": "=0.3.0",
-    "three": "^0.183.2"
+    "@galeon/three": "=0.3.0"
   },
   "devDependencies": {
+    "@react-three/fiber": "^8.18.0",
+    "@react-three/test-renderer": "^8.2.2",
     "@types/bun": "latest",
-    "@types/three": "^0.183.1"
+    "@types/react": "^18.3.23",
+    "@types/react-dom": "^18.3.7",
+    "@types/three": "^0.183.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "peerDependencies": {
+    "@react-three/fiber": "^8.0.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "three": "^0.183.2",
     "typescript": "^5"
   }
 }

@@ -7,7 +7,8 @@ mod snapshot;
 pub use extract::{extract_frame, extract_frame_incremental};
 pub use frame_packet::{
     CHANGED_MATERIAL, CHANGED_MESH, CHANGED_OBJECT_TYPE, CHANGED_PARENT, CHANGED_TRANSFORM,
-    CHANGED_VISIBILITY, ChannelData, FramePacket, SCENE_ROOT, TRANSFORM_STRIDE,
+    CHANGED_VISIBILITY, ChannelData, FramePacket, RENDER_CONTRACT_VERSION, SCENE_ROOT,
+    TRANSFORM_STRIDE,
 };
 // Re-export FrameEvent from engine for consumers of this crate.
 pub use galeon_engine::FrameEvent;
@@ -234,6 +235,12 @@ pub struct WasmFramePacket {
 
 #[wasm_bindgen]
 impl WasmFramePacket {
+    /// Render packet contract version.
+    #[wasm_bindgen(getter)]
+    pub fn contract_version(&self) -> u32 {
+        self.inner.contract_version
+    }
+
     /// Number of renderable entities in this frame.
     #[wasm_bindgen(getter)]
     pub fn entity_count(&self) -> u32 {

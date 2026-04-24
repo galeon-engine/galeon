@@ -1,7 +1,7 @@
 {
-  "name": "@galeon/engine-ts",
+  "name": "@galeon/three",
   "version": "0.3.0",
-  "description": "Galeon Engine TypeScript layer — Three.js sync consumer for WASM extraction snapshots",
+  "description": "Imperative Three.js adapter for Galeon render snapshots",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -12,20 +12,18 @@
     }
   },
   "files": ["dist", "src"],
-  "keywords": ["galeon", "game-engine", "threejs", "wasm", "ecs"],
+  "keywords": ["galeon", "game-engine", "threejs", "render"],
   "license": "AGPL-3.0-only OR LicenseRef-Commercial",
   "repository": {
     "type": "git",
     "url": "https://github.com/galeon-engine/galeon.git",
-    "directory": "packages/engine-ts"
+    "directory": "packages/three"
   },
   "scripts": {
     "prepublishOnly": "tsc --build"
   },
   "dependencies": {
     "@galeon/render-core": "=0.3.0",
-    "@galeon/runtime": "=0.3.0",
-    "@galeon/three": "=0.3.0",
     "three": "^0.183.2"
   },
   "devDependencies": {

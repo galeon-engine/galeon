@@ -267,6 +267,60 @@ cache.applyFrame(packet);
 - When a parent entity is removed, its children are reparented to the scene
   root to prevent orphan objects from becoming invisible.
 
+## Adapter Choice
+
+The render packet is the framework-neutral boundary. It belongs to Galeon, is
+owned by Rust extraction, and should remain consumable without React, R3F, or a
+browser-specific app shell. Host adapters decide how to present that packet.
+
+Use the imperative Three adapter when the host wants direct scene-graph control:
+
+- Engine-style consumers that already own the Three.js render loop.
+- Desktop/editor surfaces that need predictable lifecycle hooks around object
+  creation, removal, and GPU resource ownership.
+- Tests and examples that should compare directly against the raw packet
+  contract.
+- Integrations that want to opt into demand rendering by checking
+  `frame_version` and `RendererCache.needsRender`.
+
+Use the R3F adapter when the host is a React application:
+
+- Web games or tools with React-owned routing, menus, HUDs, inspectors, and DOM
+  overlays around a Three.js scene.
+- App shells that already use R3F components for cameras, controls, lights, or
+  environment setup.
+- Integrations that want a provider/component surface for structural scene
+  lifecycle while still consuming Galeon-owned entity state.
+
+The R3F adapter must not make React part of the engine core. React may own setup,
+asset registry wiring, and structural lifecycle. Hot entity transforms should
+continue to flow through retained Three object refs and frame-loop mutation, not
+through per-entity React state updates on every tick.
+
+Recommended integration pattern:
+
+```tsx
+import { GaleonEntities, GaleonProvider } from "@galeon/r3f";
+
+<GaleonProvider engine={engine} driveTicks>
+  <GaleonEntities />
+</GaleonProvider>
+```
+
+Lower-level hooks can expose the current frame or individual entity metadata for
+UI and tooling, but they should be treated as coarse subscriptions. The hot path
+for transforms, visibility, and parent changes remains the adapter's imperative
+application of packet rows to stable `THREE.Object3D` instances.
+
+Non-goals:
+
+- Requiring React, R3F, or any other UI framework in `galeon-engine` or
+  `galeon-engine-three-sync`.
+- Replacing the imperative Three adapter for consumers that do not use React.
+- Mirroring the full entity graph as a JSX tree when the packet is a flat,
+  generation-checked table with `parent_ids`.
+- Using React state as the per-frame transport for every renderable entity.
+
 ## Tooling Path: DebugSnapshot
 
 `WasmEngine.debug_snapshot()` returns a JSON string for inspector/shell

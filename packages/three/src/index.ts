@@ -1,20 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
-import { RUNTIME_VERSION } from "@galeon/runtime";
-
-export const ENGINE_TS_VERSION = "0.3.0";
-
-export function runtimeVersion(): string {
-  return RUNTIME_VERSION;
-}
-
-// Compatibility surface for one minor release:
-// engine-ts re-exports render-core + three adapter APIs.
 export {
-  RendererCache,
   GALEON_ENTITY_KEY,
+  RendererCache,
   type RendererEntityHandle,
 } from "./renderer-cache.js";
+
 export {
   CHANGED_MATERIAL,
   CHANGED_MESH,
@@ -23,12 +14,12 @@ export {
   CHANGED_TRANSFORM,
   CHANGED_VISIBILITY,
   FramePacketContractError,
+  ObjectType,
   RENDER_CONTRACT_VERSION,
+  SCENE_ROOT,
+  TRANSFORM_STRIDE,
   assertFramePacketContract,
   hasIncrementalChangeFlags,
   type FramePacketContractOptions,
   type FramePacketView,
-  ObjectType,
-  SCENE_ROOT,
-  TRANSFORM_STRIDE,
-} from "./types.js";
+} from "@galeon/render-core";
