@@ -38,11 +38,28 @@ find_tool() {
   return 1
 }
 
+uses_windows_paths() {
+  local tool="$1"
+
+  if [[ "$tool" == *.exe ]]; then
+    return 0
+  fi
+
+  case "$(uname -s 2>/dev/null || true)" in
+    MINGW*|MSYS*|CYGWIN*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 normalize_path_for_tool() {
   local path="$1"
   local tool="$2"
 
-  if [[ "$tool" == *.exe ]]; then
+  if uses_windows_paths "$tool"; then
     if command -v cygpath >/dev/null 2>&1; then
       cygpath -w "$path"
       return 0
@@ -61,7 +78,7 @@ normalize_file_dep_path() {
   local path="$1"
   local tool="$2"
 
-  if [[ "$tool" == *.exe ]]; then
+  if uses_windows_paths "$tool"; then
     if command -v cygpath >/dev/null 2>&1; then
       cygpath -m "$path"
       return 0

@@ -4,12 +4,11 @@
 > to install and what stability to expect. This guide covers the release
 > procedure for maintainers.
 
-Galeon publishes **four Rust packages** to crates.io and **three TypeScript
+Galeon publishes **four Rust packages** to crates.io and **six TypeScript
 packages** to npm. Everything else in the workspace is internal.
 
 The npm packages in this guide are the checked-in workspace packages under
-`packages/runtime`, `packages/engine-ts`, and `packages/shell`. They are not a
-separate external-only package surface.
+`packages/*`. They are not a separate external-only package surface.
 
 ## Publish surfaces
 
@@ -32,8 +31,11 @@ separate external-only package surface.
 | Package | npm name | Order |
 |---------|----------|-------|
 | Runtime | `@galeon/runtime` | 1 — publish first |
-| Engine TS | `@galeon/engine-ts` | 2 — depends on runtime |
-| Shell | `@galeon/shell` | 3 — no deps, last by convention |
+| Render core | `@galeon/render-core` | 2 — framework-neutral render contract |
+| Three adapter | `@galeon/three` | 3 — depends on render-core |
+| Engine TS | `@galeon/engine-ts` | 4 — compatibility package, depends on runtime/render-core/three |
+| R3F adapter | `@galeon/r3f` | 5 — depends on render-core/three |
+| Shell | `@galeon/shell` | 6 — no deps, last by convention |
 
 ### Not published
 
@@ -55,11 +57,11 @@ Run the bump script from the repo root:
 bash scripts/bump-version.sh A.B.C
 ```
 
-This updates all 6 files (7 edits) after verifying the current versions are
+This updates all 9 files (15 edits) after verifying the current versions are
 consistent, and rolls back if verification fails. `galeon-cli` inherits the
 workspace version automatically, so it does not need a separate version edit.
 The script supports prerelease and build metadata tags
-(`0.3.0-alpha.1`, `0.3.0-alpha-1+build-7`).
+(`0.4.0-alpha.1`, `0.4.0-alpha-1+build-7`).
 
 The script edits these locations:
 
@@ -67,8 +69,11 @@ The script edits these locations:
 2. `crates/engine/Cargo.toml` → `galeon-engine-macros = { …, version = "=A.B.C" }`
 3. `crates/engine-three-sync/Cargo.toml` → `galeon-engine = { …, version = "=A.B.C" }`
 4. `packages/runtime/package.json` → `"version": "A.B.C"`
-5. `packages/engine-ts/package.json` → `"version": "A.B.C"` **and** `"@galeon/runtime": "=A.B.C"`
-6. `packages/shell/package.json` → `"version": "A.B.C"`
+5. `packages/render-core/package.json` → `"version": "A.B.C"`
+6. `packages/three/package.json` → `"version": "A.B.C"` **and** `"@galeon/render-core": "=A.B.C"`
+7. `packages/engine-ts/package.json` → `"version": "A.B.C"` **and** exact `@galeon/*` pins
+8. `packages/r3f/package.json` → `"version": "A.B.C"` **and** exact `@galeon/*` pins
+9. `packages/shell/package.json` → `"version": "A.B.C"`
 
 After running, manually update the changelog:
 
@@ -79,7 +84,7 @@ After running, manually update the changelog:
 Workspace crates use **path + pinned version**:
 
 ```toml
-galeon-engine-macros = { path = "../engine-macros", version = "=0.3.0" }
+galeon-engine-macros = { path = "../engine-macros", version = "=0.4.0" }
 ```
 
 Cargo strips `path` for published tarballs.
@@ -107,7 +112,10 @@ bash tests/local-first-starter-smoke.sh
 ```bash
 bunx tsc --build                           # Build JS + declarations
 npm pack --dry-run --workspace=packages/runtime
+npm pack --dry-run --workspace=packages/render-core
+npm pack --dry-run --workspace=packages/three
 npm pack --dry-run --workspace=packages/engine-ts
+npm pack --dry-run --workspace=packages/r3f
 npm pack --dry-run --workspace=packages/shell
 ```
 
@@ -150,9 +158,12 @@ cargo publish -p galeon-engine-three-sync
 
 ```bash
 npm login
-cd packages/runtime  && npm publish --access public && cd ../..
-cd packages/engine-ts && npm publish --access public && cd ../..
-cd packages/shell    && npm publish --access public && cd ../..
+cd packages/runtime    && npm publish --access public && cd ../..
+cd packages/render-core && npm publish --access public && cd ../..
+cd packages/three      && npm publish --access public && cd ../..
+cd packages/engine-ts  && npm publish --access public && cd ../..
+cd packages/r3f        && npm publish --access public && cd ../..
+cd packages/shell      && npm publish --access public && cd ../..
 ```
 
 **CLI (after crates + npm packages):**
@@ -182,12 +193,15 @@ OIDC provenance from GitHub Actions — no token needed.
 
 ## Consumer guidance
 
-Galeon is pre-1.0. All seven published artifacts move in lockstep &mdash; pick a
+Galeon is pre-1.0. All ten published artifacts move in lockstep &mdash; pick a
 minor version and pin to it. Read the [changelog](../../CHANGELOG.md) on each
 upgrade.
 
 - Core engine crates are published and intended for evaluation and early use.
 - `galeon-cli` is the supported install surface for scaffolding and codegen.
+- `@galeon/render-core`, `@galeon/three`, and `@galeon/r3f` are the supported
+  render adapter packages. `@galeon/engine-ts` remains as a compatibility
+  package for the existing Three.js path.
 - `@galeon/shell` is published but experimental &mdash; expect churn.
 - Prerelease tags (`alpha`, `beta`, `rc`) are published to both registries
   under the `alpha` npm dist-tag.

@@ -62,7 +62,10 @@ the engine itself is shell-agnostic.
 - `WasmEngine` JS-facing handle: `tick()`, `extract_frame()`, `debug_snapshot()`,
   `spawn_entity()`, `despawn_entity()`, `despawn_all_js_entities()`, `js_entity_count()`
 - Dynamic entity spawn/despawn from JS with `JsSpawned` lifecycle guard
-- `@galeon/engine-ts` &mdash; `RendererCache` syncs `FramePacket` to a Three.js scene graph
+- `@galeon/render-core` defines the framework-neutral render snapshot contract
+- `@galeon/three` syncs `FramePacket` to an imperative Three.js scene graph
+- `@galeon/r3f` provides React Three Fiber provider/entities/hooks
+- `@galeon/engine-ts` remains a compatibility re-export for the Three.js path
 - Generational entity safety prevents stale object references
 - Fallback geometry for missing assets
 
@@ -147,7 +150,10 @@ crates/
 
 packages/
   runtime/             @galeon/runtime — JS/WASM glue (workspace + npm package)
-  engine-ts/           @galeon/engine-ts — Three.js RendererCache (workspace + npm package)
+  render-core/         @galeon/render-core — render packet contract (workspace + npm package)
+  three/               @galeon/three — imperative Three.js adapter (workspace + npm package)
+  engine-ts/           @galeon/engine-ts — compatibility re-export (workspace + npm package)
+  r3f/                 @galeon/r3f — React Three Fiber adapter (workspace + npm package)
   shell/               @galeon/shell — editor UI package (workspace + npm package, experimental)
 ```
 
@@ -187,14 +193,15 @@ bun run check    # Type-check all packages (tsc --build)
 ```
 
 The Bun workspace in this repository is the checked-in `packages/*` tree:
-`packages/runtime`, `packages/engine-ts`, and `packages/shell`. These are the
-same packages that publish to npm under the `@galeon/*` scope; they are not a
-separate publish-only surface outside this checkout.
+`packages/runtime`, `packages/render-core`, `packages/three`,
+`packages/engine-ts`, `packages/r3f`, and `packages/shell`. These are the same
+packages that publish to npm under the `@galeon/*` scope; they are not a separate
+publish-only surface outside this checkout.
 
 ## Public Packages
 
 Galeon publishes **four Rust packages** to [crates.io](https://crates.io) and
-**three TypeScript packages** to [npm](https://www.npmjs.com).
+**six TypeScript packages** to [npm](https://www.npmjs.com).
 
 The TypeScript packages listed here are also checked into this repository under
 `packages/*` and are the packages targeted by the root Bun workspace commands.
@@ -218,7 +225,10 @@ The TypeScript packages listed here are also checked into this repository under
 | Package | npm | Description |
 |---------|-----|-------------|
 | `@galeon/runtime` | [![npm](https://img.shields.io/npm/v/@galeon/runtime)](https://www.npmjs.com/package/@galeon/runtime) | JS &harr; WASM glue |
-| `@galeon/engine-ts` | [![npm](https://img.shields.io/npm/v/@galeon/engine-ts)](https://www.npmjs.com/package/@galeon/engine-ts) | Three.js RendererCache |
+| `@galeon/render-core` | [![npm](https://img.shields.io/npm/v/@galeon/render-core)](https://www.npmjs.com/package/@galeon/render-core) | Framework-neutral render snapshot contract |
+| `@galeon/three` | [![npm](https://img.shields.io/npm/v/@galeon/three)](https://www.npmjs.com/package/@galeon/three) | Imperative Three.js adapter |
+| `@galeon/engine-ts` | [![npm](https://img.shields.io/npm/v/@galeon/engine-ts)](https://www.npmjs.com/package/@galeon/engine-ts) | Compatibility re-export for the Three.js adapter |
+| `@galeon/r3f` | [![npm](https://img.shields.io/npm/v/@galeon/r3f)](https://www.npmjs.com/package/@galeon/r3f) | React Three Fiber adapter |
 | `@galeon/shell` | [![npm](https://img.shields.io/npm/v/@galeon/shell)](https://www.npmjs.com/package/@galeon/shell) | Editor UI package (experimental) |
 
 ### Not published
@@ -229,8 +239,8 @@ The following workspace members are internal and not published to any registry:
 
 ## Versioning
 
-All four Rust packages and three TypeScript packages move in **lockstep**
-&mdash; every release bumps all seven published artifacts to the same version
+All four Rust packages and six TypeScript packages move in **lockstep**
+&mdash; every release bumps all ten published artifacts to the same version
 number.
 
 ### Pre-1.0 policy
@@ -238,23 +248,23 @@ number.
 Galeon follows [Semantic Versioning 2.0.0](https://semver.org/). During the
 pre-1.0 phase:
 
-- **Minor bumps** (`0.2 &rarr; 0.3`) may contain breaking API changes.
-- **Patch bumps** (`0.3.0 &rarr; 0.3.1`) are backward-compatible bug fixes and
+- **Minor bumps** (`0.3 &rarr; 0.4`) may contain breaking API changes.
+- **Patch bumps** (`0.4.0 &rarr; 0.4.1`) are backward-compatible bug fixes and
   additions.
-- **Prerelease tags** (`0.3.0-alpha.1`, `0.3.0-beta.1`, `0.3.0-rc.1`) are
+- **Prerelease tags** (`0.4.0-alpha.1`, `0.4.0-beta.1`, `0.4.0-rc.1`) are
   published to crates.io and npm under the `alpha` dist-tag. Use these
   preview upcoming releases.
 
 ### How to depend on Galeon
 
 ```toml
-# In your Cargo.toml — matches any 0.3.x release
-galeon-engine = "0.3"
+# In your Cargo.toml — matches any 0.4.x release
+galeon-engine = "0.4"
 ```
 
 ```json
-// In your package.json — matches any 0.3.x release
-"@galeon/engine-ts": "^0.3.0"
+// In your package.json — matches any 0.4.x release
+"@galeon/three": "^0.4.0"
 ```
 
 ```bash
@@ -275,6 +285,8 @@ means for adopters:
   tested (350+ tests), and intended for evaluation and early adoption.
 - `galeon-cli` is published and supported for project scaffolding, protocol
   artifact generation, and route inspection.
+- The framework-neutral render contract and both Three.js host adapters are
+  published as `@galeon/render-core`, `@galeon/three`, and `@galeon/r3f`.
 - The ECS, scheduler, protocol layer, and WASM bridge are functional and
   cover real use cases.
 - Lockstep versioning means all packages stay in sync &mdash; no version matrix to
@@ -286,7 +298,7 @@ means for adopters:
 - CLI commands and codegen output formats are still evolving.
 
 **How to upgrade safely:**
-- Pin to a specific minor range (e.g., `"0.3"` in Cargo, `"^0.3.0"` in npm).
+- Pin to a specific minor range (e.g., `"0.4"` in Cargo, `"^0.4.0"` in npm).
 - Read the [changelog](CHANGELOG.md) before upgrading &mdash; breaking changes are
   always documented.
 - Prerelease tags (`alpha`, `beta`, `rc`) let you test upcoming versions before

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 #
-# bump-version.sh — Update the shared version sources for Galeon's 7 lockstep published artifacts.
+# bump-version.sh — Update the shared version sources for Galeon's 10 lockstep published artifacts.
 #
 # Usage: scripts/bump-version.sh X.Y.Z
 #
 # Validates semver format, checks current versions are consistent,
-# then updates all 7 versioned locations across 6 files. `galeon-cli`
+# then updates all versioned locations across 9 files. `galeon-cli`
 # inherits the workspace version, so it needs no separate bump file.
 # Fails fast on any inconsistency or missing file.
 
@@ -56,7 +56,7 @@ NEW_VERSION="${1:-}"
 if [[ -z "$NEW_VERSION" ]]; then
   echo "Usage: scripts/bump-version.sh X.Y.Z"
   echo ""
-  echo "Updates Galeon's shared version sources (7 edits across 6 files)."
+  echo "Updates Galeon's shared version sources (15 edits across 9 files)."
   exit 1
 fi
 
@@ -76,7 +76,10 @@ WORKSPACE_CARGO="Cargo.toml"
 ENGINE_CARGO="crates/engine/Cargo.toml"
 THREE_SYNC_CARGO="crates/engine-three-sync/Cargo.toml"
 RUNTIME_PKG="packages/runtime/package.json"
+RENDER_CORE_PKG="packages/render-core/package.json"
+THREE_PKG="packages/three/package.json"
 ENGINE_TS_PKG="packages/engine-ts/package.json"
+R3F_PKG="packages/r3f/package.json"
 SHELL_PKG="packages/shell/package.json"
 
 ALL_FILES=(
@@ -84,7 +87,10 @@ ALL_FILES=(
   "$ENGINE_CARGO"
   "$THREE_SYNC_CARGO"
   "$RUNTIME_PKG"
+  "$RENDER_CORE_PKG"
+  "$THREE_PKG"
   "$ENGINE_TS_PKG"
+  "$R3F_PKG"
   "$SHELL_PKG"
 )
 
@@ -120,18 +126,55 @@ read_pkg_version() {
   sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$1" | head -1 | strip_cr
 }
 
+read_pkg_dep_pin() {
+  local file="$1"
+  local dep="$2"
+  sed -n "s|.*\"$dep\": *\"=\\([^\"]*\\)\".*|\\1|p" "$file" | strip_cr
+}
+
 V_RUNTIME=$(read_pkg_version "$RUNTIME_PKG")
 [[ -n "$V_RUNTIME" ]] || die "Cannot read version from $RUNTIME_PKG"
 ok "$RUNTIME_PKG  version = $V_RUNTIME"
+
+V_RENDER_CORE=$(read_pkg_version "$RENDER_CORE_PKG")
+[[ -n "$V_RENDER_CORE" ]] || die "Cannot read version from $RENDER_CORE_PKG"
+ok "$RENDER_CORE_PKG  version = $V_RENDER_CORE"
+
+V_THREE=$(read_pkg_version "$THREE_PKG")
+[[ -n "$V_THREE" ]] || die "Cannot read version from $THREE_PKG"
+ok "$THREE_PKG  version = $V_THREE"
+
+V_THREE_RENDER_CORE=$(read_pkg_dep_pin "$THREE_PKG" "@galeon/render-core")
+[[ -n "$V_THREE_RENDER_CORE" ]] || die "Cannot read @galeon/render-core pin from $THREE_PKG"
+ok "$THREE_PKG  @galeon/render-core = =$V_THREE_RENDER_CORE"
 
 V_ENGINE_TS=$(read_pkg_version "$ENGINE_TS_PKG")
 [[ -n "$V_ENGINE_TS" ]] || die "Cannot read version from $ENGINE_TS_PKG"
 ok "$ENGINE_TS_PKG  version = $V_ENGINE_TS"
 
-# 5b. engine-ts dep on runtime
-V_ENGINE_TS_RUNTIME=$(sed -n 's/.*"@galeon\/runtime": *"=\([^"]*\)".*/\1/p' "$ENGINE_TS_PKG" | strip_cr)
+V_ENGINE_TS_RENDER_CORE=$(read_pkg_dep_pin "$ENGINE_TS_PKG" "@galeon/render-core")
+[[ -n "$V_ENGINE_TS_RENDER_CORE" ]] || die "Cannot read @galeon/render-core pin from $ENGINE_TS_PKG"
+ok "$ENGINE_TS_PKG  @galeon/render-core = =$V_ENGINE_TS_RENDER_CORE"
+
+V_ENGINE_TS_RUNTIME=$(read_pkg_dep_pin "$ENGINE_TS_PKG" "@galeon/runtime")
 [[ -n "$V_ENGINE_TS_RUNTIME" ]] || die "Cannot read @galeon/runtime pin from $ENGINE_TS_PKG"
 ok "$ENGINE_TS_PKG  @galeon/runtime = =$V_ENGINE_TS_RUNTIME"
+
+V_ENGINE_TS_THREE=$(read_pkg_dep_pin "$ENGINE_TS_PKG" "@galeon/three")
+[[ -n "$V_ENGINE_TS_THREE" ]] || die "Cannot read @galeon/three pin from $ENGINE_TS_PKG"
+ok "$ENGINE_TS_PKG  @galeon/three = =$V_ENGINE_TS_THREE"
+
+V_R3F=$(read_pkg_version "$R3F_PKG")
+[[ -n "$V_R3F" ]] || die "Cannot read version from $R3F_PKG"
+ok "$R3F_PKG  version = $V_R3F"
+
+V_R3F_RENDER_CORE=$(read_pkg_dep_pin "$R3F_PKG" "@galeon/render-core")
+[[ -n "$V_R3F_RENDER_CORE" ]] || die "Cannot read @galeon/render-core pin from $R3F_PKG"
+ok "$R3F_PKG  @galeon/render-core = =$V_R3F_RENDER_CORE"
+
+V_R3F_THREE=$(read_pkg_dep_pin "$R3F_PKG" "@galeon/three")
+[[ -n "$V_R3F_THREE" ]] || die "Cannot read @galeon/three pin from $R3F_PKG"
+ok "$R3F_PKG  @galeon/three = =$V_R3F_THREE"
 
 V_SHELL=$(read_pkg_version "$SHELL_PKG")
 [[ -n "$V_SHELL" ]] || die "Cannot read version from $SHELL_PKG"
@@ -146,8 +189,16 @@ ALL_VERSIONS=(
   "$V_ENGINE_MACROS"
   "$V_THREE_ENGINE"
   "$V_RUNTIME"
+  "$V_RENDER_CORE"
+  "$V_THREE"
+  "$V_THREE_RENDER_CORE"
   "$V_ENGINE_TS"
+  "$V_ENGINE_TS_RENDER_CORE"
   "$V_ENGINE_TS_RUNTIME"
+  "$V_ENGINE_TS_THREE"
+  "$V_R3F"
+  "$V_R3F_RENDER_CORE"
+  "$V_R3F_THREE"
   "$V_SHELL"
 )
 
@@ -156,7 +207,7 @@ for v in "${ALL_VERSIONS[@]}"; do
     die "Version mismatch! Expected all to be '$CURRENT' but found '$v'. Fix manually before bumping."
   fi
 done
-ok "All 7 locations currently at $CURRENT"
+ok "All 15 locations currently at $CURRENT"
 echo ""
 
 # ── No-op check ─────────────────────────────────────────────────────
@@ -196,12 +247,29 @@ ok "$THREE_SYNC_CARGO"
 sed -i "s/\"version\": \"$OLD_ESC\"/\"version\": \"$NEW_VERSION\"/" "$RUNTIME_PKG"
 ok "$RUNTIME_PKG"
 
-# 5. engine-ts package.json (version + runtime dep)
+# 5. render-core package.json
+sed -i "s/\"version\": \"$OLD_ESC\"/\"version\": \"$NEW_VERSION\"/" "$RENDER_CORE_PKG"
+ok "$RENDER_CORE_PKG"
+
+# 6. three package.json (version + render-core dep)
+sed -i "s/\"version\": \"$OLD_ESC\"/\"version\": \"$NEW_VERSION\"/" "$THREE_PKG"
+sed -i "s/\"@galeon\/render-core\": \"=$OLD_ESC\"/\"@galeon\/render-core\": \"=$NEW_VERSION\"/" "$THREE_PKG"
+ok "$THREE_PKG"
+
+# 7. engine-ts package.json (version + internal deps)
 sed -i "s/\"version\": \"$OLD_ESC\"/\"version\": \"$NEW_VERSION\"/" "$ENGINE_TS_PKG"
+sed -i "s/\"@galeon\/render-core\": \"=$OLD_ESC\"/\"@galeon\/render-core\": \"=$NEW_VERSION\"/" "$ENGINE_TS_PKG"
 sed -i "s/\"@galeon\/runtime\": \"=$OLD_ESC\"/\"@galeon\/runtime\": \"=$NEW_VERSION\"/" "$ENGINE_TS_PKG"
+sed -i "s/\"@galeon\/three\": \"=$OLD_ESC\"/\"@galeon\/three\": \"=$NEW_VERSION\"/" "$ENGINE_TS_PKG"
 ok "$ENGINE_TS_PKG"
 
-# 6. shell package.json
+# 8. r3f package.json (version + internal deps)
+sed -i "s/\"version\": \"$OLD_ESC\"/\"version\": \"$NEW_VERSION\"/" "$R3F_PKG"
+sed -i "s/\"@galeon\/render-core\": \"=$OLD_ESC\"/\"@galeon\/render-core\": \"=$NEW_VERSION\"/" "$R3F_PKG"
+sed -i "s/\"@galeon\/three\": \"=$OLD_ESC\"/\"@galeon\/three\": \"=$NEW_VERSION\"/" "$R3F_PKG"
+ok "$R3F_PKG"
+
+# 9. shell package.json
 sed -i "s/\"version\": \"$OLD_ESC\"/\"version\": \"$NEW_VERSION\"/" "$SHELL_PKG"
 ok "$SHELL_PKG"
 
@@ -226,8 +294,16 @@ verify "$WORKSPACE_CARGO"   "version = \"$NEW_VERSION\""            "workspace v
 verify "$ENGINE_CARGO"       "version = \"=$NEW_VERSION\""           "macros pin"
 verify "$THREE_SYNC_CARGO"   "version = \"=$NEW_VERSION\""           "engine pin"
 verify "$RUNTIME_PKG"        "\"version\": \"$NEW_VERSION\""         "runtime version"
+verify "$RENDER_CORE_PKG"    "\"version\": \"$NEW_VERSION\""         "render-core version"
+verify "$THREE_PKG"          "\"version\": \"$NEW_VERSION\""         "three version"
+verify "$THREE_PKG"          "\"@galeon/render-core\": \"=$NEW_VERSION\"" "three render-core pin"
 verify "$ENGINE_TS_PKG"      "\"version\": \"$NEW_VERSION\""         "engine-ts version"
+verify "$ENGINE_TS_PKG"      "\"@galeon/render-core\": \"=$NEW_VERSION\"" "engine-ts render-core pin"
 verify "$ENGINE_TS_PKG"      "\"@galeon/runtime\": \"=$NEW_VERSION\"" "runtime pin"
+verify "$ENGINE_TS_PKG"      "\"@galeon/three\": \"=$NEW_VERSION\""  "engine-ts three pin"
+verify "$R3F_PKG"            "\"version\": \"$NEW_VERSION\""         "r3f version"
+verify "$R3F_PKG"            "\"@galeon/render-core\": \"=$NEW_VERSION\"" "r3f render-core pin"
+verify "$R3F_PKG"            "\"@galeon/three\": \"=$NEW_VERSION\""  "r3f three pin"
 verify "$SHELL_PKG"          "\"version\": \"$NEW_VERSION\""         "shell version"
 
 if [[ $ERRORS -gt 0 ]]; then
@@ -237,7 +313,7 @@ fi
 ROLLBACK_NEEDED=0
 
 echo ""
-echo "Done. All 7 locations updated to $NEW_VERSION."
+echo "Done. All 15 locations updated to $NEW_VERSION."
 echo ""
 echo "Next steps:"
 echo "  1. Update CHANGELOG.md (move Unreleased items under ## [$NEW_VERSION])"

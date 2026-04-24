@@ -7,12 +7,19 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0]
+
 ### Added
 
-- **Framework-neutral render adapter guidance (#205)** — Documented when to use
-  the imperative Three adapter versus the R3F adapter, including the non-goals
-  that keep Galeon core independent from React and keep hot transform updates
-  out of per-entity React state.
+- **Framework-neutral render adapters (#205)** — Added the
+  `@galeon/render-core` render snapshot contract package, split the imperative
+  Three.js adapter into `@galeon/three`, and added the first `@galeon/r3f`
+  provider/entities/hooks surface for React Three Fiber hosts. `@galeon/engine-ts`
+  remains as a compatibility re-export for the existing Three.js path. The Rust
+  and TypeScript sides now carry render contract version guardrails, and the
+  docs explain when to use the imperative Three adapter versus the R3F adapter
+  while keeping Galeon core independent from React and hot transform updates out
+  of per-entity React state.
 
 ## [0.3.0]
 

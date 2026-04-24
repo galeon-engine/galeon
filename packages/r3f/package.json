@@ -1,6 +1,6 @@
 {
   "name": "@galeon/r3f",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "React Three Fiber adapter for Galeon render snapshots",
   "type": "module",
   "main": "dist/index.js",
@@ -23,8 +23,8 @@
     "prepublishOnly": "tsc --build"
   },
   "dependencies": {
-    "@galeon/render-core": "=0.3.0",
-    "@galeon/three": "=0.3.0"
+    "@galeon/render-core": "=0.4.0",
+    "@galeon/three": "=0.4.0"
   },
   "devDependencies": {
     "@react-three/fiber": "^8.18.0",

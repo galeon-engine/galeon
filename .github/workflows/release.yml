@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to verify (e.g. 0.3.0). Skips publish, runs verification only.'
+        description: 'Version to verify (e.g. 0.4.0). Skips publish, runs verification only.'
         required: true
 
 jobs:
@@ -165,6 +165,26 @@ jobs:
           cd packages/runtime
           npm publish --access public --tag "$NPM_DIST_TAG" --provenance
 
+      - name: Publish @galeon/render-core
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if npm view "@galeon/render-core@${version}" version >/dev/null 2>&1; then
+            echo "@galeon/render-core@${version} already published; skipping."
+            exit 0
+          fi
+          cd packages/render-core
+          npm publish --access public --tag "$NPM_DIST_TAG" --provenance
+
+      - name: Publish @galeon/three
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if npm view "@galeon/three@${version}" version >/dev/null 2>&1; then
+            echo "@galeon/three@${version} already published; skipping."
+            exit 0
+          fi
+          cd packages/three
+          npm publish --access public --tag "$NPM_DIST_TAG" --provenance
+
       - name: Publish @galeon/engine-ts
         run: |
           version="${GITHUB_REF_NAME#v}"
@@ -173,6 +193,16 @@ jobs:
             exit 0
           fi
           cd packages/engine-ts
+          npm publish --access public --tag "$NPM_DIST_TAG" --provenance
+
+      - name: Publish @galeon/r3f
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if npm view "@galeon/r3f@${version}" version >/dev/null 2>&1; then
+            echo "@galeon/r3f@${version} already published; skipping."
+            exit 0
+          fi
+          cd packages/r3f
           npm publish --access public --tag "$NPM_DIST_TAG" --provenance
 
       - name: Publish @galeon/shell
@@ -257,13 +287,19 @@ jobs:
           cargo add "galeon-engine@=${VERSION}"
           cargo check
 
-      - name: Verify npm — @galeon/runtime
+      - name: Verify npm packages
         run: |
           tmp="$(mktemp -d)"
           cd "$tmp"
           npm init -y
-          npm install "@galeon/runtime@${VERSION}"
-          node -e "import('@galeon/runtime').then(() => console.log('@galeon/runtime OK'))"
+          npm install \
+            "@galeon/runtime@${VERSION}" \
+            "@galeon/render-core@${VERSION}" \
+            "@galeon/three@${VERSION}" \
+            "@galeon/engine-ts@${VERSION}" \
+            "@galeon/r3f@${VERSION}" \
+            "@galeon/shell@${VERSION}"
+          node -e "Promise.all(['@galeon/runtime','@galeon/render-core','@galeon/three','@galeon/engine-ts','@galeon/r3f','@galeon/shell'].map((pkg) => import(pkg))).then(() => console.log('@galeon npm packages OK'))"
 
       - name: Verify CLI — installed binary starter bootstrap
         run: |

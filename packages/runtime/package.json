@@ -1,6 +1,6 @@
 {
   "name": "@galeon/runtime",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Galeon Engine runtime — thin JS↔WASM invoke/events bridge",
   "type": "module",
   "main": "dist/index.js",
