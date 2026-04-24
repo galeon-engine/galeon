@@ -41,7 +41,7 @@ export class GaleonEntityStore {
       const createdEntities = results
         .filter(({ created }) => created)
         .map(({ entity }) => entity);
-      if (createdEntities.length > 0) {
+      if (changedEntities.length > 0) {
         this.ordered = [...this.ordered, ...createdEntities];
       }
       return changedEntities.length > 0;

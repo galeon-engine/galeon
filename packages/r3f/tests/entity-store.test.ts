@@ -164,6 +164,7 @@ describe("GaleonEntityStore hot-update behavior", () => {
     });
     cache.applyFrame(meshFrame);
     expect(store.sync(meshFrame, cache)).toBe(true);
+    const entitiesBefore = store.entities();
     const meshObject = store.get(1, 0)!.object;
     expect(meshObject).toBeInstanceOf(THREE.Mesh);
 
@@ -178,6 +179,7 @@ describe("GaleonEntityStore hot-update behavior", () => {
     cache.applyFrame(lightFrame);
     expect(store.sync(lightFrame, cache)).toBe(true);
 
+    expect(store.entities()).not.toBe(entitiesBefore);
     const lightObject = store.get(1, 0)!.object;
     expect(lightObject).toBeInstanceOf(THREE.PointLight);
     expect(lightObject).not.toBe(meshObject);
