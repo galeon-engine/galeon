@@ -3,7 +3,9 @@
 import { describe, expect, test } from "bun:test";
 import * as THREE from "three";
 import {
+  CHANGED_OBJECT_TYPE,
   CHANGED_TRANSFORM,
+  ObjectType,
   RENDER_CONTRACT_VERSION,
   SCENE_ROOT,
   TRANSFORM_STRIDE,
@@ -147,6 +149,38 @@ describe("GaleonEntityStore hot-update behavior", () => {
 
     expect(store.entities()).not.toBe(entitiesBefore);
     expect(store.entities().map((entity) => entity.entityId)).toEqual([1, 2]);
+  });
+
+  test("object type changes are structural when the Three object identity changes", () => {
+    const cache = new RendererCache(new THREE.Scene());
+    const store = new GaleonEntityStore();
+
+    const meshFrame = makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      object_types: new Uint8Array([ObjectType.Mesh]),
+      frame_version: 1n,
+    });
+    cache.applyFrame(meshFrame);
+    expect(store.sync(meshFrame, cache)).toBe(true);
+    const meshObject = store.get(1, 0)!.object;
+    expect(meshObject).toBeInstanceOf(THREE.Mesh);
+
+    const lightFrame = makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      object_types: new Uint8Array([ObjectType.PointLight]),
+      change_flags: new Uint8Array([CHANGED_OBJECT_TYPE]),
+      frame_version: 2n,
+    });
+    cache.applyFrame(lightFrame);
+    expect(store.sync(lightFrame, cache)).toBe(true);
+
+    const lightObject = store.get(1, 0)!.object;
+    expect(lightObject).toBeInstanceOf(THREE.PointLight);
+    expect(lightObject).not.toBe(meshObject);
   });
 
   test("generation reuse is structural and replaces the stable entity ref", () => {

@@ -35,13 +35,16 @@ export class GaleonEntityStore {
       const results = GaleonEntityStore.rowIndexes(packet).map((row) =>
         this.upsertEntity(packet, row, cache),
       );
+      const changedEntities = results.filter(
+        ({ created, objectChanged }) => created || objectChanged,
+      );
       const createdEntities = results
         .filter(({ created }) => created)
         .map(({ entity }) => entity);
       if (createdEntities.length > 0) {
         this.ordered = [...this.ordered, ...createdEntities];
       }
-      return createdEntities.length > 0;
+      return changedEntities.length > 0;
     }
 
     const activeKeys = new Set<string>();
@@ -53,7 +56,8 @@ export class GaleonEntityStore {
     });
     const nextOrder = rows.map(({ entity }) => entity);
     const structuralChanged =
-      rows.some(({ created }) => created) || this.hasOrderChanged(nextOrder);
+      rows.some(({ created, objectChanged }) => created || objectChanged)
+      || this.hasOrderChanged(nextOrder);
 
     const removedCount = Array.from(this.byKey.keys())
       .filter((key) => !activeKeys.has(key))
@@ -82,7 +86,7 @@ export class GaleonEntityStore {
     packet: FramePacketView,
     row: number,
     cache: RendererCache,
-  ): { entity: GaleonEntityRef; created: boolean } {
+  ): { entity: GaleonEntityRef; created: boolean; objectChanged: boolean } {
     const entityId = packet.entity_ids[row]!;
     const generation = packet.entity_generations[row]!;
     const key = makeEntityKey(entityId, generation);
@@ -109,17 +113,19 @@ export class GaleonEntityStore {
       created = true;
     }
 
+    const previousObject = entity.object;
     this.keyByEntityId.set(entityId, key);
     entity.generation = generation;
     entity.parentId = packet.parent_ids[row] ?? SCENE_ROOT;
     entity.objectType = packet.object_types?.[row] ?? ObjectType.Mesh;
     entity.visible = packet.visibility[row] === 1;
     entity.object = cache.getObject(entityId, generation);
+    const objectChanged = previousObject !== entity.object;
 
     const offset = row * TRANSFORM_STRIDE;
     entity.transform.set(packet.transforms.subarray(offset, offset + TRANSFORM_STRIDE));
 
-    return { entity, created };
+    return { entity, created, objectChanged };
   }
 
   private removeByKey(key: string): GaleonEntityRef | undefined {
