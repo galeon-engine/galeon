@@ -14,13 +14,13 @@ import { GaleonEntityStore } from "../src/entity-store.js";
 
 function makeTransforms(entityCount: number): Float32Array {
   const transforms = new Float32Array(entityCount * TRANSFORM_STRIDE);
-  for (let i = 0; i < entityCount; i++) {
+  Array.from({ length: entityCount }, (_, i) => i).forEach((i) => {
     const offset = i * TRANSFORM_STRIDE;
     transforms[offset + 6] = 1;
     transforms[offset + 7] = 1;
     transforms[offset + 8] = 1;
     transforms[offset + 9] = 1;
-  }
+  });
   return transforms;
 }
 
@@ -119,6 +119,34 @@ describe("GaleonEntityStore hot-update behavior", () => {
     expect(hotRef.transform[0]).toBe(77);
     expect(coldRefAfter).toBe(coldRefBefore);
     expect(coldRefAfter.object).toBe(coldObjectBefore);
+  });
+
+  test("incremental structural additions publish a new entities array", () => {
+    const cache = new RendererCache(new THREE.Scene());
+    const store = new GaleonEntityStore();
+
+    const fullFrame = makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      frame_version: 1n,
+    });
+    cache.applyFrame(fullFrame);
+    expect(store.sync(fullFrame, cache)).toBe(true);
+    const entitiesBefore = store.entities();
+
+    const incrementalSpawn = makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([2]),
+      entity_generations: new Uint32Array([0]),
+      frame_version: 2n,
+      change_flags: new Uint8Array([CHANGED_TRANSFORM]),
+    });
+    cache.applyFrame(incrementalSpawn);
+    expect(store.sync(incrementalSpawn, cache)).toBe(true);
+
+    expect(store.entities()).not.toBe(entitiesBefore);
+    expect(store.entities().map((entity) => entity.entityId)).toEqual([1, 2]);
   });
 
   test("generation reuse is structural and replaces the stable entity ref", () => {

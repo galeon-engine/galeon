@@ -84,6 +84,8 @@ ENGINE_CRATE_DEP_PATH="$(normalize_file_dep_path "$REPO_ROOT/crates/engine" "$CA
 THREE_SYNC_CRATE_DEP_PATH="$(normalize_file_dep_path "$REPO_ROOT/crates/engine-three-sync" "$CARGO_BIN")"
 ENGINE_TS_PACKAGE_DEP_PATH="$(normalize_file_dep_path "$REPO_ROOT/packages/engine-ts" "$BUN_BIN")"
 RUNTIME_PACKAGE_DEP_PATH="$(normalize_file_dep_path "$REPO_ROOT/packages/runtime" "$BUN_BIN")"
+RENDER_CORE_PACKAGE_DEP_PATH="$(normalize_file_dep_path "$REPO_ROOT/packages/render-core" "$BUN_BIN")"
+THREE_PACKAGE_DEP_PATH="$(normalize_file_dep_path "$REPO_ROOT/packages/three" "$BUN_BIN")"
 
 cleanup() {
   rm -rf "$TMP_DIR"
@@ -197,18 +199,24 @@ configure_source_mode_scaffold() {
   PACKAGE_JSON="$PROJECT_DIR/package.json" \
   ENGINE_TS_FILE_DEP="file:$ENGINE_TS_PACKAGE_DEP_PATH" \
   RUNTIME_FILE_DEP="file:$RUNTIME_PACKAGE_DEP_PATH" \
+  RENDER_CORE_FILE_DEP="file:$RENDER_CORE_PACKAGE_DEP_PATH" \
+  THREE_FILE_DEP="file:$THREE_PACKAGE_DEP_PATH" \
   "$BUN_BIN" -e '
 const fs = require("node:fs");
 const file = process.env.PACKAGE_JSON;
 const engineTs = process.env.ENGINE_TS_FILE_DEP;
 const runtime = process.env.RUNTIME_FILE_DEP;
+const renderCore = process.env.RENDER_CORE_FILE_DEP;
+const three = process.env.THREE_FILE_DEP;
 const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
 pkg.dependencies["@galeon/engine-ts"] = engineTs;
 pkg.dependencies["@galeon/runtime"] = runtime;
-// Bun still resolves the exact @galeon/runtime subdependency from engine-ts via
-// registry unless the generated starter overrides it locally in source mode.
+// Bun still resolves exact @galeon/* subdependencies from engine-ts via
+// registry unless the generated starter overrides them locally in source mode.
 pkg.overrides ??= {};
 pkg.overrides["@galeon/runtime"] = runtime;
+pkg.overrides["@galeon/render-core"] = renderCore;
+pkg.overrides["@galeon/three"] = three;
 fs.writeFileSync(file, `${JSON.stringify(pkg, null, 2)}\n`);
 '
 
@@ -216,6 +224,8 @@ fs.writeFileSync(file, `${JSON.stringify(pkg, null, 2)}\n`);
   assert_file_contains "$PROJECT_DIR/crates/client/Cargo.toml" 'galeon-engine-three-sync = { path = "'
   assert_file_contains "$PROJECT_DIR/package.json" '"@galeon/engine-ts": "file:'
   assert_file_contains "$PROJECT_DIR/package.json" '"@galeon/runtime": "file:'
+  assert_file_contains "$PROJECT_DIR/package.json" '"@galeon/render-core": "file:'
+  assert_file_contains "$PROJECT_DIR/package.json" '"@galeon/three": "file:'
   assert_file_contains "$PROJECT_DIR/package.json" '"overrides": {'
 }
 

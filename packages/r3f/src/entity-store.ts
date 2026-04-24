@@ -31,38 +31,37 @@ export class GaleonEntityStore {
   private ordered: GaleonEntityRef[] = [];
 
   sync(packet: FramePacketView, cache: RendererCache): boolean {
-    let structuralChanged = false;
-
     if (hasIncrementalChangeFlags(packet)) {
-      for (let i = 0; i < packet.entity_count; i++) {
-        const { entity, created } = this.upsertEntity(packet, i, cache);
-        if (created) {
-          this.ordered.push(entity);
-          structuralChanged = true;
-        }
+      const results = GaleonEntityStore.rowIndexes(packet).map((row) =>
+        this.upsertEntity(packet, row, cache),
+      );
+      const createdEntities = results
+        .filter(({ created }) => created)
+        .map(({ entity }) => entity);
+      if (createdEntities.length > 0) {
+        this.ordered = [...this.ordered, ...createdEntities];
       }
-      return structuralChanged;
+      return createdEntities.length > 0;
     }
 
     const activeKeys = new Set<string>();
-    const nextOrder: GaleonEntityRef[] = [];
-    for (let i = 0; i < packet.entity_count; i++) {
-      const { entity, created } = this.upsertEntity(packet, i, cache);
-      structuralChanged ||= created;
+    const rows = GaleonEntityStore.rowIndexes(packet).map((row) => {
+      const result = this.upsertEntity(packet, row, cache);
+      const { entity } = result;
       activeKeys.add(entity.key);
-      nextOrder.push(entity);
-    }
+      return result;
+    });
+    const nextOrder = rows.map(({ entity }) => entity);
+    const structuralChanged =
+      rows.some(({ created }) => created) || this.hasOrderChanged(nextOrder);
 
-    for (const key of Array.from(this.byKey.keys())) {
-      if (!activeKeys.has(key)) {
-        this.removeByKey(key);
-        structuralChanged = true;
-      }
-    }
+    const removedCount = Array.from(this.byKey.keys())
+      .filter((key) => !activeKeys.has(key))
+      .map((key) => this.removeByKey(key))
+      .filter((entity) => entity !== undefined).length;
 
-    structuralChanged ||= this.hasOrderChanged(nextOrder);
     this.ordered = nextOrder;
-    return structuralChanged;
+    return structuralChanged || removedCount > 0;
   }
 
   entities(): readonly GaleonEntityRef[] {
@@ -123,10 +122,10 @@ export class GaleonEntityStore {
     return { entity, created };
   }
 
-  private removeByKey(key: string): void {
+  private removeByKey(key: string): GaleonEntityRef | undefined {
     const entity = this.byKey.get(key);
     if (entity === undefined) {
-      return;
+      return undefined;
     }
 
     this.byKey.delete(key);
@@ -134,10 +133,12 @@ export class GaleonEntityStore {
       this.keyByEntityId.delete(entity.entityId);
     }
 
-    const index = this.ordered.indexOf(entity);
-    if (index >= 0) {
-      this.ordered.splice(index, 1);
-    }
+    this.ordered = this.ordered.filter((existing) => existing !== entity);
+    return entity;
+  }
+
+  private static rowIndexes(packet: FramePacketView): number[] {
+    return Array.from({ length: packet.entity_count }, (_, index) => index);
   }
 
   private hasOrderChanged(nextOrder: readonly GaleonEntityRef[]): boolean {
@@ -145,12 +146,6 @@ export class GaleonEntityStore {
       return true;
     }
 
-    for (let i = 0; i < nextOrder.length; i++) {
-      if (this.ordered[i] !== nextOrder[i]) {
-        return true;
-      }
-    }
-
-    return false;
+    return nextOrder.some((entity, index) => this.ordered[index] !== entity);
   }
 }
