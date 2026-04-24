@@ -28,6 +28,7 @@
   },
   "devDependencies": {
     "@react-three/fiber": "^8.18.0",
+    "@react-three/test-renderer": "^8.2.2",
     "@types/bun": "latest",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
