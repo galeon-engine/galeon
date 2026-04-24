@@ -293,6 +293,11 @@ jobs:
           cd "$tmp"
           npm init -y
           npm install \
+            "react@^18.3.1" \
+            "react-dom@^18.3.1" \
+            "@react-three/fiber@^8.18.0" \
+            "three@^0.183.2" \
+            "typescript@^5" \
             "@galeon/runtime@${VERSION}" \
             "@galeon/render-core@${VERSION}" \
             "@galeon/three@${VERSION}" \
