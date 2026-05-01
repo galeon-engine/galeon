@@ -14,6 +14,13 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and React Three Fiber 9.x. The package now advertises React 18 + R3F 8 and
   React 19 + R3F 9 as its supported peer combinations.
 
+### Fixed
+
+- **CLI scaffold dependency pin (#219)** — `galeon new` Rust templates now emit
+  Galeon crate dependencies on the current major.minor line, such as
+  `galeon-engine = "0.4"`, so generated projects can pick up patch releases
+  without waiting for a new CLI patch release.
+
 ## [0.4.0]
 
 ### Added
