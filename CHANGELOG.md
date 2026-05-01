@@ -7,6 +7,22 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Mouse picking and drag-rectangle selection helper (#214)** — New
+  `@galeon/picking` package wraps `THREE.Raycaster` to emit typed `pick` and
+  `pick-rect` events that resolve back to the entity refs `@galeon/three`
+  stamps on managed objects. Drag-rectangle uses a six-plane sub-frustum
+  derived from the rect's NDC corners (the `SelectionBox.js` algorithm,
+  re-oriented inward via the corner centroid for camera-handedness safety).
+  On the Rust side, a new `Selection` resource in `galeon-engine` carries
+  the current entity set plus the last hit point and applies pick events
+  with StarCraft / OpenRA modifier semantics (`shift` = additive, `ctrl` =
+  subtractive, `alt` = intersect). The `engine-three-sync` WASM bridge
+  exposes `applyPick` / `applyPickRect` / `selectionEntities` on
+  `WasmEngine`, and a native `cargo run --example picking_demo` walks the
+  data flow against a 50-cube scene.
+
 ### Changed
 
 - **React 19 support for `@galeon/r3f` (#211)** — Verified the R3F

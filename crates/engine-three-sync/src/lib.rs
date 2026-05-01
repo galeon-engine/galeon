@@ -17,7 +17,8 @@ pub use snapshot::{
 };
 
 use galeon_engine::{
-    Component, Engine, Entity, MaterialHandle, MeshHandle, ObjectType, Transform, Visibility,
+    Component, Engine, Entity, MaterialHandle, MeshHandle, ObjectType, PickModifiers, PickPoint,
+    Selection, Transform, Visibility,
 };
 use wasm_bindgen::prelude::*;
 
@@ -211,6 +212,107 @@ impl WasmEngine {
     /// Returns the number of entities currently spawned from JavaScript.
     pub fn js_entity_count(&self) -> u32 {
         self.engine.world().query::<&JsSpawned>().count() as u32
+    }
+
+    // -------------------------------------------------------------------------
+    // Picking / selection
+    //
+    // Surface the [`Selection`] resource to JavaScript so the `@galeon/picking`
+    // helper can apply its `pick` and `pick-rect` events. The resource is
+    // lazy-installed on first use; consumers never need to register it
+    // explicitly to start receiving input.
+    // -------------------------------------------------------------------------
+
+    /// Apply a single-click pick from the `@galeon/picking` helper.
+    ///
+    /// Pass `entity_index = u32::MAX` (or any value paired with `entity_present = false`)
+    /// to signal that the click missed every managed object. `point_present` and
+    /// the three world-space coordinates carry the hit point on the geometry.
+    ///
+    /// `modifier_flags` is a bitmask matching [`PickModifiers`] in Rust:
+    /// shift = 1, ctrl = 2, alt = 4, meta = 8.
+    #[wasm_bindgen(js_name = applyPick)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn apply_pick(
+        &mut self,
+        entity_present: bool,
+        entity_index: u32,
+        entity_generation: u32,
+        point_present: bool,
+        point_x: f32,
+        point_y: f32,
+        point_z: f32,
+        modifier_flags: u32,
+    ) {
+        let entity = if entity_present {
+            Some(Entity::from_raw(entity_index, entity_generation))
+        } else {
+            None
+        };
+        let point = if point_present {
+            Some(PickPoint {
+                x: point_x,
+                y: point_y,
+                z: point_z,
+            })
+        } else {
+            None
+        };
+        let modifiers = PickModifiers(modifier_flags);
+        let world = self.engine.world_mut();
+        if world.try_resource::<Selection>().is_none() {
+            world.insert_resource(Selection::new());
+        }
+        world
+            .resource_mut::<Selection>()
+            .apply_pick(entity, point, modifiers);
+    }
+
+    /// Apply a marquee (drag-rectangle) pick from the `@galeon/picking` helper.
+    ///
+    /// `entities_flat` is a flat `[idx0, gen0, idx1, gen1, …]` packing of
+    /// `(index, generation)` pairs. Length must be even; trailing odd elements
+    /// are ignored.
+    #[wasm_bindgen(js_name = applyPickRect)]
+    pub fn apply_pick_rect(&mut self, entities_flat: &[u32], modifier_flags: u32) {
+        let entities: Vec<Entity> = entities_flat
+            .chunks_exact(2)
+            .map(|pair| Entity::from_raw(pair[0], pair[1]))
+            .collect();
+        let modifiers = PickModifiers(modifier_flags);
+        let world = self.engine.world_mut();
+        if world.try_resource::<Selection>().is_none() {
+            world.insert_resource(Selection::new());
+        }
+        world
+            .resource_mut::<Selection>()
+            .apply_pick_rect(entities, modifiers);
+    }
+
+    /// Returns the current selected entity count, or `0` if no [`Selection`]
+    /// resource exists yet.
+    #[wasm_bindgen(js_name = selectionCount)]
+    pub fn selection_count(&self) -> u32 {
+        self.engine
+            .world()
+            .try_resource::<Selection>()
+            .map(|sel| sel.len() as u32)
+            .unwrap_or(0)
+    }
+
+    /// Returns the currently selected entities as a flat
+    /// `[idx0, gen0, idx1, gen1, …]` packing.
+    #[wasm_bindgen(js_name = selectionEntities)]
+    pub fn selection_entities(&self) -> Vec<u32> {
+        let Some(sel) = self.engine.world().try_resource::<Selection>() else {
+            return Vec::new();
+        };
+        let mut out = Vec::with_capacity(sel.len() * 2);
+        for entity in &sel.entities {
+            out.push(entity.index());
+            out.push(entity.generation());
+        }
+        out
     }
 }
 
