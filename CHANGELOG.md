@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **React 19 support for `@galeon/r3f` (#211)** — Verified the R3F
+  provider/hooks test path against React 19.2, React DOM 19.2, Three 0.183.x,
+  and React Three Fiber 9.x. The package now advertises React 18 + R3F 8 and
+  React 19 + R3F 9 as its supported peer combinations.
+
 ## [0.4.0]
 
 ### Added
