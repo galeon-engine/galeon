@@ -7,12 +7,14 @@ import {
   CHANGED_PARENT,
   CHANGED_TRANSFORM,
   CHANGED_VISIBILITY,
+  INSTANCE_GROUP_NONE,
   assertFramePacketContract,
   type FramePacketView,
   ObjectType,
   SCENE_ROOT,
   TRANSFORM_STRIDE,
 } from "@galeon/render-core";
+import { InstancedMeshManager } from "./instanced-mesh-manager.js";
 
 /**
  * Renderer-side cache that consumes packed extraction tables from the
@@ -41,6 +43,7 @@ export interface RendererEntityHandle {
 
 export class RendererCache {
   private readonly scene: THREE.Scene;
+  private readonly instancedMeshes: InstancedMeshManager;
   private readonly objects = new Map<number, THREE.Object3D>();
   private readonly generations = new Map<number, number>();
   private readonly entityHandles = new Map<number, RendererEntityHandle>();
@@ -88,6 +91,15 @@ export class RendererCache {
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
+    this.instancedMeshes = new InstancedMeshManager(scene);
+  }
+
+  /**
+   * The instance-batch manager backing entities tagged with `InstanceOf`.
+   * Exposed read-only so adapter layers can query batch state for telemetry.
+   */
+  get instancing(): InstancedMeshManager {
+    return this.instancedMeshes;
   }
 
   // ---------------------------------------------------------------------------
@@ -147,6 +159,7 @@ export class RendererCache {
     } = packet;
     const changeFlags = packet.change_flags;
     const hasChangeFlags = changeFlags !== undefined && changeFlags.length > 0;
+    const instanceGroups = packet.instance_groups;
 
     // ----- Pass 1: create/update objects -----
     for (let i = 0; i < packet.entity_count; i++) {
@@ -155,6 +168,46 @@ export class RendererCache {
       const generation = entity_generations[i]!;
       activeIds.add(entityId);
       const flag = hasChangeFlags ? changeFlags[i]! : 0xff;
+
+      // ----- Instanced routing -----
+      // Entities tagged with `InstanceOf` skip the standalone-Object3D path
+      // and live inside a per-`MeshHandle` `THREE.InstancedMesh` instead.
+      // Group key equals the wrapped `MeshHandle.id` (see Rust frame_packet),
+      // so the same handle drives geometry resolution and batch routing.
+      const groupKey = instanceGroups?.[i] ?? INSTANCE_GROUP_NONE;
+      if (groupKey !== INSTANCE_GROUP_NONE) {
+        // If the entity was previously standalone, tear it down before
+        // routing into the batch — the entity must not own both objects.
+        const stale = this.objects.get(entityId);
+        if (stale) this.removeEntity(entityId, stale);
+
+        const meshHandle = mesh_handles[i]!;
+        const matHandle = material_handles[i]!;
+        const geometry =
+          this.geometries.get(meshHandle) ?? this.placeholderGeometry;
+        const material =
+          this.materials.get(matHandle) ?? this.placeholderMaterial;
+        const visible = visibility[i]! === 1;
+        this.instancedMeshes.upsert(
+          entityId,
+          groupKey,
+          geometry,
+          material,
+          transforms,
+          i,
+          visible,
+        );
+        // Track generation for stale-slot detection across despawn/respawn.
+        this.generations.set(entityId, generation);
+        this.warnMissingHandles(entityId, meshHandle, matHandle);
+        continue;
+      }
+
+      // If the entity was previously instanced and now wants the standalone
+      // path, drop it from the batch before falling through to creation.
+      if (this.instancedMeshes.has(entityId)) {
+        this.instancedMeshes.remove(entityId);
+      }
 
       let obj = this.objects.get(entityId);
       let childrenToReattach: number[] | undefined;
@@ -300,6 +353,16 @@ export class RendererCache {
           this.removeEntity(id, obj);
         }
       }
+      // Same rule for the instance batches — collect first so the
+      // remove() loop doesn't mutate the iteration.
+      const instancedToRemove: number[] = [];
+      for (const id of this.instancedMeshes.entityIds()) {
+        if (!activeIds.has(id)) instancedToRemove.push(id);
+      }
+      for (const id of instancedToRemove) {
+        this.instancedMeshes.remove(id);
+        this.generations.delete(id);
+      }
     }
   }
 
@@ -352,6 +415,7 @@ export class RendererCache {
     for (const [id, obj] of this.objects) {
       this.removeEntity(id, obj);
     }
+    this.instancedMeshes.clear();
     this.lastFrameVersion = 0n;
     this._dirty = true;
   }
@@ -359,6 +423,7 @@ export class RendererCache {
   /** Dispose of placeholder resources. Call when the cache is no longer needed. */
   dispose(): void {
     this.clear();
+    this.instancedMeshes.dispose();
     this.placeholderGeometry.dispose();
     this.placeholderMaterial.dispose();
   }

@@ -22,6 +22,21 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   to the WASM bridge via `WasmFramePacket.instance_groups`. Lays the data
   foundation for the per-`MeshHandle` `THREE.InstancedMesh` manager
   (#215, T2).
+- **`@galeon/three` instanced-mesh manager (#215, T2)** — `RendererCache`
+  now routes entities tagged with `InstanceOf` into a shared
+  `THREE.InstancedMesh` instead of allocating a standalone `Object3D` per
+  entity. The new `InstancedMeshManager` lazily creates one `InstancedMesh`
+  per `MeshHandle`, grows allocated capacity by 2× when batches fill up,
+  and reuses freed slots via a swap-with-last scheme — keeping the
+  `[0, count)` range contiguous and `mesh.count` rendering exactly the
+  live instances. `CHANGED_INSTANCE_GROUP` drives in/out and cross-batch
+  migrations cheaply on incremental packets. Hidden instances render with
+  zero scale to keep their slot stable across visibility flips. Frustum
+  culling is disabled per-mesh to avoid the all-or-nothing per-`InstancedMesh`
+  behavior in three.js (a per-instance backend is out of scope for v1).
+  `@galeon/render-core` mirrors the Rust constants: `INSTANCE_GROUP_NONE`,
+  `CHANGED_INSTANCE_GROUP`, and an optional `instance_groups: Uint32Array`
+  field on `FramePacketView`, all validated by `assertFramePacketContract`.
 
 ### Changed
 
