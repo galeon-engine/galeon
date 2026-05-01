@@ -224,7 +224,7 @@ fn invalid_project_name(name: &str, reason: &str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use tempfile::TempDir;
 
     fn run_scaffold(name: &str, preset: Preset) -> (TempDir, PathBuf) {
@@ -234,12 +234,12 @@ mod tests {
         (tmp, project_root)
     }
 
-    fn assert_file(root: &PathBuf, rel: &str) {
+    fn assert_file(root: &Path, rel: &str) {
         let p = root.join(rel);
         assert!(p.exists(), "expected file missing: {}", p.display());
     }
 
-    fn assert_no_file(root: &PathBuf, rel: &str) {
+    fn assert_no_file(root: &Path, rel: &str) {
         let p = root.join(rel);
         assert!(!p.exists(), "unexpected file present: {}", p.display());
     }
@@ -423,8 +423,16 @@ mod template_dep_tests {
             "local-first client template missing three-sync dependency pinned to CLI minor line"
         );
         assert!(
-            local_first_pkg.contains(&format!(r#""@galeon/engine-ts": "^{galeon_version}""#)),
-            "local-first package.json missing engine-ts dependency pinned to CLI release"
+            local_first_pkg.contains(&format!(r#""@galeon/three": "^{galeon_version}""#)),
+            "local-first package.json missing @galeon/three dependency pinned to CLI release"
+        );
+        assert!(
+            local_first_pkg.contains(&format!(r#""@galeon/render-core": "^{galeon_version}""#)),
+            "local-first package.json missing @galeon/render-core dependency pinned to CLI release"
+        );
+        assert!(
+            !local_first_pkg.contains("@galeon/engine-ts"),
+            "local-first package.json should not depend on the retired @galeon/engine-ts package"
         );
         assert!(
             templates::galeon_toml("testgame", "local-first")

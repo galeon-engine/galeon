@@ -14,7 +14,9 @@ commands, see [cli-getting-started.md](cli-getting-started.md).
   renderable entity
 - `crates/client` as a small `wasm-bindgen` wrapper around
   `galeon-engine-three-sync::WasmEngine`
-- `client/` as a Vite + Three.js web app that consumes `@galeon/engine-ts`
+- `client/` as a Vite + Three.js web app that consumes `@galeon/three` (the
+  framework-neutral imperative adapter) and `@galeon/render-core` (the
+  shared snapshot contract)
 - root `package.json` scripts for `wasm`, `dev`, `build`, and `check`
 - a generated project `README.md` that repeats the starter commands
 

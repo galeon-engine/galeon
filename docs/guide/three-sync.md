@@ -8,7 +8,7 @@ boundary → TS renderer cache → Three.js**.
 
 | Path | Purpose | Format | Crate / Package |
 |------|---------|--------|-----------------|
-| **Hot path** | Per-frame rendering | Flat typed arrays (`FramePacket`) | `galeon-engine-three-sync` → `@galeon/engine-ts` |
+| **Hot path** | Per-frame rendering | Flat typed arrays (`FramePacket`) | `galeon-engine-three-sync` → `@galeon/three` (or `@galeon/r3f`) |
 | **Tooling path** | Inspector, profiler, shell | JSON (`DebugSnapshot`) | `galeon-engine-three-sync` |
 
 The hot path is optimised for throughput — struct-of-arrays, no allocation per
@@ -115,7 +115,7 @@ clones the backing `Vec`, which wasm-bindgen converts to a JS typed array
 
 `change_flags` is a parallel `Uint8Array` of per-entity bitmasks for incremental
 extraction (`extract_frame_incremental`); it is empty for full `extract_frame`
-packets. `@galeon/engine-ts` `RendererCache` uses these flags to skip redundant
+packets. `@galeon/three`'s `RendererCache` uses these flags to skip redundant
 Three.js writes when present.
 
 **MVP transport:** copied flat buffers. Future optimisation: direct typed array
@@ -219,10 +219,10 @@ entities cannot be despawned from JS — `despawn_entity` returns `false` for th
 
 ## TS Renderer Cache
 
-`RendererCache` in `@galeon/engine-ts` manages the Three.js side:
+`RendererCache` in `@galeon/three` manages the Three.js side:
 
 ```typescript
-import { RendererCache } from "@galeon/engine-ts";
+import { RendererCache } from "@galeon/three";
 
 const cache = new RendererCache(scene);
 
@@ -266,6 +266,36 @@ cache.applyFrame(packet);
   so a forward pass correctly builds the hierarchy.
 - When a parent entity is removed, its children are reparented to the scene
   root to prevent orphan objects from becoming invisible.
+
+## Migrating from `@galeon/engine-ts`
+
+Galeon `0.5.0` removes the `@galeon/engine-ts` compatibility re-export package
+that PR #206 introduced as a one-minor transition surface. ADR 0002 explicitly
+scoped that shim as temporary; this is the close of that window.
+
+If you imported anything from `@galeon/engine-ts`, switch to the canonical
+home of each symbol:
+
+| Old import | New import |
+|------------|------------|
+| `import { RendererCache } from "@galeon/engine-ts"` | `import { RendererCache } from "@galeon/three"` |
+| `import { GALEON_ENTITY_KEY } from "@galeon/engine-ts"` | `import { GALEON_ENTITY_KEY } from "@galeon/three"` |
+| `import type { RendererEntityHandle } from "@galeon/engine-ts"` | `import type { RendererEntityHandle } from "@galeon/three"` |
+| `import { CHANGED_TRANSFORM, CHANGED_VISIBILITY, CHANGED_MESH, CHANGED_MATERIAL, CHANGED_OBJECT_TYPE, CHANGED_PARENT } from "@galeon/engine-ts"` | same names from `@galeon/render-core` |
+| `import { ObjectType, SCENE_ROOT, TRANSFORM_STRIDE, RENDER_CONTRACT_VERSION } from "@galeon/engine-ts"` | same names from `@galeon/render-core` |
+| `import { FramePacketContractError, assertFramePacketContract, hasIncrementalChangeFlags } from "@galeon/engine-ts"` | same names from `@galeon/render-core` |
+| `import type { FramePacketContractOptions, FramePacketView } from "@galeon/engine-ts"` | same names from `@galeon/render-core` |
+| `import { RUNTIME_VERSION, runtimeVersion } from "@galeon/engine-ts"` | `import { RUNTIME_VERSION } from "@galeon/runtime"` (the wrapper added no value) |
+
+`package.json` consumers should drop the `@galeon/engine-ts` dependency and
+add `@galeon/render-core` and `@galeon/three` (or `@galeon/r3f` for React
+Three Fiber hosts) instead. The CLI's `local-first` scaffold has been
+updated to emit the new dependency set on freshly generated projects.
+
+The package is no longer published from this repository. Existing
+`@galeon/engine-ts@0.4.x` releases remain on npm at their published
+versions and will continue to resolve, but no further versions will be
+cut.
 
 ## Adapter Choice
 

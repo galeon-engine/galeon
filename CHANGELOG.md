@@ -7,6 +7,31 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Removed
+
+- **`@galeon/engine-ts` package retired (#209)** — The compatibility
+  re-export package introduced alongside the framework-neutral render adapter
+  split (PR #206) is removed. ADR 0002 scoped it as a one-minor transition
+  surface; that window has now closed. The package is deleted from the
+  workspace, its publish step is removed from `.github/workflows/release.yml`,
+  the version-bump script no longer mutates it, the `local-first` CLI
+  scaffold now depends on `@galeon/render-core` + `@galeon/three` directly,
+  and `tests/local-first-starter-smoke.sh` exercises the new dependency
+  shape end-to-end. Existing `@galeon/engine-ts@0.4.x` releases on npm
+  remain installable but no further versions will be cut.
+
+  Migration (every former engine-ts symbol has a canonical home):
+
+  | Old import | New import |
+  |------------|------------|
+  | `RendererCache`, `GALEON_ENTITY_KEY`, `RendererEntityHandle` from `@galeon/engine-ts` | same names from `@galeon/three` |
+  | `CHANGED_*`, `ObjectType`, `SCENE_ROOT`, `TRANSFORM_STRIDE`, `RENDER_CONTRACT_VERSION`, `FramePacketContractError`, `assertFramePacketContract`, `hasIncrementalChangeFlags`, `FramePacketContractOptions`, `FramePacketView` from `@galeon/engine-ts` | same names from `@galeon/render-core` |
+  | `RUNTIME_VERSION`, `runtimeVersion()` from `@galeon/engine-ts` | `RUNTIME_VERSION` from `@galeon/runtime` |
+
+  See `docs/guide/three-sync.md` for the full migration guide and
+  `docs/adr/0002-framework-neutral-render-contract.md` for the ADR
+  addendum noting the deprecation-window close.
+
 ### Changed
 
 - **React 19 support for `@galeon/r3f` (#211)** — Verified the R3F

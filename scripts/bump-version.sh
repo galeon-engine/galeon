@@ -78,7 +78,6 @@ THREE_SYNC_CARGO="crates/engine-three-sync/Cargo.toml"
 RUNTIME_PKG="packages/runtime/package.json"
 RENDER_CORE_PKG="packages/render-core/package.json"
 THREE_PKG="packages/three/package.json"
-ENGINE_TS_PKG="packages/engine-ts/package.json"
 R3F_PKG="packages/r3f/package.json"
 SHELL_PKG="packages/shell/package.json"
 
@@ -256,20 +255,13 @@ sed -i "s/\"version\": \"$OLD_ESC\"/\"version\": \"$NEW_VERSION\"/" "$THREE_PKG"
 sed -i "s/\"@galeon\/render-core\": \"=$OLD_ESC\"/\"@galeon\/render-core\": \"=$NEW_VERSION\"/" "$THREE_PKG"
 ok "$THREE_PKG"
 
-# 7. engine-ts package.json (version + internal deps)
-sed -i "s/\"version\": \"$OLD_ESC\"/\"version\": \"$NEW_VERSION\"/" "$ENGINE_TS_PKG"
-sed -i "s/\"@galeon\/render-core\": \"=$OLD_ESC\"/\"@galeon\/render-core\": \"=$NEW_VERSION\"/" "$ENGINE_TS_PKG"
-sed -i "s/\"@galeon\/runtime\": \"=$OLD_ESC\"/\"@galeon\/runtime\": \"=$NEW_VERSION\"/" "$ENGINE_TS_PKG"
-sed -i "s/\"@galeon\/three\": \"=$OLD_ESC\"/\"@galeon\/three\": \"=$NEW_VERSION\"/" "$ENGINE_TS_PKG"
-ok "$ENGINE_TS_PKG"
-
-# 8. r3f package.json (version + internal deps)
+# 7. r3f package.json (version + internal deps)
 sed -i "s/\"version\": \"$OLD_ESC\"/\"version\": \"$NEW_VERSION\"/" "$R3F_PKG"
 sed -i "s/\"@galeon\/render-core\": \"=$OLD_ESC\"/\"@galeon\/render-core\": \"=$NEW_VERSION\"/" "$R3F_PKG"
 sed -i "s/\"@galeon\/three\": \"=$OLD_ESC\"/\"@galeon\/three\": \"=$NEW_VERSION\"/" "$R3F_PKG"
 ok "$R3F_PKG"
 
-# 9. shell package.json
+# 8. shell package.json
 sed -i "s/\"version\": \"$OLD_ESC\"/\"version\": \"$NEW_VERSION\"/" "$SHELL_PKG"
 ok "$SHELL_PKG"
 
@@ -297,10 +289,6 @@ verify "$RUNTIME_PKG"        "\"version\": \"$NEW_VERSION\""         "runtime ve
 verify "$RENDER_CORE_PKG"    "\"version\": \"$NEW_VERSION\""         "render-core version"
 verify "$THREE_PKG"          "\"version\": \"$NEW_VERSION\""         "three version"
 verify "$THREE_PKG"          "\"@galeon/render-core\": \"=$NEW_VERSION\"" "three render-core pin"
-verify "$ENGINE_TS_PKG"      "\"version\": \"$NEW_VERSION\""         "engine-ts version"
-verify "$ENGINE_TS_PKG"      "\"@galeon/render-core\": \"=$NEW_VERSION\"" "engine-ts render-core pin"
-verify "$ENGINE_TS_PKG"      "\"@galeon/runtime\": \"=$NEW_VERSION\"" "runtime pin"
-verify "$ENGINE_TS_PKG"      "\"@galeon/three\": \"=$NEW_VERSION\""  "engine-ts three pin"
 verify "$R3F_PKG"            "\"version\": \"$NEW_VERSION\""         "r3f version"
 verify "$R3F_PKG"            "\"@galeon/render-core\": \"=$NEW_VERSION\"" "r3f render-core pin"
 verify "$R3F_PKG"            "\"@galeon/three\": \"=$NEW_VERSION\""  "r3f three pin"

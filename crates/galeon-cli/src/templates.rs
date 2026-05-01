@@ -227,7 +227,8 @@ pub fn local_first_package_json(name: &str) -> String {
     "check": "bun run wasm && bunx tsc --project client/tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@galeon/engine-ts": "^__GALEON_VERSION__",
+    "@galeon/render-core": "^__GALEON_VERSION__",
+    "@galeon/three": "^__GALEON_VERSION__",
     "three": "^0.183.2"
   },
   "devDependencies": {
@@ -347,7 +348,7 @@ pub fn local_first_client_main_ts() -> String {
     r##"// SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
 import "./style.css";
-import { RendererCache } from "@galeon/engine-ts";
+import { RendererCache } from "@galeon/three";
 import * as THREE from "three";
 import init, { StarterWasmEngine } from "../pkg/starter.js";
 
