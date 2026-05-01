@@ -6,9 +6,9 @@ mod snapshot;
 
 pub use extract::{extract_frame, extract_frame_incremental};
 pub use frame_packet::{
-    CHANGED_MATERIAL, CHANGED_MESH, CHANGED_OBJECT_TYPE, CHANGED_PARENT, CHANGED_TRANSFORM,
-    CHANGED_VISIBILITY, ChannelData, FramePacket, INSTANCE_GROUP_NONE, RENDER_CONTRACT_VERSION,
-    SCENE_ROOT, TRANSFORM_STRIDE,
+    CHANGED_INSTANCE_GROUP, CHANGED_MATERIAL, CHANGED_MESH, CHANGED_OBJECT_TYPE, CHANGED_PARENT,
+    CHANGED_TRANSFORM, CHANGED_VISIBILITY, ChannelData, FramePacket, INSTANCE_GROUP_NONE,
+    RENDER_CONTRACT_VERSION, SCENE_ROOT, TRANSFORM_STRIDE,
 };
 // Re-export FrameEvent from engine for consumers of this crate.
 pub use galeon_engine::FrameEvent;

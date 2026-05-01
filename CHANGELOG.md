@@ -15,8 +15,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   extraction now produces a parallel `instance_groups: Vec<u32>` array with
   one entry per entity: the wrapped mesh-handle id when the entity is tagged,
   or the new `INSTANCE_GROUP_NONE` sentinel (`u32::MAX`) when it is not.
-  Exposed to the WASM bridge via `WasmFramePacket.instance_groups`. Lays the
-  data foundation for the per-`MeshHandle` `THREE.InstancedMesh` manager
+  Incremental extraction sets the new `CHANGED_INSTANCE_GROUP` change-flag
+  bit (`1 << 6`) when `InstanceOf` is added, removed, or mutated, so
+  consumers can move entities between the standalone-`Object3D` and
+  `InstancedMesh` paths without comparing the full list each frame. Exposed
+  to the WASM bridge via `WasmFramePacket.instance_groups`. Lays the data
+  foundation for the per-`MeshHandle` `THREE.InstancedMesh` manager
   (#215, T2).
 
 ### Changed

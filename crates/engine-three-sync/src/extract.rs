@@ -8,8 +8,9 @@ use galeon_engine::render::{
 use galeon_engine::{Entity, RenderChannelRegistry, RenderEventRegistry, World};
 
 use crate::frame_packet::{
-    CHANGED_MATERIAL, CHANGED_MESH, CHANGED_OBJECT_TYPE, CHANGED_PARENT, CHANGED_TRANSFORM,
-    CHANGED_VISIBILITY, ChannelData, FramePacket, INSTANCE_GROUP_NONE, SCENE_ROOT,
+    CHANGED_INSTANCE_GROUP, CHANGED_MATERIAL, CHANGED_MESH, CHANGED_OBJECT_TYPE, CHANGED_PARENT,
+    CHANGED_TRANSFORM, CHANGED_VISIBILITY, ChannelData, FramePacket, INSTANCE_GROUP_NONE,
+    SCENE_ROOT,
 };
 
 /// Extract render-facing data from the ECS world into a packed frame packet.
@@ -187,6 +188,7 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
     let mut seen: HashSet<Entity> = HashSet::new();
     let mut object_type_removed: HashSet<Entity> = HashSet::new();
     let mut parent_removed: HashSet<Entity> = HashSet::new();
+    let mut instance_group_removed: HashSet<Entity> = HashSet::new();
     let mut parents_with_new_transform: HashSet<Entity> = HashSet::new();
     let mut renderables: Vec<Renderable> = Vec::new();
 
@@ -300,6 +302,51 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
         seen.insert(entity);
     }
 
+    for (entity, _) in world.query_changed::<InstanceOf>(since_tick) {
+        if seen.contains(&entity) {
+            continue;
+        }
+        let Some(transform) = world.get::<Transform>(entity) else {
+            continue;
+        };
+        let object_type = world
+            .get::<ObjectType>(entity)
+            .map(|o| *o as u8)
+            .unwrap_or(0);
+        renderables.push((
+            entity,
+            transform.position,
+            transform.rotation,
+            transform.scale,
+            resolved_parent_id(world, entity),
+            object_type,
+        ));
+        seen.insert(entity);
+    }
+
+    for entity in world.component_removals_since::<InstanceOf>(since_tick) {
+        instance_group_removed.insert(entity);
+        if seen.contains(&entity) {
+            continue;
+        }
+        let Some(transform) = world.get::<Transform>(entity) else {
+            continue;
+        };
+        let object_type = world
+            .get::<ObjectType>(entity)
+            .map(|o| *o as u8)
+            .unwrap_or(0);
+        renderables.push((
+            entity,
+            transform.position,
+            transform.rotation,
+            transform.scale,
+            resolved_parent_id(world, entity),
+            object_type,
+        ));
+        seen.insert(entity);
+    }
+
     for (entity, (transform, parent)) in world.query::<(&Transform, &ParentEntity)>() {
         if seen.contains(&entity) {
             continue;
@@ -386,6 +433,13 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
                     && parents_with_new_transform.contains(entity))
             {
                 flags |= CHANGED_PARENT;
+            }
+            if instance_group_removed.contains(entity)
+                || arch
+                    .column::<InstanceOf>()
+                    .is_some_and(|column| column.changed_tick(row) > since_tick)
+            {
+                flags |= CHANGED_INSTANCE_GROUP;
             }
         }
 
@@ -1217,6 +1271,79 @@ mod tests {
         let packet = extract_frame_incremental(&world, since);
         assert_eq!(packet.entity_count(), 1);
         assert_eq!(packet.instance_groups[0], INSTANCE_GROUP_NONE);
+    }
+
+    #[test]
+    fn incremental_extract_flags_instance_group_added() {
+        use crate::frame_packet::CHANGED_INSTANCE_GROUP;
+        use galeon_engine::render::InstanceOf;
+
+        let mut world = World::new();
+        let entity = world.spawn((Transform::from_position(1.0, 0.0, 0.0),));
+        let since = world.change_tick();
+        world.advance_tick();
+
+        world.insert(entity, InstanceOf(MeshHandle { id: 5 }));
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.entity_ids[0], entity.index());
+        assert_eq!(packet.instance_groups[0], 5);
+        let flags = packet.change_flags[0];
+        assert!(
+            flags & CHANGED_INSTANCE_GROUP != 0,
+            "expected CHANGED_INSTANCE_GROUP, got {flags:#b}"
+        );
+        assert!(flags & CHANGED_TRANSFORM == 0);
+    }
+
+    #[test]
+    fn incremental_extract_flags_instance_group_removed() {
+        use crate::frame_packet::{CHANGED_INSTANCE_GROUP, INSTANCE_GROUP_NONE};
+        use galeon_engine::render::InstanceOf;
+
+        let mut world = World::new();
+        let entity = world.spawn((
+            Transform::from_position(1.0, 0.0, 0.0),
+            InstanceOf(MeshHandle { id: 5 }),
+        ));
+        let since = world.change_tick();
+        world.advance_tick();
+
+        world.remove::<InstanceOf>(entity);
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.entity_ids[0], entity.index());
+        assert_eq!(packet.instance_groups[0], INSTANCE_GROUP_NONE);
+        let flags = packet.change_flags[0];
+        assert!(
+            flags & CHANGED_INSTANCE_GROUP != 0,
+            "expected CHANGED_INSTANCE_GROUP, got {flags:#b}"
+        );
+        assert!(flags & CHANGED_TRANSFORM == 0);
+    }
+
+    #[test]
+    fn incremental_extract_no_instance_group_flag_when_unchanged() {
+        use crate::frame_packet::CHANGED_INSTANCE_GROUP;
+        use galeon_engine::render::InstanceOf;
+
+        let mut world = World::new();
+        let entity = world.spawn((
+            Transform::from_position(1.0, 0.0, 0.0),
+            InstanceOf(MeshHandle { id: 5 }),
+        ));
+        let since = world.change_tick();
+        world.advance_tick();
+
+        world.get_mut::<Transform>(entity).unwrap().position[0] = 99.0;
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.entity_count(), 1);
+        let flags = packet.change_flags[0];
+        assert!(flags & CHANGED_TRANSFORM != 0);
+        assert!(flags & CHANGED_INSTANCE_GROUP == 0);
     }
 
     #[test]

@@ -66,6 +66,11 @@ pub const CHANGED_MESH: u8 = 1 << 2;
 pub const CHANGED_MATERIAL: u8 = 1 << 3;
 pub const CHANGED_OBJECT_TYPE: u8 = 1 << 4;
 pub const CHANGED_PARENT: u8 = 1 << 5;
+/// Set when the entity's `InstanceOf` component was added, removed, or its
+/// wrapped `MeshHandle` mutated since the last frame. Consumers use this to
+/// move the entity between the standalone-`Object3D` and `InstancedMesh`
+/// render paths, or to relocate it to a different per-mesh instance batch.
+pub const CHANGED_INSTANCE_GROUP: u8 = 1 << 6;
 
 /// Sentinel value in `parent_ids` meaning "child of scene root" (no parent entity).
 pub const SCENE_ROOT: u32 = u32::MAX;
