@@ -160,6 +160,7 @@ export class RendererCache {
     const changeFlags = packet.change_flags;
     const hasChangeFlags = changeFlags !== undefined && changeFlags.length > 0;
     const instanceGroups = packet.instance_groups;
+    const tints = packet.tints;
 
     // ----- Pass 1: create/update objects -----
     for (let i = 0; i < packet.entity_count; i++) {
@@ -196,6 +197,7 @@ export class RendererCache {
           transforms,
           i,
           visible,
+          tints,
         );
         // Track generation for stale-slot detection across despawn/respawn.
         this.generations.set(entityId, generation);

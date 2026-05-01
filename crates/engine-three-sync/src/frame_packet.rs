@@ -45,6 +45,14 @@ pub struct FramePacket {
     /// Otherwise it holds [`INSTANCE_GROUP_NONE`] and the renderer creates a
     /// standalone `Object3D`.
     pub instance_groups: Vec<u32>,
+    /// Per-instance color tint, three floats `[r, g, b]` per entity, in linear
+    /// sRGB. Multiplied with the base material color by the renderer; default
+    /// `[1.0, 1.0, 1.0]` (white) is the no-op identity.
+    ///
+    /// Only meaningful for entities also carrying `InstanceOf` — the
+    /// standalone-`Object3D` path ignores it. Always populated in step with
+    /// `entity_ids` so consumers can index by entity row directly.
+    pub tints: Vec<f32>,
     /// Named per-entity float channels for game-specific render data.
     pub custom_channels: HashMap<String, ChannelData>,
     /// One-shot events for audio/VFX triggers (fire-and-forget, not per-entity).
@@ -71,6 +79,9 @@ pub const CHANGED_PARENT: u8 = 1 << 5;
 /// move the entity between the standalone-`Object3D` and `InstancedMesh`
 /// render paths, or to relocate it to a different per-mesh instance batch.
 pub const CHANGED_INSTANCE_GROUP: u8 = 1 << 6;
+/// Set when the entity's `Tint` component was added, removed, or mutated
+/// since the last frame. Consumers re-write the per-instance color slot.
+pub const CHANGED_TINT: u8 = 1 << 7;
 
 /// Sentinel value in `parent_ids` meaning "child of scene root" (no parent entity).
 pub const SCENE_ROOT: u32 = u32::MAX;
@@ -101,6 +112,7 @@ impl FramePacket {
             parent_ids: Vec::new(),
             object_types: Vec::new(),
             instance_groups: Vec::new(),
+            tints: Vec::new(),
             custom_channels: HashMap::new(),
             events: Vec::new(),
             change_flags: Vec::new(),
@@ -121,6 +133,7 @@ impl FramePacket {
             parent_ids: Vec::with_capacity(entity_count),
             object_types: Vec::with_capacity(entity_count),
             instance_groups: Vec::with_capacity(entity_count),
+            tints: Vec::with_capacity(entity_count * 3),
             custom_channels: HashMap::new(),
             events: Vec::new(),
             change_flags: Vec::with_capacity(entity_count),
@@ -143,6 +156,7 @@ impl FramePacket {
         parent_id: u32,
         object_type: u8,
         instance_group: u32,
+        tint: &[f32; 3],
     ) {
         self.entity_ids.push(entity_id);
         self.entity_generations.push(entity_generation);
@@ -155,6 +169,7 @@ impl FramePacket {
         self.parent_ids.push(parent_id);
         self.object_types.push(object_type);
         self.instance_groups.push(instance_group);
+        self.tints.extend_from_slice(tint);
     }
 
     /// Push render data with change flags (incremental extraction).
@@ -172,6 +187,7 @@ impl FramePacket {
         parent_id: u32,
         object_type: u8,
         instance_group: u32,
+        tint: &[f32; 3],
         flags: u8,
     ) {
         self.push(
@@ -186,6 +202,7 @@ impl FramePacket {
             parent_id,
             object_type,
             instance_group,
+            tint,
         );
         self.change_flags.push(flags);
     }
@@ -299,6 +316,7 @@ mod tests {
             SCENE_ROOT,
             0,
             INSTANCE_GROUP_NONE,
+            &[1.0, 1.0, 1.0],
         );
         assert_eq!(p.entity_count(), 1);
         assert_eq!(p.entity_ids[0], 42);
@@ -312,6 +330,7 @@ mod tests {
         assert_eq!(p.parent_ids[0], SCENE_ROOT);
         assert_eq!(p.object_types[0], 0);
         assert_eq!(p.instance_groups[0], INSTANCE_GROUP_NONE);
+        assert_eq!(p.tints, vec![1.0, 1.0, 1.0]);
     }
 
     #[test]
@@ -329,6 +348,7 @@ mod tests {
             SCENE_ROOT,
             0,
             INSTANCE_GROUP_NONE,
+            &[1.0; 3],
         );
         p.push(
             1,
@@ -342,6 +362,7 @@ mod tests {
             0,
             0,
             INSTANCE_GROUP_NONE,
+            &[1.0; 3],
         );
         assert_eq!(p.entity_count(), 2);
         assert_eq!(p.transforms.len(), TRANSFORM_STRIDE * 2);
@@ -377,6 +398,7 @@ mod tests {
             SCENE_ROOT,
             2,
             INSTANCE_GROUP_NONE,
+            &[1.0; 3],
         );
         assert_eq!(p.entity_count(), 1);
         assert_eq!(p.object_types[0], 2);
@@ -397,6 +419,7 @@ mod tests {
             SCENE_ROOT,
             0,
             42,
+            &[1.0; 3],
         );
         assert_eq!(p.entity_count(), 1);
         assert_eq!(p.instance_groups[0], 42);
@@ -408,5 +431,33 @@ mod tests {
         assert!(p.instance_groups.is_empty());
         let p2 = FramePacket::with_capacity(8);
         assert!(p2.instance_groups.is_empty());
+    }
+
+    #[test]
+    fn push_stores_tint() {
+        let mut p = FramePacket::new();
+        p.push(
+            1,
+            0,
+            &[0.0; 3],
+            &[0.0, 0.0, 0.0, 1.0],
+            &[1.0; 3],
+            true,
+            10,
+            20,
+            SCENE_ROOT,
+            0,
+            INSTANCE_GROUP_NONE,
+            &[0.25, 0.5, 1.0],
+        );
+        assert_eq!(p.tints, vec![0.25, 0.5, 1.0]);
+    }
+
+    #[test]
+    fn empty_packet_has_empty_tints() {
+        let p = FramePacket::new();
+        assert!(p.tints.is_empty());
+        let p2 = FramePacket::with_capacity(8);
+        assert!(p2.tints.is_empty());
     }
 }

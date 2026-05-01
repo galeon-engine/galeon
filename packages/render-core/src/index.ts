@@ -23,6 +23,11 @@ export const CHANGED_PARENT = 1 << 5;
  * and `THREE.InstancedMesh` paths, or relocate it across batches.
  */
 export const CHANGED_INSTANCE_GROUP = 1 << 6;
+/**
+ * Entity's `Tint` component changed — added, removed, or mutated. Matches
+ * Rust `CHANGED_TINT`. Renderer re-writes the per-instance color slot.
+ */
+export const CHANGED_TINT = 1 << 7;
 
 /** Sentinel value meaning "child of scene root" (no parent entity). Matches Rust `SCENE_ROOT`. */
 export const SCENE_ROOT = 0xffff_ffff;
@@ -70,6 +75,16 @@ export interface FramePacketView {
    * Optional for backward compatibility with packets emitted before issue #215.
    */
   readonly instance_groups?: Uint32Array;
+  /**
+   * Per-instance color tint, three floats `[r, g, b]` per entity, linear sRGB.
+   *
+   * Default `[1.0, 1.0, 1.0]` (white) is the no-op identity. Only meaningful
+   * for entities with `InstanceOf` — the standalone-`Object3D` path ignores
+   * the value. Length is `entity_count * 3` when present.
+   *
+   * Optional for backward compatibility with packets emitted before issue #215.
+   */
+  readonly tints?: Float32Array;
   /** Monotonic frame version — skip applyFrame() when unchanged. Omit for always-apply backward compat. */
   readonly frame_version?: bigint;
   readonly custom_channel_count: number;
@@ -200,6 +215,10 @@ export function assertFramePacketContract(
 
   if (packet.instance_groups !== undefined) {
     assertLength("instance_groups", packet.instance_groups.length, entityCount);
+  }
+
+  if (packet.tints !== undefined) {
+    assertLength("tints", packet.tints.length, entityCount * 3);
   }
 
   if (packet.change_flags !== undefined && packet.change_flags.length > 0) {

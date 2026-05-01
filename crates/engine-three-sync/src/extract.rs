@@ -3,15 +3,25 @@
 use std::collections::HashSet;
 
 use galeon_engine::render::{
-    InstanceOf, MaterialHandle, MeshHandle, ObjectType, ParentEntity, Transform, Visibility,
+    InstanceOf, MaterialHandle, MeshHandle, ObjectType, ParentEntity, Tint, Transform, Visibility,
 };
 use galeon_engine::{Entity, RenderChannelRegistry, RenderEventRegistry, World};
 
 use crate::frame_packet::{
     CHANGED_INSTANCE_GROUP, CHANGED_MATERIAL, CHANGED_MESH, CHANGED_OBJECT_TYPE, CHANGED_PARENT,
-    CHANGED_TRANSFORM, CHANGED_VISIBILITY, ChannelData, FramePacket, INSTANCE_GROUP_NONE,
-    SCENE_ROOT,
+    CHANGED_TINT, CHANGED_TRANSFORM, CHANGED_VISIBILITY, ChannelData, FramePacket,
+    INSTANCE_GROUP_NONE, SCENE_ROOT,
 };
+
+/// Identity tint (white) — rendered untinted by the shader's color multiply.
+const DEFAULT_TINT: [f32; 3] = [1.0, 1.0, 1.0];
+
+fn resolved_tint(world: &World, entity: Entity) -> [f32; 3] {
+    world
+        .get::<Tint>(entity)
+        .map(|t| t.0)
+        .unwrap_or(DEFAULT_TINT)
+}
 
 /// Extract render-facing data from the ECS world into a packed frame packet.
 ///
@@ -100,6 +110,7 @@ pub fn extract_frame(world: &World) -> FramePacket {
         parent_id: u32,
         object_type: u8,
         instance_group: u32,
+        tint: [f32; 3],
         depth: u32,
     }
 
@@ -116,6 +127,7 @@ pub fn extract_frame(world: &World) -> FramePacket {
                 .map(|t| *t as u8)
                 .unwrap_or(0),
             instance_group: resolved_instance_group(world, entity),
+            tint: resolved_tint(world, entity),
             depth: hierarchy_depth(world, entity, 64),
         })
         .collect();
@@ -139,6 +151,7 @@ pub fn extract_frame(world: &World) -> FramePacket {
             row.parent_id,
             row.object_type,
             row.instance_group,
+            &row.tint,
         );
         entities.push(row.entity);
     }
@@ -189,6 +202,7 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
     let mut object_type_removed: HashSet<Entity> = HashSet::new();
     let mut parent_removed: HashSet<Entity> = HashSet::new();
     let mut instance_group_removed: HashSet<Entity> = HashSet::new();
+    let mut tint_removed: HashSet<Entity> = HashSet::new();
     let mut parents_with_new_transform: HashSet<Entity> = HashSet::new();
     let mut renderables: Vec<Renderable> = Vec::new();
 
@@ -347,6 +361,51 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
         seen.insert(entity);
     }
 
+    for (entity, _) in world.query_changed::<Tint>(since_tick) {
+        if seen.contains(&entity) {
+            continue;
+        }
+        let Some(transform) = world.get::<Transform>(entity) else {
+            continue;
+        };
+        let object_type = world
+            .get::<ObjectType>(entity)
+            .map(|o| *o as u8)
+            .unwrap_or(0);
+        renderables.push((
+            entity,
+            transform.position,
+            transform.rotation,
+            transform.scale,
+            resolved_parent_id(world, entity),
+            object_type,
+        ));
+        seen.insert(entity);
+    }
+
+    for entity in world.component_removals_since::<Tint>(since_tick) {
+        tint_removed.insert(entity);
+        if seen.contains(&entity) {
+            continue;
+        }
+        let Some(transform) = world.get::<Transform>(entity) else {
+            continue;
+        };
+        let object_type = world
+            .get::<ObjectType>(entity)
+            .map(|o| *o as u8)
+            .unwrap_or(0);
+        renderables.push((
+            entity,
+            transform.position,
+            transform.rotation,
+            transform.scale,
+            resolved_parent_id(world, entity),
+            object_type,
+        ));
+        seen.insert(entity);
+    }
+
     for (entity, (transform, parent)) in world.query::<(&Transform, &ParentEntity)>() {
         if seen.contains(&entity) {
             continue;
@@ -441,9 +500,17 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
             {
                 flags |= CHANGED_INSTANCE_GROUP;
             }
+            if tint_removed.contains(entity)
+                || arch
+                    .column::<Tint>()
+                    .is_some_and(|column| column.changed_tick(row) > since_tick)
+            {
+                flags |= CHANGED_TINT;
+            }
         }
 
         let instance_group = resolved_instance_group(world, *entity);
+        let tint = resolved_tint(world, *entity);
 
         packet.push_incremental(
             entity.index(),
@@ -457,6 +524,7 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
             *parent_id,
             *object_type,
             instance_group,
+            &tint,
             flags,
         );
     }
@@ -1344,6 +1412,127 @@ mod tests {
         let flags = packet.change_flags[0];
         assert!(flags & CHANGED_TRANSFORM != 0);
         assert!(flags & CHANGED_INSTANCE_GROUP == 0);
+    }
+
+    // -------------------------------------------------------------------------
+    // Tint / tints extraction (issue #215 T3)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn extract_populates_tint_for_tagged_entity() {
+        use galeon_engine::render::Tint;
+
+        let mut world = World::new();
+        world.spawn((Transform::identity(), Tint([0.25, 0.5, 1.0])));
+
+        let packet = extract_frame(&world);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.tints.len(), 3);
+        assert!((packet.tints[0] - 0.25).abs() < f32::EPSILON);
+        assert!((packet.tints[1] - 0.5).abs() < f32::EPSILON);
+        assert!((packet.tints[2] - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn extract_tint_default_white_for_untagged_entity() {
+        let mut world = World::new();
+        world.spawn((Transform::identity(),));
+
+        let packet = extract_frame(&world);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.tints, vec![1.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn extract_tint_for_mixed_scene() {
+        use galeon_engine::render::Tint;
+
+        let mut world = World::new();
+        world.spawn((Transform::identity(), Tint([1.0, 0.0, 0.0])));
+        world.spawn((Transform::identity(),));
+        world.spawn((Transform::identity(), Tint([0.0, 1.0, 0.0])));
+
+        let packet = extract_frame(&world);
+        assert_eq!(packet.entity_count(), 3);
+        assert_eq!(packet.tints.len(), 9);
+        // Order matches entity_ids; we only assert the multiset of triples.
+        let triples: Vec<[f32; 3]> = packet
+            .tints
+            .chunks_exact(3)
+            .map(|c| [c[0], c[1], c[2]])
+            .collect();
+        assert!(triples.contains(&[1.0, 0.0, 0.0]));
+        assert!(triples.contains(&[0.0, 1.0, 0.0]));
+        assert!(triples.contains(&[1.0, 1.0, 1.0]));
+    }
+
+    #[test]
+    fn incremental_extract_flags_tint_added() {
+        use crate::frame_packet::CHANGED_TINT;
+        use galeon_engine::render::Tint;
+
+        let mut world = World::new();
+        let entity = world.spawn((Transform::identity(),));
+        let since = world.change_tick();
+        world.advance_tick();
+
+        world.insert(entity, Tint([0.0, 0.5, 1.0]));
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.entity_count(), 1);
+        assert!((packet.tints[0] - 0.0).abs() < f32::EPSILON);
+        assert!((packet.tints[1] - 0.5).abs() < f32::EPSILON);
+        assert!((packet.tints[2] - 1.0).abs() < f32::EPSILON);
+        let flags = packet.change_flags[0];
+        assert!(
+            flags & CHANGED_TINT != 0,
+            "expected CHANGED_TINT, got {flags:#b}"
+        );
+    }
+
+    #[test]
+    fn incremental_extract_flags_tint_removed() {
+        use crate::frame_packet::CHANGED_TINT;
+        use galeon_engine::render::Tint;
+
+        let mut world = World::new();
+        let entity = world.spawn((Transform::identity(), Tint([0.5, 0.5, 0.5])));
+        let since = world.change_tick();
+        world.advance_tick();
+
+        world.remove::<Tint>(entity);
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.entity_count(), 1);
+        // After removal the entity falls back to the white default.
+        assert_eq!(packet.tints, vec![1.0, 1.0, 1.0]);
+        let flags = packet.change_flags[0];
+        assert!(
+            flags & CHANGED_TINT != 0,
+            "expected CHANGED_TINT on removal, got {flags:#b}"
+        );
+    }
+
+    #[test]
+    fn incremental_extract_no_tint_flag_when_unchanged() {
+        use crate::frame_packet::CHANGED_TINT;
+        use galeon_engine::render::Tint;
+
+        let mut world = World::new();
+        let entity = world.spawn((
+            Transform::from_position(1.0, 0.0, 0.0),
+            Tint([0.5, 0.5, 0.5]),
+        ));
+        let since = world.change_tick();
+        world.advance_tick();
+
+        world.get_mut::<Transform>(entity).unwrap().position[0] = 99.0;
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.entity_count(), 1);
+        let flags = packet.change_flags[0];
+        assert!(flags & CHANGED_TRANSFORM != 0);
+        assert!(flags & CHANGED_TINT == 0);
     }
 
     #[test]

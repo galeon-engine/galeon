@@ -37,6 +37,24 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `@galeon/render-core` mirrors the Rust constants: `INSTANCE_GROUP_NONE`,
   `CHANGED_INSTANCE_GROUP`, and an optional `instance_groups: Uint32Array`
   field on `FramePacketView`, all validated by `assertFramePacketContract`.
+- **`Tint([f32; 3])` per-instance color channel (#215, T3)** — New ECS
+  component that writes a per-instance color to
+  `THREE.InstancedMesh.instanceColor`. Default `[1.0, 1.0, 1.0]` (white) is
+  the no-op identity; `Tint` is only meaningful for entities also carrying
+  `InstanceOf` (the standalone-`Object3D` path ignores it). Render
+  extraction now emits a parallel `tints: Vec<f32>` channel (length
+  `entity_count * 3`), populated from each entity's `Tint` or the white
+  default. Incremental extraction sets the new `CHANGED_TINT` change-flag
+  bit (`1 << 7`) when `Tint` is added, removed, or mutated. Exposed to the
+  WASM bridge via `WasmFramePacket.tints`. The TS-side
+  `InstancedMeshManager` now allocates `instanceColor` synchronously at
+  every batch creation (defaulting all slots to white) — moving the
+  three.js shader recompile cost (#21786) out of the hot path. `growBatch`
+  carries `instanceColor` through 2× growth and `remove` swaps the color
+  row alongside the matrix row in its swap-with-last scheme.
+  `@galeon/render-core` mirrors `CHANGED_TINT` and adds an optional
+  `tints: Float32Array` field on `FramePacketView`, validated by
+  `assertFramePacketContract`.
 
 ### Changed
 

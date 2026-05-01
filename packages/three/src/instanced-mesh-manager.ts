@@ -41,6 +41,7 @@ const _scratchQuat = new THREE.Quaternion();
 const _scratchScale = new THREE.Vector3();
 const _scratchMatrix = new THREE.Matrix4();
 const _scratchHidden = new THREE.Vector3(0, 0, 0);
+const _scratchColor = new THREE.Color();
 
 export class InstancedMeshManager {
   private readonly scene: THREE.Scene;
@@ -77,6 +78,7 @@ export class InstancedMeshManager {
     transforms: Float32Array,
     transformIndex: number,
     visible: boolean,
+    tints?: Float32Array,
   ): { groupKey: number; slot: number } {
     const existing = this.entityToPlacement.get(entityId);
     if (existing !== undefined && existing.groupKey !== groupKey) {
@@ -101,6 +103,9 @@ export class InstancedMeshManager {
     }
 
     this.writeSlotMatrix(batch, slot, transforms, transformIndex, visible);
+    if (tints !== undefined) {
+      this.writeSlotTint(batch, slot, tints, transformIndex);
+    }
     return { groupKey, slot };
   }
 
@@ -124,9 +129,12 @@ export class InstancedMeshManager {
     const lastSlot = batch.count - 1;
 
     if (slot !== lastSlot) {
-      // Copy last entity's matrix into the freed slot, then update mappings.
+      // Copy last entity's matrix and color into the freed slot, then
+      // update mappings.
       batch.mesh.getMatrixAt(lastSlot, _scratchMatrix);
       batch.mesh.setMatrixAt(slot, _scratchMatrix);
+      batch.mesh.getColorAt(lastSlot, _scratchColor);
+      batch.mesh.setColorAt(slot, _scratchColor);
       const movedEntity = batch.slotToEntity[lastSlot]!;
       batch.slotToEntity[slot] = movedEntity;
       this.entityToPlacement.set(movedEntity, {
@@ -134,12 +142,16 @@ export class InstancedMeshManager {
         slot,
       });
       batch.mesh.instanceMatrix.addUpdateRange(slot * 16, 16);
+      if (batch.mesh.instanceColor) {
+        batch.mesh.instanceColor.addUpdateRange(slot * 3, 3);
+      }
     }
 
     batch.slotToEntity[lastSlot] = -1;
     batch.count = lastSlot;
     batch.mesh.count = batch.count;
     batch.mesh.instanceMatrix.needsUpdate = true;
+    if (batch.mesh.instanceColor) batch.mesh.instanceColor.needsUpdate = true;
     this.entityToPlacement.delete(entityId);
     return true;
   }
@@ -218,6 +230,13 @@ export class InstancedMeshManager {
     const mesh = new THREE.InstancedMesh(geometry, material, capacity);
     mesh.count = 0;
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    // Allocate `instanceColor` synchronously at creation, defaulting every
+    // slot to white. First-time `instanceColor` writes trigger a shader
+    // recompile in three.js (#21786), so doing it once at allocation —
+    // rather than lazily on the first tinted entity — keeps the runtime
+    // path stutter-free for tinted scenes. Untinted scenes pay only the
+    // memory cost (12 bytes / capacity-slot), no shader cost.
+    allocateInstanceColor(mesh, capacity);
     // Frustum culling is all-or-nothing per InstancedMesh in three.js (#27170).
     // Disable it so off-screen instances aren't suppressed at the mesh level.
     // A future per-instance culling backend (BVH) is out of scope for v1.
@@ -246,14 +265,18 @@ export class InstancedMeshManager {
     );
     newMesh.count = batch.count;
     newMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    allocateInstanceColor(newMesh, newCapacity);
     newMesh.frustumCulled = false;
 
-    // Copy live matrices from old to new.
+    // Copy live matrices and colors from old to new.
     for (let s = 0; s < batch.count; s++) {
       batch.mesh.getMatrixAt(s, _scratchMatrix);
       newMesh.setMatrixAt(s, _scratchMatrix);
+      batch.mesh.getColorAt(s, _scratchColor);
+      newMesh.setColorAt(s, _scratchColor);
     }
     newMesh.instanceMatrix.needsUpdate = true;
+    if (newMesh.instanceColor) newMesh.instanceColor.needsUpdate = true;
 
     // Swap into the scene and dispose the old buffer.
     batch.mesh.parent?.remove(batch.mesh);
@@ -266,6 +289,21 @@ export class InstancedMeshManager {
     batch.mesh = newMesh;
     batch.capacity = newCapacity;
     batch.slotToEntity = newSlots;
+  }
+
+  private writeSlotTint(
+    batch: Batch,
+    slot: number,
+    tints: Float32Array,
+    transformIndex: number,
+  ): void {
+    const off = transformIndex * 3;
+    _scratchColor.setRGB(tints[off]!, tints[off + 1]!, tints[off + 2]!);
+    batch.mesh.setColorAt(slot, _scratchColor);
+    if (batch.mesh.instanceColor) {
+      batch.mesh.instanceColor.addUpdateRange(slot * 3, 3);
+      batch.mesh.instanceColor.needsUpdate = true;
+    }
   }
 
   private writeSlotMatrix(
@@ -312,3 +350,18 @@ function createSlotArray(capacity: number): Int32Array {
   a.fill(-1);
   return a;
 }
+
+/**
+ * Allocate the per-instance color attribute synchronously and prefill all
+ * slots to white. Three.js triggers a shader recompile on the first non-null
+ * `instanceColor` write (#21786) — doing this once at mesh creation moves
+ * the cost out of the hot path.
+ */
+function allocateInstanceColor(mesh: THREE.InstancedMesh, capacity: number): void {
+  const data = new Float32Array(capacity * 3);
+  data.fill(1);
+  const attr = new THREE.InstancedBufferAttribute(data, 3);
+  attr.setUsage(THREE.DynamicDrawUsage);
+  mesh.instanceColor = attr;
+}
+

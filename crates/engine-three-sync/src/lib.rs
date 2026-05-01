@@ -7,8 +7,8 @@ mod snapshot;
 pub use extract::{extract_frame, extract_frame_incremental};
 pub use frame_packet::{
     CHANGED_INSTANCE_GROUP, CHANGED_MATERIAL, CHANGED_MESH, CHANGED_OBJECT_TYPE, CHANGED_PARENT,
-    CHANGED_TRANSFORM, CHANGED_VISIBILITY, ChannelData, FramePacket, INSTANCE_GROUP_NONE,
-    RENDER_CONTRACT_VERSION, SCENE_ROOT, TRANSFORM_STRIDE,
+    CHANGED_TINT, CHANGED_TRANSFORM, CHANGED_VISIBILITY, ChannelData, FramePacket,
+    INSTANCE_GROUP_NONE, RENDER_CONTRACT_VERSION, SCENE_ROOT, TRANSFORM_STRIDE,
 };
 // Re-export FrameEvent from engine for consumers of this crate.
 pub use galeon_engine::FrameEvent;
@@ -317,6 +317,16 @@ impl WasmFramePacket {
     #[wasm_bindgen(getter)]
     pub fn instance_groups(&self) -> Vec<u32> {
         self.inner.instance_groups.clone()
+    }
+
+    /// Per-instance color tints (three f32 per entity, `[r, g, b]` linear sRGB).
+    ///
+    /// Default `[1.0, 1.0, 1.0]` (white) is the no-op identity. Only meaningful
+    /// for entities with `InstanceOf` — the standalone-`Object3D` path ignores
+    /// these values.
+    #[wasm_bindgen(getter)]
+    pub fn tints(&self) -> Vec<f32> {
+        self.inner.tints.clone()
     }
 
     /// Monotonic frame version — consumers can skip processing when unchanged.

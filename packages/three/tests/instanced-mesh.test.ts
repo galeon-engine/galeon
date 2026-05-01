@@ -293,3 +293,183 @@ describe("RendererCache instanced-mesh path (#215 T2)", () => {
     expect(cache.instancing.batchCount).toBe(0);
   });
 });
+
+describe("RendererCache instanced tint channel (#215 T3)", () => {
+  test("tinted entity round-trips into InstancedMesh.instanceColor", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(1, new THREE.BoxGeometry(1, 1, 1));
+    cache.registerMaterial(0, new THREE.MeshBasicMaterial());
+
+    const packet = makePacket({ entity_count: 1 });
+    fillIdentityTransforms(packet);
+    packet.entity_ids[0] = 1;
+    packet.mesh_handles[0] = 1;
+    (packet as { instance_groups?: Uint32Array }).instance_groups =
+      new Uint32Array([1]);
+    (packet as { tints?: Float32Array }).tints = new Float32Array([
+      0.25, 0.5, 1.0,
+    ]);
+    cache.applyFrame(packet);
+
+    const mesh = cache.instancing.meshFor(1)!;
+    expect(mesh.instanceColor).toBeDefined();
+    const color = new THREE.Color();
+    mesh.getColorAt(0, color);
+    expect(color.r).toBeCloseTo(0.25);
+    expect(color.g).toBeCloseTo(0.5);
+    expect(color.b).toBeCloseTo(1.0);
+  });
+
+  test("untinted entities default to white when packet has no tints", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(1, new THREE.BoxGeometry(1, 1, 1));
+    cache.registerMaterial(0, new THREE.MeshBasicMaterial());
+
+    const packet = makePacket({ entity_count: 1 });
+    fillIdentityTransforms(packet);
+    packet.entity_ids[0] = 1;
+    packet.mesh_handles[0] = 1;
+    (packet as { instance_groups?: Uint32Array }).instance_groups =
+      new Uint32Array([1]);
+    cache.applyFrame(packet);
+
+    const mesh = cache.instancing.meshFor(1)!;
+    // instanceColor is allocated synchronously at batch creation per #21786,
+    // even when no tint arrives — every slot defaults to white.
+    expect(mesh.instanceColor).toBeDefined();
+    const color = new THREE.Color();
+    mesh.getColorAt(0, color);
+    expect(color.r).toBeCloseTo(1.0);
+    expect(color.g).toBeCloseTo(1.0);
+    expect(color.b).toBeCloseTo(1.0);
+  });
+
+  test("mixed tinted + untinted entities in same batch", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(1, new THREE.BoxGeometry(1, 1, 1));
+    cache.registerMaterial(0, new THREE.MeshBasicMaterial());
+
+    const packet = makePacket({ entity_count: 3 });
+    fillIdentityTransforms(packet);
+    for (let i = 0; i < 3; i++) {
+      packet.entity_ids[i] = i + 1;
+      packet.mesh_handles[i] = 1;
+    }
+    (packet as { instance_groups?: Uint32Array }).instance_groups =
+      new Uint32Array([1, 1, 1]);
+    // Slot 0 red, slot 1 white (un-tinted), slot 2 green.
+    (packet as { tints?: Float32Array }).tints = new Float32Array([
+      1, 0, 0, 1, 1, 1, 0, 1, 0,
+    ]);
+    cache.applyFrame(packet);
+
+    const mesh = cache.instancing.meshFor(1)!;
+    const color = new THREE.Color();
+    mesh.getColorAt(0, color);
+    expect([color.r, color.g, color.b]).toEqual([1, 0, 0]);
+    mesh.getColorAt(1, color);
+    expect([color.r, color.g, color.b]).toEqual([1, 1, 1]);
+    mesh.getColorAt(2, color);
+    expect([color.r, color.g, color.b]).toEqual([0, 1, 0]);
+  });
+
+  test("growBatch carries instanceColor through 2x grow", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(1, new THREE.BoxGeometry(1, 1, 1));
+    cache.registerMaterial(0, new THREE.MeshBasicMaterial());
+
+    // Frame 1: 2 entities at INITIAL_CAPACITY=16, slot 0 = red.
+    const f1 = makePacket({ entity_count: 2 });
+    fillIdentityTransforms(f1);
+    for (let i = 0; i < 2; i++) {
+      f1.entity_ids[i] = i + 1;
+      f1.mesh_handles[i] = 1;
+    }
+    (f1 as { instance_groups?: Uint32Array }).instance_groups =
+      new Uint32Array([1, 1]);
+    (f1 as { tints?: Float32Array }).tints = new Float32Array([
+      1, 0, 0, 1, 1, 1,
+    ]);
+    cache.applyFrame(f1);
+    expect(cache.instancing.capacityFor(1)).toBe(16);
+
+    // Frame 2: 17 entities forces grow. Slot 0 still red.
+    const N = 17;
+    const f2 = makePacket({ entity_count: N });
+    fillIdentityTransforms(f2);
+    for (let i = 0; i < N; i++) {
+      f2.entity_ids[i] = i + 1;
+      f2.mesh_handles[i] = 1;
+    }
+    const groups = new Uint32Array(N);
+    groups.fill(1);
+    (f2 as { instance_groups?: Uint32Array }).instance_groups = groups;
+    const tints = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+      tints[i * 3] = i === 0 ? 1 : 1;
+      tints[i * 3 + 1] = i === 0 ? 0 : 1;
+      tints[i * 3 + 2] = i === 0 ? 0 : 1;
+    }
+    (f2 as { tints?: Float32Array }).tints = tints;
+    cache.applyFrame(f2);
+
+    expect(cache.instancing.capacityFor(1)).toBeGreaterThanOrEqual(32);
+    const mesh = cache.instancing.meshFor(1)!;
+    expect(mesh.instanceColor).toBeDefined();
+    const color = new THREE.Color();
+    mesh.getColorAt(0, color);
+    expect([color.r, color.g, color.b]).toEqual([1, 0, 0]);
+  });
+
+  test("swap-with-last on remove preserves moved entity's tint", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(1, new THREE.BoxGeometry(1, 1, 1));
+    cache.registerMaterial(0, new THREE.MeshBasicMaterial());
+
+    // Frame 1: 4 entities, distinctive tints per slot.
+    const f1 = makePacket({ entity_count: 4 });
+    fillIdentityTransforms(f1);
+    for (let i = 0; i < 4; i++) {
+      f1.entity_ids[i] = i + 1;
+      f1.mesh_handles[i] = 1;
+    }
+    (f1 as { instance_groups?: Uint32Array }).instance_groups =
+      new Uint32Array([1, 1, 1, 1]);
+    // entity 1 = red, entity 2 = green, entity 3 = blue, entity 4 = yellow.
+    (f1 as { tints?: Float32Array }).tints = new Float32Array([
+      1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0,
+    ]);
+    cache.applyFrame(f1);
+
+    // Frame 2: drop entities 2 and 3, keep 1 and 4.
+    const f2 = makePacket({ entity_count: 2 });
+    fillIdentityTransforms(f2);
+    f2.entity_ids[0] = 1;
+    f2.entity_ids[1] = 4;
+    f2.mesh_handles[0] = 1;
+    f2.mesh_handles[1] = 1;
+    (f2 as { instance_groups?: Uint32Array }).instance_groups =
+      new Uint32Array([1, 1]);
+    (f2 as { tints?: Float32Array }).tints = new Float32Array([
+      1, 0, 0, 1, 1, 0,
+    ]);
+    cache.applyFrame(f2);
+
+    expect(cache.instancing.slotsFor(1)).toBe(2);
+    const mesh = cache.instancing.meshFor(1)!;
+    const color = new THREE.Color();
+    // Both surviving entities have their tints intact regardless of slot.
+    const observed: Array<[number, number, number]> = [];
+    for (let s = 0; s < mesh.count; s++) {
+      mesh.getColorAt(s, color);
+      observed.push([color.r, color.g, color.b]);
+    }
+    expect(observed).toContainEqual([1, 0, 0]);
+    expect(observed).toContainEqual([1, 1, 0]);
+  });
+});
