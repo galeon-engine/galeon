@@ -1,0 +1,24 @@
+{
+  "name": "@galeon/example-instanced-cubes",
+  "version": "0.4.0",
+  "private": true,
+  "description": "5000-cube benchmark exercising the GPU-instanced render path",
+  "type": "module",
+  "license": "AGPL-3.0-only OR LicenseRef-Commercial",
+  "scripts": {
+    "build": "bun build src/main.ts --outdir=dist --target=browser --format=esm",
+    "start": "bun build src/main.ts --outdir=dist --target=browser --format=esm --watch"
+  },
+  "dependencies": {
+    "@galeon/render-core": "=0.4.0",
+    "@galeon/three": "=0.4.0",
+    "three": "^0.183.2"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/three": "^0.183.1"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}

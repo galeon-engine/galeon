@@ -37,6 +37,20 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `@galeon/render-core` mirrors the Rust constants: `INSTANCE_GROUP_NONE`,
   `CHANGED_INSTANCE_GROUP`, and an optional `instance_groups: Uint32Array`
   field on `FramePacketView`, all validated by `assertFramePacketContract`.
+- **`examples/instanced-cubes` benchmark + instancing guide (#215, T4)** —
+  New runnable example under `examples/instanced-cubes` drives 5000 cubes
+  through a sine field, with `?mode=instanced` (default) vs.
+  `?mode=standalone` URL toggle to compare the GPU-instanced render path
+  against the per-entity `Object3D` path on identical workloads. Every
+  entity is marked `CHANGED_TRANSFORM` each frame so the renderer never
+  short-circuits on unchanged data — the FPS readout reflects worst-case
+  (full-update) cost. The new `docs/guide/instancing.md` documents when to
+  use `InstanceOf`, the render-snapshot surface (`instance_groups`, `tints`,
+  `CHANGED_INSTANCE_GROUP`, `CHANGED_TINT`), and a measurement methodology
+  with a fill-in-your-own-numbers template — issue #215's verification
+  ("Manual perf comparison") is intentionally machine-specific, so the
+  guide does not pre-quote any reading. Workspace gains the
+  `examples/*` entry; root `tsconfig.json` references the new project.
 - **`Tint([f32; 3])` per-instance color channel (#215, T3)** — New ECS
   component that writes a per-instance color to
   `THREE.InstancedMesh.instanceColor`. Default `[1.0, 1.0, 1.0]` (white) is
