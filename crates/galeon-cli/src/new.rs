@@ -405,8 +405,8 @@ mod template_dep_tests {
             ("server", &server),
         ] {
             assert!(
-                content.contains(&format!(r#"galeon-engine = "{galeon_version}""#)),
-                "{label} template missing published crate dependency"
+                content.contains(&format!(r#"galeon-engine = "{galeon_minor}""#)),
+                "{label} template missing published crate dependency for current minor line"
             );
             assert!(
                 !content.contains("galeon-engine/galeon.git"),
@@ -415,13 +415,12 @@ mod template_dep_tests {
         }
 
         assert!(
-            local_first_client.contains(&format!(r#"galeon-engine = "{galeon_version}""#)),
-            "local-first client template missing engine dependency pinned to CLI release"
+            local_first_client.contains(&format!(r#"galeon-engine = "{galeon_minor}""#)),
+            "local-first client template missing engine dependency pinned to CLI minor line"
         );
         assert!(
-            local_first_client
-                .contains(&format!(r#"galeon-engine-three-sync = "{galeon_version}""#)),
-            "local-first client template missing three-sync dependency pinned to CLI release"
+            local_first_client.contains(&format!(r#"galeon-engine-three-sync = "{galeon_minor}""#)),
+            "local-first client template missing three-sync dependency pinned to CLI minor line"
         );
         assert!(
             local_first_pkg.contains(&format!(r#""@galeon/engine-ts": "^{galeon_version}""#)),

@@ -55,7 +55,7 @@ edition.workspace = true
 [dependencies]
 galeon-engine = "{}"
 "#,
-        galeon_release_version(),
+        galeon_minor_version(),
     )
 }
 
@@ -84,7 +84,7 @@ edition.workspace = true
 galeon-engine = "{}"
 {name}-protocol = {{ path = "../protocol" }}
 "#,
-        galeon_release_version(),
+        galeon_minor_version(),
     )
 }
 
@@ -141,7 +141,7 @@ galeon-engine = "{}"
 axum = "0.8"
 tokio = {{ version = "1", features = ["full"] }}
 "#,
-        galeon_release_version(),
+        galeon_minor_version(),
     )
 }
 
@@ -560,7 +560,7 @@ galeon-engine-three-sync = "{version}"
 wasm-bindgen = "0.2"
 {name}-domain = {{ path = "../domain" }}
 "#,
-        version = galeon_release_version(),
+        version = galeon_minor_version(),
     )
 }
 
