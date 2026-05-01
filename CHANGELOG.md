@@ -7,6 +7,18 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **`InstanceOf(MeshHandle)` ECS component and `FramePacket.instance_groups`
+  channel (#215, T1)** — New marker component that opts an entity into a
+  shared GPU instance batch keyed by its wrapped `MeshHandle`. Render
+  extraction now produces a parallel `instance_groups: Vec<u32>` array with
+  one entry per entity: the wrapped mesh-handle id when the entity is tagged,
+  or the new `INSTANCE_GROUP_NONE` sentinel (`u32::MAX`) when it is not.
+  Exposed to the WASM bridge via `WasmFramePacket.instance_groups`. Lays the
+  data foundation for the per-`MeshHandle` `THREE.InstancedMesh` manager
+  (#215, T2).
+
 ### Changed
 
 - **React 19 support for `@galeon/r3f` (#211)** — Verified the R3F

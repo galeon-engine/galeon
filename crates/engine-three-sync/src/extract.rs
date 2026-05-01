@@ -3,13 +3,13 @@
 use std::collections::HashSet;
 
 use galeon_engine::render::{
-    MaterialHandle, MeshHandle, ObjectType, ParentEntity, Transform, Visibility,
+    InstanceOf, MaterialHandle, MeshHandle, ObjectType, ParentEntity, Transform, Visibility,
 };
 use galeon_engine::{Entity, RenderChannelRegistry, RenderEventRegistry, World};
 
 use crate::frame_packet::{
     CHANGED_MATERIAL, CHANGED_MESH, CHANGED_OBJECT_TYPE, CHANGED_PARENT, CHANGED_TRANSFORM,
-    CHANGED_VISIBILITY, ChannelData, FramePacket, SCENE_ROOT,
+    CHANGED_VISIBILITY, ChannelData, FramePacket, INSTANCE_GROUP_NONE, SCENE_ROOT,
 };
 
 /// Extract render-facing data from the ECS world into a packed frame packet.
@@ -44,6 +44,13 @@ use crate::frame_packet::{
 /// - `ObjectType`: defaults to mesh (`0`)
 /// - Custom channels: defaults to `0.0` for all floats
 type Renderable = (Entity, [f32; 3], [f32; 4], [f32; 3], u32, u8);
+
+fn resolved_instance_group(world: &World, entity: Entity) -> u32 {
+    world
+        .get::<InstanceOf>(entity)
+        .map(|i| i.0.id)
+        .unwrap_or(INSTANCE_GROUP_NONE)
+}
 
 fn resolved_parent(world: &World, entity: Entity) -> Option<Entity> {
     let parent = world.get::<ParentEntity>(entity)?.0;
@@ -91,6 +98,7 @@ pub fn extract_frame(world: &World) -> FramePacket {
         material_id: u32,
         parent_id: u32,
         object_type: u8,
+        instance_group: u32,
         depth: u32,
     }
 
@@ -106,6 +114,7 @@ pub fn extract_frame(world: &World) -> FramePacket {
                 .get::<ObjectType>(entity)
                 .map(|t| *t as u8)
                 .unwrap_or(0),
+            instance_group: resolved_instance_group(world, entity),
             depth: hierarchy_depth(world, entity, 64),
         })
         .collect();
@@ -128,6 +137,7 @@ pub fn extract_frame(world: &World) -> FramePacket {
             row.material_id,
             row.parent_id,
             row.object_type,
+            row.instance_group,
         );
         entities.push(row.entity);
     }
@@ -379,6 +389,8 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
             }
         }
 
+        let instance_group = resolved_instance_group(world, *entity);
+
         packet.push_incremental(
             entity.index(),
             entity.generation(),
@@ -390,6 +402,7 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
             material_id,
             *parent_id,
             *object_type,
+            instance_group,
             flags,
         );
     }
@@ -1110,6 +1123,100 @@ mod tests {
         assert_eq!(packet.event_count(), 2);
         assert_eq!(packet.events[0].entity, 1);
         assert_eq!(packet.events[1].entity, 2);
+    }
+
+    // -------------------------------------------------------------------------
+    // InstanceOf / instance_groups extraction (issue #215 T1)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn extract_populates_instance_group_for_tagged_entity() {
+        use galeon_engine::render::InstanceOf;
+
+        let mut world = World::new();
+        world.spawn((
+            Transform::identity(),
+            MeshHandle { id: 7 },
+            InstanceOf(MeshHandle { id: 7 }),
+        ));
+
+        let packet = extract_frame(&world);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.instance_groups[0], 7);
+    }
+
+    #[test]
+    fn extract_instance_group_none_for_untagged_entity() {
+        use crate::frame_packet::INSTANCE_GROUP_NONE;
+
+        let mut world = World::new();
+        world.spawn((Transform::identity(), MeshHandle { id: 7 }));
+
+        let packet = extract_frame(&world);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.instance_groups[0], INSTANCE_GROUP_NONE);
+    }
+
+    #[test]
+    fn extract_instance_group_for_mixed_scene() {
+        use crate::frame_packet::INSTANCE_GROUP_NONE;
+        use galeon_engine::render::InstanceOf;
+
+        let mut world = World::new();
+        let tagged = world.spawn((
+            Transform::from_position(1.0, 0.0, 0.0),
+            MeshHandle { id: 5 },
+            InstanceOf(MeshHandle { id: 5 }),
+        ));
+        let untagged = world.spawn((Transform::from_position(2.0, 0.0, 0.0),));
+
+        let packet = extract_frame(&world);
+        assert_eq!(packet.entity_count(), 2);
+
+        for i in 0..2 {
+            let entity_id = packet.entity_ids[i];
+            if entity_id == tagged.index() {
+                assert_eq!(packet.instance_groups[i], 5);
+            } else if entity_id == untagged.index() {
+                assert_eq!(packet.instance_groups[i], INSTANCE_GROUP_NONE);
+            } else {
+                panic!("unexpected entity id {entity_id}");
+            }
+        }
+    }
+
+    #[test]
+    fn incremental_extract_populates_instance_group_for_tagged_entity() {
+        use galeon_engine::render::InstanceOf;
+
+        let mut world = World::new();
+        let since = world.change_tick();
+        world.advance_tick();
+
+        world.spawn((
+            Transform::from_position(1.0, 0.0, 0.0),
+            MeshHandle { id: 9 },
+            InstanceOf(MeshHandle { id: 9 }),
+        ));
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.instance_groups[0], 9);
+    }
+
+    #[test]
+    fn incremental_extract_instance_group_none_for_untagged_entity() {
+        use crate::frame_packet::INSTANCE_GROUP_NONE;
+
+        let mut world = World::new();
+        let since = world.change_tick();
+        world.advance_tick();
+
+        world.spawn((Transform::from_position(1.0, 0.0, 0.0),));
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.instance_groups[0], INSTANCE_GROUP_NONE);
     }
 
     #[test]

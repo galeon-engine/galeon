@@ -37,6 +37,14 @@ pub struct FramePacket {
     pub parent_ids: Vec<u32>,
     /// Three.js object type discriminant (one u8 per entity).
     pub object_types: Vec<u8>,
+    /// GPU instance-group identifier per entity (one u32 per entity).
+    ///
+    /// When the entity has an `InstanceOf(MeshHandle)` component, this holds
+    /// the wrapped mesh handle id — the renderer routes the entity's
+    /// transform into a shared `THREE.InstancedMesh` keyed by this value.
+    /// Otherwise it holds [`INSTANCE_GROUP_NONE`] and the renderer creates a
+    /// standalone `Object3D`.
+    pub instance_groups: Vec<u32>,
     /// Named per-entity float channels for game-specific render data.
     pub custom_channels: HashMap<String, ChannelData>,
     /// One-shot events for audio/VFX triggers (fire-and-forget, not per-entity).
@@ -62,6 +70,13 @@ pub const CHANGED_PARENT: u8 = 1 << 5;
 /// Sentinel value in `parent_ids` meaning "child of scene root" (no parent entity).
 pub const SCENE_ROOT: u32 = u32::MAX;
 
+/// Sentinel value in `instance_groups` meaning "not part of an instance batch".
+///
+/// Entities with this value render through the standard per-entity `Object3D`
+/// path. Entities with any other value share a `THREE.InstancedMesh` keyed by
+/// that value (the wrapped `MeshHandle.id`).
+pub const INSTANCE_GROUP_NONE: u32 = u32::MAX;
+
 /// Number of f32 values per entity in the transforms array.
 pub const TRANSFORM_STRIDE: usize = 10;
 /// Version of the packed render snapshot contract.
@@ -80,6 +95,7 @@ impl FramePacket {
             material_handles: Vec::new(),
             parent_ids: Vec::new(),
             object_types: Vec::new(),
+            instance_groups: Vec::new(),
             custom_channels: HashMap::new(),
             events: Vec::new(),
             change_flags: Vec::new(),
@@ -99,6 +115,7 @@ impl FramePacket {
             material_handles: Vec::with_capacity(entity_count),
             parent_ids: Vec::with_capacity(entity_count),
             object_types: Vec::with_capacity(entity_count),
+            instance_groups: Vec::with_capacity(entity_count),
             custom_channels: HashMap::new(),
             events: Vec::new(),
             change_flags: Vec::with_capacity(entity_count),
@@ -120,6 +137,7 @@ impl FramePacket {
         material_id: u32,
         parent_id: u32,
         object_type: u8,
+        instance_group: u32,
     ) {
         self.entity_ids.push(entity_id);
         self.entity_generations.push(entity_generation);
@@ -131,6 +149,7 @@ impl FramePacket {
         self.material_handles.push(material_id);
         self.parent_ids.push(parent_id);
         self.object_types.push(object_type);
+        self.instance_groups.push(instance_group);
     }
 
     /// Push render data with change flags (incremental extraction).
@@ -147,6 +166,7 @@ impl FramePacket {
         material_id: u32,
         parent_id: u32,
         object_type: u8,
+        instance_group: u32,
         flags: u8,
     ) {
         self.push(
@@ -160,6 +180,7 @@ impl FramePacket {
             material_id,
             parent_id,
             object_type,
+            instance_group,
         );
         self.change_flags.push(flags);
     }
@@ -272,6 +293,7 @@ mod tests {
             20,
             SCENE_ROOT,
             0,
+            INSTANCE_GROUP_NONE,
         );
         assert_eq!(p.entity_count(), 1);
         assert_eq!(p.entity_ids[0], 42);
@@ -284,6 +306,7 @@ mod tests {
         assert_eq!(p.material_handles[0], 20);
         assert_eq!(p.parent_ids[0], SCENE_ROOT);
         assert_eq!(p.object_types[0], 0);
+        assert_eq!(p.instance_groups[0], INSTANCE_GROUP_NONE);
     }
 
     #[test]
@@ -300,6 +323,7 @@ mod tests {
             1,
             SCENE_ROOT,
             0,
+            INSTANCE_GROUP_NONE,
         );
         p.push(
             1,
@@ -312,6 +336,7 @@ mod tests {
             3,
             0,
             0,
+            INSTANCE_GROUP_NONE,
         );
         assert_eq!(p.entity_count(), 2);
         assert_eq!(p.transforms.len(), TRANSFORM_STRIDE * 2);
@@ -346,8 +371,37 @@ mod tests {
             20,
             SCENE_ROOT,
             2,
+            INSTANCE_GROUP_NONE,
         );
         assert_eq!(p.entity_count(), 1);
         assert_eq!(p.object_types[0], 2);
+    }
+
+    #[test]
+    fn push_stores_instance_group() {
+        let mut p = FramePacket::new();
+        p.push(
+            1,
+            0,
+            &[0.0; 3],
+            &[0.0, 0.0, 0.0, 1.0],
+            &[1.0; 3],
+            true,
+            10,
+            20,
+            SCENE_ROOT,
+            0,
+            42,
+        );
+        assert_eq!(p.entity_count(), 1);
+        assert_eq!(p.instance_groups[0], 42);
+    }
+
+    #[test]
+    fn empty_packet_has_empty_instance_groups() {
+        let p = FramePacket::new();
+        assert!(p.instance_groups.is_empty());
+        let p2 = FramePacket::with_capacity(8);
+        assert!(p2.instance_groups.is_empty());
     }
 }

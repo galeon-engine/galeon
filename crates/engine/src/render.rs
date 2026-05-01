@@ -63,6 +63,18 @@ pub struct MaterialHandle {
     pub id: u32,
 }
 
+/// Marks an entity as a member of a GPU-instanced mesh batch.
+///
+/// When present, the renderer routes the entity's transform into a shared
+/// `THREE.InstancedMesh` keyed by the wrapped [`MeshHandle`], instead of
+/// creating a standalone `Object3D` per entity. Used for crowd-scale
+/// rendering (1000+ entities sharing one geometry).
+///
+/// The wrapped `MeshHandle` is the instance-group identifier — entities that
+/// share the same `InstanceOf(handle)` share the same `InstancedMesh`.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct InstanceOf(pub MeshHandle);
+
 /// Parent entity for scene-graph hierarchy.
 ///
 /// Attaching this component to an entity makes it a child of the referenced
@@ -127,6 +139,26 @@ mod tests {
     #[test]
     fn object_type_default_is_mesh() {
         assert_eq!(ObjectType::default(), ObjectType::Mesh);
+    }
+
+    #[test]
+    fn instance_of_wraps_mesh_handle() {
+        let handle = MeshHandle { id: 42 };
+        let tag = InstanceOf(handle);
+        assert_eq!(tag.0, handle);
+        assert_eq!(tag.0.id, 42);
+    }
+
+    #[test]
+    fn instance_of_equality_is_by_mesh_handle() {
+        assert_eq!(
+            InstanceOf(MeshHandle { id: 7 }),
+            InstanceOf(MeshHandle { id: 7 })
+        );
+        assert_ne!(
+            InstanceOf(MeshHandle { id: 7 }),
+            InstanceOf(MeshHandle { id: 8 })
+        );
     }
 
     #[test]
