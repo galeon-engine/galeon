@@ -38,8 +38,10 @@ A new framework-neutral package owns the input + raycasting logic.
   All managed entities whose world-space AABB intersects a six-plane sub-frustum
   derived from the rect are reported.
 
-Both paths force `scene.updateMatrixWorld(true)` first so input handled before
-the next render frame still sees current world transforms, and both skip
+Both paths force `scene.updateMatrixWorld(true)` and
+`camera.updateMatrixWorld()` first so input handled between a camera move and
+the next render still sees current world transforms (`scene.updateMatrixWorld`
+does not touch a camera that lives outside the scene graph), and both skip
 hidden entities — the click path filters intersections via the visible
 ancestor chain, and the marquee path walks the scene tree manually so an
 invisible parent prunes its entire subtree. A stamped `THREE.Group`'s AABB is
@@ -65,8 +67,12 @@ point. Two methods apply input events:
 
 - `Selection::apply_pick(entity, point, modifiers)` — single click.
   - No modifier replaces (or clears on a miss).
-  - `shift` toggles. Misses are no-ops to avoid accidental clears mid-shift.
-  - `ctrl` subtracts. Misses are no-ops.
+  - Shift only: toggles. Misses are no-ops to avoid accidental clears mid-shift.
+  - Ctrl only: subtracts. Misses are no-ops.
+  - Any other combination (Shift+Ctrl, Alt, Meta, …): same as no-modifier on a
+    hit (replace), no-op on a miss. Dispatch is on the full modifier bitmask
+    so a multi-modifier click does not get absorbed by the first matching
+    single-modifier rule.
 - `Selection::apply_pick_rect(entities, modifiers)` — marquee.
   - No modifier replaces. `shift` adds. `ctrl` subtracts. `alt` intersects.
 

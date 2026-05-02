@@ -42,6 +42,15 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   zero-size box at the group origin, so grouped entities with offset child
   meshes marquee-select correctly, and (b) skips invisible objects and
   descendants of invisible parents, matching the click path's behaviour.
+- **Picking refreshes camera matrices (#214)** — both click and marquee
+  paths now call `camera.updateMatrixWorld()` before raycasting.
+  `scene.updateMatrixWorld` does not touch a camera that lives outside the
+  scene graph, so picks taken between a camera move and the next render
+  could otherwise use stale ray origins and select the wrong entity.
+- **`Selection::apply_pick` honours documented multi-modifier semantics
+  (#214)** — clicks with multi-modifier combinations (e.g. Shift+Ctrl) now
+  fall through to the "replace on hit, no-op on miss" branch as documented,
+  instead of being absorbed by the first matching single-modifier rule.
 
 ## [0.4.0]
 

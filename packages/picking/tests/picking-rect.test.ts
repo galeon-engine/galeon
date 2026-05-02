@@ -240,6 +240,37 @@ describe("attachPicking drag-rectangle marquee", () => {
     expect(event.entities).toEqual([]);
   });
 
+  test("refreshes the camera matrix for marquee picks after a camera move", () => {
+    const scene = new THREE.Scene();
+    // Cube near the origin and another to the right; we'll pan the camera so
+    // a "centre" marquee covers the right cube only.
+    const a = makeMeshAt(1, 0, 0, 0);
+    const b = makeMeshAt(2, 5, 0, 0);
+    scene.add(a, b);
+
+    const camera = makeOrthoCamera();
+    const canvas = new FakeCanvas();
+    const events: PickingEvent[] = [];
+    attachPicking(canvas, scene, camera, {
+      onPick: (e) => events.push(e),
+      dragThreshold: 4,
+    });
+
+    // Pan camera onto `b` without calling updateMatrixWorld manually.
+    camera.position.set(5, 0, 5);
+
+    // Tight marquee around the canvas centre — should land on `b`.
+    canvas.fire("mousedown", { clientX: 380, clientY: 280 });
+    canvas.fire("mousemove", { clientX: 420, clientY: 320 });
+    canvas.fire("mouseup", { clientX: 420, clientY: 320 });
+
+    expect(events).toHaveLength(1);
+    const event = events[0]!;
+    if (event.kind !== "pick-rect") throw new Error("unreachable");
+    const ids = event.entities.map((e) => e.entityId).sort();
+    expect(ids).toEqual([2]);
+  });
+
   test("mouseleave defuses an in-progress drag without emitting", () => {
     const scene = new THREE.Scene();
     const canvas = new FakeCanvas();

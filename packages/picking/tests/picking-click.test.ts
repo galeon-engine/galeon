@@ -181,6 +181,37 @@ describe("attachPicking single-click", () => {
     expect(event.entity).toEqual({ entityId: 2, generation: 1 });
   });
 
+  test("refreshes the camera matrix when the camera moved without explicit update", () => {
+    const scene = new THREE.Scene();
+    const a = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+    a.position.set(0, 0, 0);
+    stampEntity(a, 1, 1);
+    const b = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+    b.position.set(5, 0, 0);
+    stampEntity(b, 2, 1);
+    scene.add(a, b);
+    scene.updateMatrixWorld(true);
+
+    // Camera initially looks at the origin (centre click would hit `a`).
+    const camera = makeOrthoCamera();
+    const canvas = new FakeCanvas();
+    const events: PickingEvent[] = [];
+    attachPicking(canvas, scene, camera, { onPick: (e) => events.push(e) });
+
+    // Pan the camera to look at `b` and DO NOT call updateMatrixWorld manually.
+    // `scene.updateMatrixWorld` does not refresh a camera that lives outside the
+    // scene graph, so picking must call `camera.updateMatrixWorld()` itself.
+    camera.position.set(5, 0, 5);
+
+    canvas.fire("mousedown", { clientX: 400, clientY: 300 });
+    canvas.fire("mouseup", { clientX: 400, clientY: 300 });
+
+    expect(events).toHaveLength(1);
+    const event = events[0]!;
+    if (event.kind !== "pick") throw new Error("unreachable");
+    expect(event.entity).toEqual({ entityId: 2, generation: 1 });
+  });
+
   test("captures modifier-key state on the originating mouse-up", () => {
     const scene = new THREE.Scene();
     const canvas = new FakeCanvas();

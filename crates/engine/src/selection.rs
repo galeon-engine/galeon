@@ -110,23 +110,28 @@ impl Selection {
         if let Some(p) = point {
             self.last_pick = Some(p);
         }
-        match entity {
-            None => {
-                if modifiers.0 == 0 {
-                    self.entities.clear();
+        // Dispatch on the full modifier bitmask, not on individual flags, so
+        // multi-modifier clicks (e.g. Shift+Ctrl) fall through to the documented
+        // "other combinations" branch instead of being absorbed by the first
+        // matching single-modifier rule.
+        match (entity, modifiers.0) {
+            (None, 0) => {
+                self.entities.clear();
+            }
+            (None, _) => {
+                // Any modifier on a miss is a no-op.
+            }
+            (Some(entity), PickModifiers::SHIFT) => {
+                if !self.entities.insert(entity) {
+                    self.entities.remove(&entity);
                 }
             }
-            Some(entity) => {
-                if modifiers.shift() {
-                    if !self.entities.insert(entity) {
-                        self.entities.remove(&entity);
-                    }
-                } else if modifiers.ctrl() {
-                    self.entities.remove(&entity);
-                } else {
-                    self.entities.clear();
-                    self.entities.insert(entity);
-                }
+            (Some(entity), PickModifiers::CTRL) => {
+                self.entities.remove(&entity);
+            }
+            (Some(entity), _) => {
+                self.entities.clear();
+                self.entities.insert(entity);
             }
         }
     }
@@ -236,6 +241,29 @@ mod tests {
         sel.apply_pick(Some(e(1, 0)), None, PickModifiers(PickModifiers::CTRL));
         assert!(!sel.contains(e(1, 0)));
         assert!(sel.contains(e(2, 0)));
+    }
+
+    #[test]
+    fn shift_plus_other_modifier_falls_through_to_replace() {
+        let mut sel = Selection::new();
+        sel.entities.insert(e(1, 0));
+        sel.entities.insert(e(2, 0));
+        // Shift+Ctrl is a non-plain combination: docs say it should behave
+        // like an unmodified hit (replace), not like Shift alone (toggle).
+        let bits = PickModifiers::SHIFT | PickModifiers::CTRL;
+        sel.apply_pick(Some(e(3, 0)), None, PickModifiers(bits));
+        assert_eq!(sel.entities.len(), 1);
+        assert!(sel.contains(e(3, 0)));
+    }
+
+    #[test]
+    fn shift_plus_other_modifier_on_miss_is_noop() {
+        let mut sel = Selection::new();
+        sel.entities.insert(e(1, 0));
+        let bits = PickModifiers::SHIFT | PickModifiers::ALT;
+        sel.apply_pick(None, None, PickModifiers(bits));
+        assert_eq!(sel.entities.len(), 1);
+        assert!(sel.contains(e(1, 0)));
     }
 
     #[test]

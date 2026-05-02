@@ -220,6 +220,12 @@ function pickPoint(
   raycaster: THREE.Raycaster,
 ): PickPointResult | null {
   scene.updateMatrixWorld(true);
+  // `scene.updateMatrixWorld` does not touch a camera that lives outside the
+  // scene graph, and `Camera.updateMatrixWorld` is what refreshes both
+  // `matrixWorld` and `matrixWorldInverse` — both of which `setFromCamera`
+  // reads. Without this, picks taken between a camera move and the next
+  // render would use stale ray origins and select the wrong entity.
+  camera.updateMatrixWorld();
   raycaster.setFromCamera(ndc, camera);
   const intersections = raycaster.intersectObjects(scene.children, true);
   for (const hit of intersections) {
@@ -248,6 +254,10 @@ function pickRect(
   filter: PickingOptions["filter"],
 ): PickingEntityRef[] {
   scene.updateMatrixWorld(true);
+  // `frustumFromRect` unprojects through `camera.matrixWorld` /
+  // `projectionMatrixInverse`; the same stale-camera risk that affects
+  // `pickPoint` applies here.
+  camera.updateMatrixWorld();
   const frustum = frustumFromRect(ndcStart, ndcEnd, camera);
   const aabb = new THREE.Box3();
   const out: PickingEntityRef[] = [];
