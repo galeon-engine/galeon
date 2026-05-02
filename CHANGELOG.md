@@ -57,6 +57,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (#214)** — clicks with multi-modifier combinations (e.g. Shift+Ctrl) now
   fall through to the "replace on hit, no-op on miss" branch as documented,
   instead of being absorbed by the first matching single-modifier rule.
+- **Layer-hidden non-geometry entities excluded from marquee picks (#214)** —
+  `worldAabb`'s zero-size fallback for non-mesh entities (lights, empty
+  groups) now respects the stamped object's own layer mask. Previously, an
+  empty group or light on a non-camera layer could still be marquee-selected
+  if the rect covered its origin even though the renderer would skip it and
+  click picking could never reach it.
 
 ## [0.4.0]
 

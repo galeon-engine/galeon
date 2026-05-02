@@ -353,6 +353,42 @@ describe("attachPicking drag-rectangle marquee", () => {
     expect(ids).toEqual([1]);
   });
 
+  test("excludes layer-hidden non-geometry entities from marquee picks", () => {
+    // A stamped non-mesh entity with no descendant geometry (e.g., an empty
+    // Group used as an anchor, or a Light) falls back to a zero-size AABB at
+    // its world origin in `worldAabb`. That fallback must respect the stamped
+    // object's own layer mask: an entity on a non-camera layer is not
+    // rendered, so it must not be selectable by a rect that covers its origin.
+    // Click picking can never reach such an object (no geometry to ray-test),
+    // so marquee dropping it keeps the two paths consistent.
+    const scene = new THREE.Scene();
+    const anchor = new THREE.Group();
+    anchor.position.set(0, 0, 0);
+    anchor.layers.set(2);
+    (anchor.userData as Record<PropertyKey, unknown>)[GALEON_ENTITY_KEY] = {
+      entityId: 13,
+      generation: 0,
+    };
+    scene.add(anchor);
+
+    const canvas = new FakeCanvas();
+    const events: PickingEvent[] = [];
+    attachPicking(canvas, scene, makeOrthoCamera(), {
+      onPick: (e) => events.push(e),
+      dragThreshold: 2,
+    });
+
+    // Centred marquee covers the anchor's origin.
+    canvas.fire("mousedown", { clientX: 380, clientY: 280 });
+    canvas.fire("mousemove", { clientX: 420, clientY: 320 });
+    canvas.fire("mouseup", { clientX: 420, clientY: 320 });
+
+    expect(events).toHaveLength(1);
+    const event = events[0]!;
+    if (event.kind !== "pick-rect") throw new Error("unreachable");
+    expect(event.entities).toHaveLength(0);
+  });
+
   test("prunes layer-mismatched descendants when computing a group's AABB", () => {
     const scene = new THREE.Scene();
     // Group entity at the origin with one in-rect mesh on the camera layer

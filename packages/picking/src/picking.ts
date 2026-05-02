@@ -370,6 +370,15 @@ function worldAabb(
   visit(object);
   if (hasGeometry) return out;
 
+  // No geometry contributed (lights, empty groups, or all descendants pruned
+  // by visibility/layer/nested-entity gates). Fall back to a zero-size box at
+  // the world origin — but only if the stamped object's *own* layer mask
+  // overlaps the camera. Without this gate, an empty Group or Light on a
+  // non-camera layer would still be selectable by a marquee that covers its
+  // origin, even though the renderer would skip it. Click picking can never
+  // reach such an object (no geometry to ray-test), so marquee must drop it
+  // too to keep the two paths consistent.
+  if (!object.layers.test(camera.layers)) return null;
   const pos = new THREE.Vector3();
   object.getWorldPosition(pos);
   out.set(pos, pos);
