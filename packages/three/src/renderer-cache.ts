@@ -16,6 +16,7 @@ import {
 } from "@galeon/render-core";
 import {
   InstancedMeshManager,
+  type InstancedEntityPlacement,
   type InstanceBatchKey,
 } from "./instanced-mesh-manager.js";
 
@@ -424,6 +425,14 @@ export class RendererCache {
   getObject(entityId: number, generation: number): THREE.Object3D | undefined {
     if (this.generations.get(entityId) !== generation) return undefined;
     return this.objects.get(entityId);
+  }
+
+  /**
+   * Get the instanced mesh slot for an entity routed through batching, if any.
+   */
+  getInstance(entityId: number, generation: number): InstancedEntityPlacement | undefined {
+    if (this.generations.get(entityId) !== generation) return undefined;
+    return this.instancedMeshes.getEntityInstance(entityId, generation);
   }
 
   /**

@@ -23,6 +23,7 @@
     "prepublishOnly": "tsc --build"
   },
   "dependencies": {
+    "@galeon/picking": "=0.4.0",
     "@galeon/render-core": "=0.4.0",
     "@galeon/three": "=0.4.0"
   },

@@ -58,6 +58,72 @@ the `THREE.Raycaster` intersection's `instanceId` before falling back to the
 normal ancestor-stamp path. Marquee selection still uses object AABBs; large
 per-instance marquee acceleration remains a follow-up under #224.
 
+## TypeScript: `attachMarqueeRenderer`
+
+```ts
+import { attachMarqueeRenderer } from "@galeon/picking";
+
+const marquee = attachMarqueeRenderer(camera);
+
+function onDrag(startNdc, endNdc) {
+  marquee.update({ start: startNdc, end: endNdc });
+}
+
+function onDragEnd() {
+  marquee.update(null);
+}
+
+// On unmount:
+marquee.dispose();
+```
+
+`attachMarqueeRenderer` is a visual-only HUD primitive. It renders the current
+drag rectangle as camera-attached Three.js line geometry using Normalised
+Device Coordinates. It does not emit picking events or modify `Selection`;
+pair it with `attachPicking` when a project wants both selection behavior and
+the standard in-engine drag rectangle.
+
+## TypeScript: `attachSelectionRings`
+
+```ts
+import { attachSelectionRings } from "@galeon/picking";
+
+const rings = attachSelectionRings(scene, rendererCache);
+
+function render() {
+  rings.update(wasm.selectionEntities());
+  renderer.render(scene, camera);
+}
+
+// On unmount:
+rings.dispose();
+```
+
+`attachSelectionRings` renders simple `THREE.LineLoop` rings in world space
+for selected entities resolved through a `RendererCache`-compatible
+target. Standalone entities resolve through `getObject(entityId, generation)`;
+instanced entities resolve through `getInstance(entityId, generation)` and draw
+against the selected `THREE.InstancedMesh` slot. It intentionally uses
+per-entity wire rings instead of a post-processing `OutlinePass`, so consumers
+do not need to adopt `EffectComposer` just to show selection. Call
+`update(selection)` after selection changes or once per render frame if
+selected objects keep moving.
+
+## React Three Fiber Bindings
+
+```tsx
+import { GaleonProvider, MarqueeRenderer, SelectionRings } from "@galeon/r3f";
+
+<GaleonProvider engine={engine}>
+  <MarqueeRenderer rect={dragRectNdc} />
+  <SelectionRings selection={selectionEntities} />
+</GaleonProvider>
+```
+
+`<MarqueeRenderer />` attaches the rectangle geometry to the active R3F camera.
+`<SelectionRings />` reads the `RendererCache` from `GaleonProvider` and
+refreshes ring transforms during the R3F frame loop.
+
 ## Rust: `Selection` resource
 
 ```rust
@@ -95,8 +161,9 @@ reports the modifiers; the `Selection` resource decides what they mean.
 
 ## Out Of Scope
 
-- **Selection HUD rendering** — the application draws highlight rings,
-  health bars, formation indicators.
+- **Game-specific HUD rendering** — the application still draws health bars,
+  formation indicators, and custom selection treatments beyond the default
+  rings.
 - **Touch / gamepad input** — desktop mouse only.
 - **Multi-rect / lasso selection** — single rectangle only.
 - **GPU-accelerated picking** — when scenes scale past what raycasting can

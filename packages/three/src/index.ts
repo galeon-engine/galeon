@@ -9,6 +9,7 @@ export {
 export {
   GALEON_INSTANCE_ENTITIES_KEY,
   InstancedMeshManager,
+  type InstancedEntityPlacement,
   type InstancedEntityRef,
   type InstancedEntityResolver,
 } from "./instanced-mesh-manager.js";

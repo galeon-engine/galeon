@@ -13,3 +13,10 @@ export {
 } from "./provider.js";
 
 export { GaleonEntityStore, type GaleonEntityRef } from "./entity-store.js";
+
+export {
+  MarqueeRenderer,
+  SelectionRings,
+  type MarqueeRendererProps,
+  type SelectionRingsProps,
+} from "./selection-hud.js";

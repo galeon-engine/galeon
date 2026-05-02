@@ -9,6 +9,21 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Marquee renderer HUD primitive (#226 / T1)** — `@galeon/picking` now
+  exports `attachMarqueeRenderer(camera)`, a framework-neutral visual helper
+  that renders the current drag rectangle as camera-attached Three.js line
+  geometry from NDC endpoints. The primitive is visual-only and pairs with
+  `attachPicking` without changing Rust-side `Selection` semantics.
+
+- **Selection ring HUD primitives (#226 / T2/T3)** — `@galeon/picking` now
+  exports `attachSelectionRings(scene, target)`, a framework-neutral Three.js
+  overlay that resolves selected `{ entityId, generation }` refs through a
+  `RendererCache`-compatible target and draws per-entity world-space rings,
+  including instanced entities exposed through `RendererCache.getInstance`,
+  without requiring `EffectComposer`. `@galeon/r3f` adds
+  `<MarqueeRenderer rect={...} />` and `<SelectionRings selection={...} />` bindings over
+  the vanilla primitives.
+
 - **Heightmap terrain engine primitive (#213)** — New
   `galeon-engine-terrain` crate provides a Rust-owned `Terrain` resource with
   bilinear `height_at(x, z)` sampling, central-difference `normal_at(x, z)`
