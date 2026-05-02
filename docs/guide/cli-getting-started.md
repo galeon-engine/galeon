@@ -78,7 +78,8 @@ That flow:
 1. creates a Rust-owned `StarterPlugin` in `crates/domain`
 2. creates a `crates/client` WASM wrapper around
    `galeon-engine-three-sync::WasmEngine`
-3. creates a `client/` Vite + Three.js app that consumes `@galeon/engine-ts`
+3. creates a `client/` Vite + Three.js app that consumes `@galeon/three`
+   (the imperative render adapter) and `@galeon/render-core`
 4. builds `crates/client` into `client/pkg/` with `wasm-pack`
 5. starts the generated web starter through Vite
 

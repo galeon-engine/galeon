@@ -16,7 +16,9 @@ crates/
 
 packages/
   runtime/           # @galeon/runtime — invoke/events bridge (thin JS↔WASM glue)
-  engine-ts/         # @galeon/engine-ts — Three.js sync consumer (reads WASM snapshots)
+  render-core/       # @galeon/render-core — framework-neutral render snapshot contract
+  three/             # @galeon/three — imperative Three.js adapter (reads WASM snapshots)
+  r3f/               # @galeon/r3f — React Three Fiber adapter
   shell/             # @galeon/shell — Godot-style editor UI (Solid.js, CSS Grid panels)
 ```
 
@@ -36,8 +38,12 @@ TS packages are thin bridges, not logic owners.
 
 ```
 @galeon/runtime (invoke/events bridge)
+
+@galeon/render-core (render-snapshot contract — no Three.js dep)
       ↓
-@galeon/engine-ts (Three.js sync — reads WASM snapshots, updates scene graph)
+@galeon/three (Three.js sync — reads WASM snapshots, updates scene graph)
+      ↓
+@galeon/r3f (React Three Fiber adapter — provider/entities/hooks on top of three + render-core)
 
 @galeon/shell (editor UI — Solid.js panels around viewport)
 ```

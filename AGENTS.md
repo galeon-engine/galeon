@@ -40,7 +40,9 @@ crates/
 
 packages/
   runtime/               # Thin JS <-> WASM invoke/events bridge
-  engine-ts/             # Three.js sync consumer
+  render-core/           # Framework-neutral render snapshot contract
+  three/                 # Imperative Three.js adapter
+  r3f/                   # React Three Fiber adapter
   shell/                 # Editor shell package
 ```
 
@@ -60,8 +62,12 @@ TypeScript packages are consumers and bridges, not owners of engine behavior:
 
 ```text
 @galeon/runtime
+
+@galeon/render-core
         ->
-@galeon/engine-ts
+@galeon/three
+        ->
+@galeon/r3f
 
 @galeon/shell
 ```
@@ -87,7 +93,7 @@ Do not move game-engine logic into TypeScript because it is convenient. If behav
 - The editor is an Electrobun desktop app, not a browser-only app.
 - The viewport is a contained panel inside the shell, not the whole window.
 - Desktop targets use Electrobun; web targets use WASM plus Three.js in the browser.
-- Treat `packages/runtime` and `packages/engine-ts` as thin adapters around Rust-owned state.
+- Treat `packages/runtime`, `packages/render-core`, `packages/three`, and `packages/r3f` as thin adapters around Rust-owned state.
 
 ## JS Tooling
 

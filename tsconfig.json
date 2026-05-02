@@ -4,8 +4,9 @@
     { "path": "packages/runtime" },
     { "path": "packages/render-core" },
     { "path": "packages/three" },
-    { "path": "packages/engine-ts" },
     { "path": "packages/r3f" },
-    { "path": "packages/shell" }
+    { "path": "packages/picking" },
+    { "path": "packages/shell" },
+    { "path": "examples/instanced-cubes" }
   ]
 }

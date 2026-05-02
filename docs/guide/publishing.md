@@ -33,9 +33,8 @@ The npm packages in this guide are the checked-in workspace packages under
 | Runtime | `@galeon/runtime` | 1 — publish first |
 | Render core | `@galeon/render-core` | 2 — framework-neutral render contract |
 | Three adapter | `@galeon/three` | 3 — depends on render-core |
-| Engine TS | `@galeon/engine-ts` | 4 — compatibility package, depends on runtime/render-core/three |
-| R3F adapter | `@galeon/r3f` | 5 — depends on render-core/three |
-| Shell | `@galeon/shell` | 6 — no deps, last by convention |
+| R3F adapter | `@galeon/r3f` | 4 — depends on render-core/three |
+| Shell | `@galeon/shell` | 5 — no deps, last by convention |
 
 ### Not published
 
@@ -71,9 +70,8 @@ The script edits these locations:
 4. `packages/runtime/package.json` → `"version": "A.B.C"`
 5. `packages/render-core/package.json` → `"version": "A.B.C"`
 6. `packages/three/package.json` → `"version": "A.B.C"` **and** `"@galeon/render-core": "=A.B.C"`
-7. `packages/engine-ts/package.json` → `"version": "A.B.C"` **and** exact `@galeon/*` pins
-8. `packages/r3f/package.json` → `"version": "A.B.C"` **and** exact `@galeon/*` pins
-9. `packages/shell/package.json` → `"version": "A.B.C"`
+7. `packages/r3f/package.json` → `"version": "A.B.C"` **and** exact `@galeon/*` pins
+8. `packages/shell/package.json` → `"version": "A.B.C"`
 
 After running, manually update the changelog:
 
@@ -114,7 +112,6 @@ bunx tsc --build                           # Build JS + declarations
 npm pack --dry-run --workspace=packages/runtime
 npm pack --dry-run --workspace=packages/render-core
 npm pack --dry-run --workspace=packages/three
-npm pack --dry-run --workspace=packages/engine-ts
 npm pack --dry-run --workspace=packages/r3f
 npm pack --dry-run --workspace=packages/shell
 ```
@@ -161,7 +158,6 @@ npm login
 cd packages/runtime    && npm publish --access public && cd ../..
 cd packages/render-core && npm publish --access public && cd ../..
 cd packages/three      && npm publish --access public && cd ../..
-cd packages/engine-ts  && npm publish --access public && cd ../..
 cd packages/r3f        && npm publish --access public && cd ../..
 cd packages/shell      && npm publish --access public && cd ../..
 ```
@@ -200,8 +196,10 @@ upgrade.
 - Core engine crates are published and intended for evaluation and early use.
 - `galeon-cli` is the supported install surface for scaffolding and codegen.
 - `@galeon/render-core`, `@galeon/three`, and `@galeon/r3f` are the supported
-  render adapter packages. `@galeon/engine-ts` remains as a compatibility
-  package for the existing Three.js path.
+  render adapter packages. The legacy `@galeon/engine-ts` compatibility
+  re-export package was retired in `0.5.0` (see issue #209); previously
+  published versions remain installable on npm but no further releases will
+  be cut from this repo.
 - `@galeon/shell` is published but experimental &mdash; expect churn.
 - Prerelease tags (`alpha`, `beta`, `rc`) are published to both registries
   under the `alpha` npm dist-tag.

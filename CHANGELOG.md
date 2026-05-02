@@ -40,6 +40,108 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   exercised by 13 headless `bun:test` cases without requiring a WebGL
   context. Root `package.json` workspaces now extends to `examples/*`.
 
+- **Mouse picking and drag-rectangle selection helper (#214)** — New
+  `@galeon/picking` package wraps `THREE.Raycaster` to emit typed `pick` and
+  `pick-rect` events that resolve back to the entity refs `@galeon/three`
+  stamps on managed objects. Drag-rectangle uses a six-plane sub-frustum
+  derived from the rect's NDC corners (the `SelectionBox.js` algorithm,
+  re-oriented inward via the corner centroid for camera-handedness safety).
+  Click and marquee paths align with the active camera's `layers` mask so
+  picking only returns objects the camera would actually render. On the
+  Rust side, a new `Selection` resource in `galeon-engine` carries the
+  current entity set plus the last hit point and applies pick events with
+  StarCraft / OpenRA modifier semantics (`shift` = additive, `ctrl` =
+  subtractive, `alt` = intersect). The `engine-three-sync` WASM bridge
+  exposes `applyPick` / `applyPickRect` / `selectionEntities` on
+  `WasmEngine` (filtering despawned entries before forwarding to JS), and a
+  native `cargo run --example picking_demo` walks the data flow against a
+  50-cube scene.
+- **`InstanceOf(MeshHandle)` ECS component and `FramePacket.instance_groups`
+  channel (#215, T1)** — New marker component that opts an entity into a
+  shared GPU instance batch keyed by its wrapped `MeshHandle`. Render
+  extraction now produces a parallel `instance_groups: Vec<u32>` array with
+  one entry per entity: the wrapped mesh-handle id when the entity is tagged,
+  or the new `INSTANCE_GROUP_NONE` sentinel (`u32::MAX`) when it is not.
+  Incremental extraction sets the new `CHANGED_INSTANCE_GROUP` change-flag
+  bit (`1 << 6`) when `InstanceOf` is added, removed, or mutated, so
+  consumers can move entities between the standalone-`Object3D` and
+  `InstancedMesh` paths without comparing the full list each frame. Exposed
+  to the WASM bridge via `WasmFramePacket.instance_groups`. Lays the data
+  foundation for the per-`MeshHandle` `THREE.InstancedMesh` manager
+  (#215, T2).
+- **`@galeon/three` instanced-mesh manager (#215, T2)** — `RendererCache`
+  now routes entities tagged with `InstanceOf` into a shared
+  `THREE.InstancedMesh` instead of allocating a standalone `Object3D` per
+  entity. The new `InstancedMeshManager` lazily creates one `InstancedMesh`
+  per `MeshHandle`, grows allocated capacity by 2× when batches fill up,
+  and reuses freed slots via a swap-with-last scheme — keeping the
+  `[0, count)` range contiguous and `mesh.count` rendering exactly the
+  live instances. `CHANGED_INSTANCE_GROUP` drives in/out and cross-batch
+  migrations cheaply on incremental packets. Hidden instances render with
+  zero scale to keep their slot stable across visibility flips. Frustum
+  culling is disabled per-mesh to avoid the all-or-nothing per-`InstancedMesh`
+  behavior in three.js (a per-instance backend is out of scope for v1).
+  `@galeon/render-core` mirrors the Rust constants: `INSTANCE_GROUP_NONE`,
+  `CHANGED_INSTANCE_GROUP`, and an optional `instance_groups: Uint32Array`
+  field on `FramePacketView`, all validated by `assertFramePacketContract`.
+- **`examples/instanced-cubes` benchmark + instancing guide (#215, T4)** —
+  New runnable example under `examples/instanced-cubes` drives 5000 cubes
+  through a sine field, with `?mode=instanced` (default) vs.
+  `?mode=standalone` URL toggle to compare the GPU-instanced render path
+  against the per-entity `Object3D` path on identical workloads. Every
+  entity is marked `CHANGED_TRANSFORM` each frame so the renderer never
+  short-circuits on unchanged data — the FPS readout reflects worst-case
+  (full-update) cost. The new `docs/guide/instancing.md` documents when to
+  use `InstanceOf`, the render-snapshot surface (`instance_groups`, `tints`,
+  `CHANGED_INSTANCE_GROUP`, `CHANGED_TINT`), and a measurement methodology
+  with a fill-in-your-own-numbers template — issue #215's verification
+  ("Manual perf comparison") is intentionally machine-specific, so the
+  guide does not pre-quote any reading. Workspace gains the
+  `examples/*` entry; root `tsconfig.json` references the new project.
+- **`Tint([f32; 3])` per-instance color channel (#215, T3)** — New ECS
+  component that writes a per-instance color to
+  `THREE.InstancedMesh.instanceColor`. Default `[1.0, 1.0, 1.0]` (white) is
+  the no-op identity; `Tint` is only meaningful for entities also carrying
+  `InstanceOf` (the standalone-`Object3D` path ignores it). Render
+  extraction now emits a parallel `tints: Vec<f32>` channel (length
+  `entity_count * 3`), populated from each entity's `Tint` or the white
+  default. Incremental extraction sets the new `CHANGED_TINT` change-flag
+  bit (`1 << 7`) when `Tint` is added, removed, or mutated. Exposed to the
+  WASM bridge via `WasmFramePacket.tints`. The TS-side
+  `InstancedMeshManager` now allocates `instanceColor` synchronously at
+  every batch creation (defaulting all slots to white) — moving the
+  three.js shader recompile cost (#21786) out of the hot path. `growBatch`
+  carries `instanceColor` through 2× growth and `remove` swaps the color
+  row alongside the matrix row in its swap-with-last scheme.
+  `@galeon/render-core` mirrors `CHANGED_TINT` and adds an optional
+  `tints: Float32Array` field on `FramePacketView`, validated by
+  `assertFramePacketContract`.
+
+### Removed
+
+- **`@galeon/engine-ts` package retired (#209)** — The compatibility
+  re-export package introduced alongside the framework-neutral render adapter
+  split (PR #206) is removed. ADR 0002 scoped it as a one-minor transition
+  surface; that window has now closed. The package is deleted from the
+  workspace, its publish step is removed from `.github/workflows/release.yml`,
+  the version-bump script no longer mutates it, the `local-first` CLI
+  scaffold now depends on `@galeon/render-core` + `@galeon/three` directly,
+  and `tests/local-first-starter-smoke.sh` exercises the new dependency
+  shape end-to-end. Existing `@galeon/engine-ts@0.4.x` releases on npm
+  remain installable but no further versions will be cut.
+
+  Migration (every former engine-ts symbol has a canonical home):
+
+  | Old import | New import |
+  |------------|------------|
+  | `RendererCache`, `GALEON_ENTITY_KEY`, `RendererEntityHandle` from `@galeon/engine-ts` | same names from `@galeon/three` |
+  | `CHANGED_*`, `ObjectType`, `SCENE_ROOT`, `TRANSFORM_STRIDE`, `RENDER_CONTRACT_VERSION`, `FramePacketContractError`, `assertFramePacketContract`, `hasIncrementalChangeFlags`, `FramePacketContractOptions`, `FramePacketView` from `@galeon/engine-ts` | same names from `@galeon/render-core` |
+  | `RUNTIME_VERSION`, `runtimeVersion()` from `@galeon/engine-ts` | `RUNTIME_VERSION` from `@galeon/runtime` |
+
+  See `docs/guide/three-sync.md` for the full migration guide and
+  `docs/adr/0002-framework-neutral-render-contract.md` for the ADR
+  addendum noting the deprecation-window close.
+
 ### Changed
 
 - **React 19 support for `@galeon/r3f` (#211)** — Verified the R3F
@@ -59,6 +161,43 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Galeon crate dependencies on the current major.minor line, such as
   `galeon-engine = "0.4"`, so generated projects can pick up patch releases
   without waiting for a new CLI patch release.
+- **Marquee selection respects hierarchy and visibility (#214)** —
+  `@galeon/picking` `pick-rect` now (a) computes a stamped `THREE.Group`'s
+  AABB from the union of its visible descendant geometry instead of a
+  zero-size box at the group origin, so grouped entities with offset child
+  meshes marquee-select correctly, (b) skips invisible objects and
+  descendants of invisible parents, matching the click path's behaviour,
+  and (c) prunes hidden mid-tree branches when accumulating a group's
+  AABB so visible grandchildren under a hidden ancestor cannot enlarge
+  the group's selection bounds beyond what the renderer would draw.
+- **Picking refreshes camera matrices (#214)** — both click and marquee
+  paths now call `camera.updateMatrixWorld()` before raycasting.
+  `scene.updateMatrixWorld` does not touch a camera that lives outside the
+  scene graph, so picks taken between a camera move and the next render
+  could otherwise use stale ray origins and select the wrong entity.
+- **`Selection::apply_pick` honours documented multi-modifier semantics
+  (#214)** — clicks with multi-modifier combinations (e.g. Shift+Ctrl) now
+  fall through to the "replace on hit, no-op on miss" branch as documented,
+  instead of being absorbed by the first matching single-modifier rule.
+- **`Selection::apply_pick_rect` mirrors the multi-modifier discipline
+  (#214)** — marquees with multi-modifier combinations (Shift+Ctrl,
+  Ctrl+Alt, …) now fall through to the replace branch instead of being
+  absorbed by the first matching single-modifier rule. Click and rect
+  paths now share the same bitmask-match dispatch, so a stray Shift+Ctrl
+  drag no longer silently adds where a user expected a replace.
+- **Layer-hidden non-geometry entities excluded from marquee picks (#214)** —
+  `worldAabb`'s zero-size fallback for non-mesh entities (lights, empty
+  groups) now respects the stamped object's own layer mask. Previously, an
+  empty group or light on a non-camera layer could still be marquee-selected
+  if the rect covered its origin even though the renderer would skip it and
+  click picking could never reach it.
+- **Stamped Mesh marquee bounds include unstamped child meshes (#214)** —
+  `worldAabb` no longer short-circuits stamped `Mesh` / `LineSegments` to
+  their own geometry; it unions the descendant geometry with the same
+  visibility / layer / nested-entity gates as the Group path. Click picking
+  is recursive and walks unstamped child meshes up to the nearest stamped
+  ancestor, so without this a stamped Mesh with offset child geometry was
+  selectable by click but missed by drag-rectangle.
 
 ## [0.4.0]
 

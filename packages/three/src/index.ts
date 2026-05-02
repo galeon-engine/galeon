@@ -6,19 +6,24 @@ export {
   type RendererEntityHandle,
 } from "./renderer-cache.js";
 
+export { InstancedMeshManager } from "./instanced-mesh-manager.js";
+
 export {
   createBillboardFbmMaterial,
   type BillboardFbmMaterialOptions,
 } from "./materials/billboard-fbm.js";
 
 export {
+  CHANGED_INSTANCE_GROUP,
   CHANGED_MATERIAL,
   CHANGED_MESH,
   CHANGED_OBJECT_TYPE,
   CHANGED_PARENT,
+  CHANGED_TINT,
   CHANGED_TRANSFORM,
   CHANGED_VISIBILITY,
   FramePacketContractError,
+  INSTANCE_GROUP_NONE,
   ObjectType,
   RENDER_CONTRACT_VERSION,
   SCENE_ROOT,

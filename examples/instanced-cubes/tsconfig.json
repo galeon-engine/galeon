@@ -10,8 +10,7 @@
   },
   "include": ["src"],
   "references": [
-    { "path": "../runtime" },
-    { "path": "../render-core" },
-    { "path": "../three" }
+    { "path": "../../packages/render-core" },
+    { "path": "../../packages/three" }
   ]
 }

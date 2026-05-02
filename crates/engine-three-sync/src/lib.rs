@@ -6,9 +6,9 @@ mod snapshot;
 
 pub use extract::{extract_frame, extract_frame_incremental};
 pub use frame_packet::{
-    CHANGED_MATERIAL, CHANGED_MESH, CHANGED_OBJECT_TYPE, CHANGED_PARENT, CHANGED_TRANSFORM,
-    CHANGED_VISIBILITY, ChannelData, FramePacket, RENDER_CONTRACT_VERSION, SCENE_ROOT,
-    TRANSFORM_STRIDE,
+    CHANGED_INSTANCE_GROUP, CHANGED_MATERIAL, CHANGED_MESH, CHANGED_OBJECT_TYPE, CHANGED_PARENT,
+    CHANGED_TINT, CHANGED_TRANSFORM, CHANGED_VISIBILITY, ChannelData, FramePacket,
+    INSTANCE_GROUP_NONE, RENDER_CONTRACT_VERSION, SCENE_ROOT, TRANSFORM_STRIDE,
 };
 // Re-export FrameEvent from engine for consumers of this crate.
 pub use galeon_engine::FrameEvent;
@@ -17,7 +17,8 @@ pub use snapshot::{
 };
 
 use galeon_engine::{
-    Component, Engine, Entity, MaterialHandle, MeshHandle, ObjectType, Transform, Visibility,
+    Component, Engine, Entity, MaterialHandle, MeshHandle, ObjectType, PickModifiers, PickPoint,
+    Selection, Transform, Visibility,
 };
 use wasm_bindgen::prelude::*;
 
@@ -212,6 +213,118 @@ impl WasmEngine {
     pub fn js_entity_count(&self) -> u32 {
         self.engine.world().query::<&JsSpawned>().count() as u32
     }
+
+    // -------------------------------------------------------------------------
+    // Picking / selection
+    //
+    // Surface the [`Selection`] resource to JavaScript so the `@galeon/picking`
+    // helper can apply its `pick` and `pick-rect` events. The resource is
+    // lazy-installed on first use; consumers never need to register it
+    // explicitly to start receiving input.
+    // -------------------------------------------------------------------------
+
+    /// Apply a single-click pick from the `@galeon/picking` helper.
+    ///
+    /// Pass `entity_index = u32::MAX` (or any value paired with `entity_present = false`)
+    /// to signal that the click missed every managed object. `point_present` and
+    /// the three world-space coordinates carry the hit point on the geometry.
+    ///
+    /// `modifier_flags` is a bitmask matching [`PickModifiers`] in Rust:
+    /// shift = 1, ctrl = 2, alt = 4, meta = 8.
+    #[wasm_bindgen(js_name = applyPick)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn apply_pick(
+        &mut self,
+        entity_present: bool,
+        entity_index: u32,
+        entity_generation: u32,
+        point_present: bool,
+        point_x: f32,
+        point_y: f32,
+        point_z: f32,
+        modifier_flags: u32,
+    ) {
+        let entity = if entity_present {
+            Some(Entity::from_raw(entity_index, entity_generation))
+        } else {
+            None
+        };
+        let point = if point_present {
+            Some(PickPoint {
+                x: point_x,
+                y: point_y,
+                z: point_z,
+            })
+        } else {
+            None
+        };
+        let modifiers = PickModifiers(modifier_flags);
+        let world = self.engine.world_mut();
+        if world.try_resource::<Selection>().is_none() {
+            world.insert_resource(Selection::new());
+        }
+        world
+            .resource_mut::<Selection>()
+            .apply_pick(entity, point, modifiers);
+    }
+
+    /// Apply a marquee (drag-rectangle) pick from the `@galeon/picking` helper.
+    ///
+    /// `entities_flat` is a flat `[idx0, gen0, idx1, gen1, …]` packing of
+    /// `(index, generation)` pairs. Length must be even; trailing odd elements
+    /// are ignored.
+    #[wasm_bindgen(js_name = applyPickRect)]
+    pub fn apply_pick_rect(&mut self, entities_flat: &[u32], modifier_flags: u32) {
+        let entities: Vec<Entity> = entities_flat
+            .chunks_exact(2)
+            .map(|pair| Entity::from_raw(pair[0], pair[1]))
+            .collect();
+        let modifiers = PickModifiers(modifier_flags);
+        let world = self.engine.world_mut();
+        if world.try_resource::<Selection>().is_none() {
+            world.insert_resource(Selection::new());
+        }
+        world
+            .resource_mut::<Selection>()
+            .apply_pick_rect(entities, modifiers);
+    }
+
+    /// Returns the current count of *live* selected entities, or `0` if no
+    /// [`Selection`] resource exists yet.
+    ///
+    /// Despawned entities still present in `Selection.entities` are filtered
+    /// out so the count matches the entries [`selection_entities`] would emit.
+    #[wasm_bindgen(js_name = selectionCount)]
+    pub fn selection_count(&self) -> u32 {
+        let world = self.engine.world();
+        let Some(sel) = world.try_resource::<Selection>() else {
+            return 0;
+        };
+        sel.entities.iter().filter(|e| world.is_alive(**e)).count() as u32
+    }
+
+    /// Returns the currently selected entities as a flat
+    /// `[idx0, gen0, idx1, gen1, …]` packing.
+    ///
+    /// Despawned entities are skipped — `Selection.entities` retains stale
+    /// handles between picks, but the JS bridge only forwards entries that
+    /// are still alive in the world so consumers cannot act on dead refs.
+    #[wasm_bindgen(js_name = selectionEntities)]
+    pub fn selection_entities(&self) -> Vec<u32> {
+        let world = self.engine.world();
+        let Some(sel) = world.try_resource::<Selection>() else {
+            return Vec::new();
+        };
+        let mut out = Vec::with_capacity(sel.len() * 2);
+        for entity in &sel.entities {
+            if !world.is_alive(*entity) {
+                continue;
+            }
+            out.push(entity.index());
+            out.push(entity.generation());
+        }
+        out
+    }
 }
 
 impl Default for WasmEngine {
@@ -306,6 +419,27 @@ impl WasmFramePacket {
     #[wasm_bindgen(getter)]
     pub fn object_types(&self) -> Vec<u8> {
         self.inner.object_types.clone()
+    }
+
+    /// GPU instance-group identifiers (one u32 per entity).
+    ///
+    /// Entries equal to `u32::MAX` ([`INSTANCE_GROUP_NONE`]) are non-instanced —
+    /// the renderer creates a standalone `Object3D` for them. Other values
+    /// identify the shared `THREE.InstancedMesh` (one per group id) into which
+    /// the entity's transform should be written.
+    #[wasm_bindgen(getter)]
+    pub fn instance_groups(&self) -> Vec<u32> {
+        self.inner.instance_groups.clone()
+    }
+
+    /// Per-instance color tints (three f32 per entity, `[r, g, b]` linear sRGB).
+    ///
+    /// Default `[1.0, 1.0, 1.0]` (white) is the no-op identity. Only meaningful
+    /// for entities with `InstanceOf` — the standalone-`Object3D` path ignores
+    /// these values.
+    #[wasm_bindgen(getter)]
+    pub fn tints(&self) -> Vec<f32> {
+        self.inner.tints.clone()
     }
 
     /// Monotonic frame version — consumers can skip processing when unchanged.

@@ -185,16 +185,6 @@ jobs:
           cd packages/three
           npm publish --access public --tag "$NPM_DIST_TAG" --provenance
 
-      - name: Publish @galeon/engine-ts
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          if npm view "@galeon/engine-ts@${version}" version >/dev/null 2>&1; then
-            echo "@galeon/engine-ts@${version} already published; skipping."
-            exit 0
-          fi
-          cd packages/engine-ts
-          npm publish --access public --tag "$NPM_DIST_TAG" --provenance
-
       - name: Publish @galeon/r3f
         run: |
           version="${GITHUB_REF_NAME#v}"
@@ -301,10 +291,9 @@ jobs:
             "@galeon/runtime@${VERSION}" \
             "@galeon/render-core@${VERSION}" \
             "@galeon/three@${VERSION}" \
-            "@galeon/engine-ts@${VERSION}" \
             "@galeon/r3f@${VERSION}" \
             "@galeon/shell@${VERSION}"
-          node -e "Promise.all(['@galeon/runtime','@galeon/render-core','@galeon/three','@galeon/engine-ts','@galeon/r3f','@galeon/shell'].map((pkg) => import(pkg))).then(() => console.log('@galeon npm packages OK'))"
+          node -e "Promise.all(['@galeon/runtime','@galeon/render-core','@galeon/three','@galeon/r3f','@galeon/shell'].map((pkg) => import(pkg))).then(() => console.log('@galeon npm packages OK'))"
 
       - name: Verify CLI — installed binary starter bootstrap
         run: |

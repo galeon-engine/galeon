@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Galeon — Instanced Cubes Benchmark</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body { height: 100%; margin: 0; background: #0b0e13; color: #e6edf3; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      canvas { display: block; }
+      #hud {
+        position: fixed; top: 12px; left: 12px;
+        background: rgba(0, 0, 0, 0.55);
+        padding: 10px 14px;
+        border-radius: 6px;
+        font-size: 13px;
+        line-height: 1.5;
+        max-width: 360px;
+        pointer-events: none;
+      }
+      #hud strong { color: #ffd866; }
+      #hud .muted { color: #768390; }
+      #hud a { color: #79b8ff; pointer-events: auto; }
+    </style>
+  </head>
+  <body>
+    <div id="hud">
+      <div>Galeon — instanced cubes</div>
+      <div>Mode: <strong id="mode">…</strong></div>
+      <div>Entities: <strong id="entities">…</strong></div>
+      <div>Avg FPS (last 60 frames): <strong id="fps">…</strong></div>
+      <div class="muted">
+        Toggle: append <code>?mode=standalone</code> or <code>?mode=instanced</code> to the URL.
+      </div>
+    </div>
+    <script type="module" src="./dist/main.js"></script>
+  </body>
+</html>
