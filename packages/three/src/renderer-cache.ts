@@ -18,7 +18,6 @@ import {
   InstancedMeshManager,
   type InstanceBatchKey,
 } from "./instanced-mesh-manager.js";
-import { isBillboardFbmMaterial } from "./materials/billboard-fbm.js";
 
 /**
  * Renderer-side cache that consumes packed extraction tables from the
@@ -187,9 +186,9 @@ export class RendererCache {
       // ----- Instanced routing -----
       // Entities tagged with `InstanceOf` skip the standalone-Object3D path
       // and live in `THREE.InstancedMesh` batches instead.
-      // Default batch key is the wrapped `MeshHandle.id`; billboard materials
-      // are split by `(instanceGroup, materialHandle)` to keep per-texture /
-      // per-material variants in separate batches.
+      // Batch key is `(instanceGroup, materialHandle)`: the Rust group
+      // chooses geometry, and the material handle keeps each InstancedMesh on
+      // one material.
       const groupKey = instanceGroups?.[i] ?? INSTANCE_GROUP_NONE;
       if (groupKey !== INSTANCE_GROUP_NONE) {
         // If the entity was previously standalone, tear it down before
@@ -209,7 +208,6 @@ export class RendererCache {
         const batchKey = this.resolveInstanceBatchKey(
           groupKey,
           matHandle,
-          material,
         );
         this.instancedMeshes.upsert(
           entityId,
@@ -608,18 +606,14 @@ export class RendererCache {
 
   /**
    * Instancing key policy:
-   * - General instancing: batch by Rust `InstanceOf(MeshHandle)` group id.
-   * - Billboard FBM materials: batch by `(instanceGroup, materialHandle)` so
-   *   different texture/material variants do not thrash one shared batch.
+   * Batch by `(instanceGroup, materialHandle)` so one `THREE.InstancedMesh`
+   * never has to represent rows with different materials. This covers both
+   * Billboard-derived groups and general `InstanceOf` groups.
    */
   private resolveInstanceBatchKey(
     instanceGroup: number,
     materialHandle: number,
-    material: THREE.Material,
   ): InstanceBatchKey {
-    if (!isBillboardFbmMaterial(material)) {
-      return instanceGroup;
-    }
     return (
       (BigInt(instanceGroup) << INSTANCE_KEY_SHIFT) |
       (BigInt(materialHandle) & INSTANCE_KEY_MASK)

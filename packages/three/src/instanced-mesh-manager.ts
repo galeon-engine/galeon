@@ -165,17 +165,23 @@ export class InstancedMeshManager {
 
   /** The `THREE.InstancedMesh` backing a group key, if one has been created. */
   meshFor(groupKey: InstanceBatchKey): THREE.InstancedMesh | undefined {
-    return this.batches.get(groupKey)?.mesh;
+    return this.batchForQuery(groupKey)?.mesh;
   }
 
   /** Number of live instance slots in a group's batch (== `mesh.count`). */
   slotsFor(groupKey: InstanceBatchKey): number {
-    return this.batches.get(groupKey)?.count ?? 0;
+    return this.batchesForQuery(groupKey).reduce(
+      (count, batch) => count + batch.count,
+      0,
+    );
   }
 
   /** Allocated capacity of a group's batch — distinct from the live `slotsFor` count. */
   capacityFor(groupKey: InstanceBatchKey): number {
-    return this.batches.get(groupKey)?.capacity ?? 0;
+    return this.batchesForQuery(groupKey).reduce(
+      (capacity, batch) => capacity + batch.capacity,
+      0,
+    );
   }
 
   /** Number of distinct mesh-handle batches currently allocated. */
@@ -267,6 +273,30 @@ export class InstancedMeshManager {
     };
     this.batches.set(groupKey, batch);
     return batch;
+  }
+
+  private batchForQuery(groupKey: InstanceBatchKey): Batch | undefined {
+    const direct = this.batches.get(groupKey);
+    if (direct !== undefined) return direct;
+
+    const matches = this.batchesForQuery(groupKey);
+    return matches.length === 1 ? matches[0] : undefined;
+  }
+
+  private batchesForQuery(groupKey: InstanceBatchKey): Batch[] {
+    const direct = this.batches.get(groupKey);
+    if (direct !== undefined) return [direct];
+    if (typeof groupKey === "bigint") return [];
+
+    const prefix = BigInt(groupKey) << 32n;
+    const nextPrefix = BigInt(groupKey + 1) << 32n;
+    const matches: Batch[] = [];
+    for (const [key, batch] of this.batches) {
+      if (typeof key === "bigint" && key >= prefix && key < nextPrefix) {
+        matches.push(batch);
+      }
+    }
+    return matches;
   }
 
   private growBatch(batch: Batch): void {

@@ -45,10 +45,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the merged #215 instanced renderer path with screen-aligned vertex behavior
   in both standalone and `InstancedMesh` modes. The Rust extractor routes
   renderable entities carrying `Billboard` and `MeshHandle` into the instanced
-  path, and `@galeon/three` then splits those billboard instances into
-  per-`(instance_group, material_handle)` batches, so texture/material variants
-  split cleanly while 1000 billboards sharing one quad + material still
-  collapse to one `THREE.InstancedMesh` batch.
+  path, and `@galeon/three` now keys instanced batches by
+  `(instance_group, material_handle)`, so texture/material variants split
+  cleanly while 1000 billboards sharing one quad + material still collapse to
+  one `THREE.InstancedMesh` batch. Incremental extraction also flags
+  `Billboard` mesh-handle changes as `CHANGED_INSTANCE_GROUP`, allowing
+  consumers to migrate batches when the billboard quad handle changes.
 
 - **Mouse picking and drag-rectangle selection helper (#214)** — New
   `@galeon/picking` package wraps `THREE.Raycaster` to emit typed `pick` and

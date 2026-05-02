@@ -767,4 +767,64 @@ describe("RendererCache billboard instancing follow-up (#217 T2)", () => {
     expect(meshes.map((mesh) => mesh.material)).toContain(matA);
     expect(meshes.map((mesh) => mesh.material)).toContain(matB);
   });
+
+  test("non-FBM billboard materials split instance batches by material handle", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(17, new THREE.PlaneGeometry(1, 1));
+    const matA = new THREE.MeshBasicMaterial({ color: 0xffaa33 });
+    const matB = new THREE.MeshBasicMaterial({ color: 0x33aaff });
+    cache.registerMaterial(201, matA);
+    cache.registerMaterial(202, matB);
+
+    const packet = makePacket({ entity_count: 2 });
+    fillIdentityTransforms(packet);
+    packet.entity_ids[0] = 1;
+    packet.entity_ids[1] = 2;
+    packet.mesh_handles[0] = 17;
+    packet.mesh_handles[1] = 17;
+    packet.material_handles[0] = 201;
+    packet.material_handles[1] = 202;
+    (packet as { instance_groups?: Uint32Array }).instance_groups =
+      new Uint32Array([17, 17]);
+
+    cache.applyFrame(packet);
+
+    const meshes = scene.children.filter(
+      (obj): obj is THREE.InstancedMesh => obj instanceof THREE.InstancedMesh,
+    );
+    expect(meshes).toHaveLength(2);
+    expect(cache.instancing.batchCount).toBe(2);
+    expect(meshes.map((mesh) => mesh.material)).toContain(matA);
+    expect(meshes.map((mesh) => mesh.material)).toContain(matB);
+  });
+
+  test("non-billboard InstanceOf entities sharing a material stay in one batch", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(17, new THREE.PlaneGeometry(1, 1));
+    const material = new THREE.MeshBasicMaterial({ color: 0xffaa33 });
+    cache.registerMaterial(301, material);
+
+    const packet = makePacket({ entity_count: 2 });
+    fillIdentityTransforms(packet);
+    packet.entity_ids[0] = 1;
+    packet.entity_ids[1] = 2;
+    packet.mesh_handles[0] = 17;
+    packet.mesh_handles[1] = 17;
+    packet.material_handles[0] = 301;
+    packet.material_handles[1] = 301;
+    (packet as { instance_groups?: Uint32Array }).instance_groups =
+      new Uint32Array([17, 17]);
+
+    cache.applyFrame(packet);
+
+    expect(cache.instancing.batchCount).toBe(1);
+    const meshes = scene.children.filter(
+      (obj): obj is THREE.InstancedMesh => obj instanceof THREE.InstancedMesh,
+    );
+    expect(meshes).toHaveLength(1);
+    expect(meshes[0]!.count).toBe(2);
+    expect(meshes[0]!.material).toBe(material);
+  });
 });

@@ -379,6 +379,31 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
         seen.insert(entity);
     }
 
+    for (entity, _) in world.query_changed::<MeshHandle>(since_tick) {
+        if world.get::<Billboard>(entity).is_none() {
+            continue;
+        }
+        if seen.contains(&entity) {
+            continue;
+        }
+        let Some(transform) = world.get::<Transform>(entity) else {
+            continue;
+        };
+        let object_type = world
+            .get::<ObjectType>(entity)
+            .map(|o| *o as u8)
+            .unwrap_or(0);
+        renderables.push((
+            entity,
+            transform.position,
+            transform.rotation,
+            transform.scale,
+            resolved_parent_id(world, entity),
+            object_type,
+        ));
+        seen.insert(entity);
+    }
+
     for (entity, _) in world.query_changed::<Billboard>(since_tick) {
         if seen.contains(&entity) {
             continue;
@@ -528,10 +553,10 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
             {
                 flags |= CHANGED_VISIBILITY;
             }
-            if arch
+            let mesh_changed = arch
                 .column::<MeshHandle>()
-                .is_some_and(|column| column.changed_tick(row) > since_tick)
-            {
+                .is_some_and(|column| column.changed_tick(row) > since_tick);
+            if mesh_changed {
                 flags |= CHANGED_MESH;
             }
             if arch
@@ -564,6 +589,9 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
                 || arch
                     .column::<Billboard>()
                     .is_some_and(|column| column.changed_tick(row) > since_tick)
+                || (mesh_changed
+                    && arch.column::<Billboard>().is_some()
+                    && arch.column::<InstanceOf>().is_none())
             {
                 flags |= CHANGED_INSTANCE_GROUP;
             }
@@ -1542,6 +1570,30 @@ mod tests {
         assert_eq!(packet.entity_count(), 1);
         assert_eq!(packet.entity_ids[0], entity.index());
         assert_eq!(packet.instance_groups[0], INSTANCE_GROUP_NONE);
+        let flags = packet.change_flags[0];
+        assert!(
+            flags & CHANGED_INSTANCE_GROUP != 0,
+            "expected CHANGED_INSTANCE_GROUP, got {flags:#b}"
+        );
+        assert!(flags & CHANGED_TRANSFORM == 0);
+    }
+
+    #[test]
+    fn incremental_extract_flags_billboard_mesh_handle_change() {
+        use crate::frame_packet::CHANGED_INSTANCE_GROUP;
+
+        let mut world = World::new();
+        let entity = world.spawn((Transform::identity(), MeshHandle { id: 17 }, Billboard));
+        let since = world.change_tick();
+        world.advance_tick();
+
+        world.get_mut::<MeshHandle>(entity).unwrap().id = 18;
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.entity_ids[0], entity.index());
+        assert_eq!(packet.mesh_handles[0], 18);
+        assert_eq!(packet.instance_groups[0], 18);
         let flags = packet.change_flags[0];
         assert!(
             flags & CHANGED_INSTANCE_GROUP != 0,
