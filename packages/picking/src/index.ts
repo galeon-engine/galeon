@@ -17,4 +17,11 @@ export {
   type PickRectEvent,
 } from "./picking.js";
 
+export {
+  attachSelectionRings,
+  type SelectionRingObjectResolver,
+  type SelectionRingsController,
+  type SelectionRingsOptions,
+} from "./selection-rings.js";
+
 export { frustumFromRect } from "./selection-frustum.js";
