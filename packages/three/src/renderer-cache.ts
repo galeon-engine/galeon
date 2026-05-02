@@ -161,6 +161,9 @@ export class RendererCache {
     const hasChangeFlags = changeFlags !== undefined && changeFlags.length > 0;
     const instanceGroups = packet.instance_groups;
     const tints = packet.tints;
+    // Entities that exited the instanced path this frame and need parent
+    // reconciliation even when CHANGED_PARENT is not set.
+    const forceParentReconcile = new Set<number>();
 
     // ----- Pass 1: create/update objects -----
     for (let i = 0; i < packet.entity_count; i++) {
@@ -209,6 +212,7 @@ export class RendererCache {
       // path, drop it from the batch before falling through to creation.
       if (this.instancedMeshes.has(entityId)) {
         this.instancedMeshes.remove(entityId);
+        forceParentReconcile.add(entityId);
       }
 
       let obj = this.objects.get(entityId);
@@ -322,7 +326,9 @@ export class RendererCache {
     for (let i = 0; i < packet.entity_count; i++) {
       const entityId = entity_ids[i]!;
       const flag = hasChangeFlags ? changeFlags[i]! : 0xff;
-      if ((flag & CHANGED_PARENT) === 0) continue;
+      const shouldReparent =
+        (flag & CHANGED_PARENT) !== 0 || forceParentReconcile.has(entityId);
+      if (!shouldReparent) continue;
 
       const parentId = parent_ids[i]!;
       const prevParent = this.parentOf.get(entityId);

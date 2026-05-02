@@ -187,6 +187,46 @@ describe("RendererCache instanced-mesh path (#215 T2)", () => {
     expect(cache.objectCount).toBe(1);
   });
 
+  test("instanced to standalone keeps packet parent without CHANGED_PARENT", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(2, new THREE.BoxGeometry(1, 1, 1));
+    cache.registerMaterial(0, new THREE.MeshBasicMaterial());
+
+    // Frame 1: parent is standalone, child is instanced under that parent.
+    const f1 = makePacket({ entity_count: 2 });
+    fillIdentityTransforms(f1);
+    f1.entity_ids[0] = 100;
+    f1.entity_ids[1] = 42;
+    f1.mesh_handles[0] = 2;
+    f1.mesh_handles[1] = 2;
+    f1.parent_ids[1] = 100;
+    (f1 as { instance_groups?: Uint32Array }).instance_groups =
+      new Uint32Array([INSTANCE_GROUP_NONE, 2]);
+    cache.applyFrame(f1);
+
+    expect(cache.instancing.has(42)).toBe(true);
+    const parentObj = cache.getObject(100, 0);
+    expect(parentObj).toBeDefined();
+
+    // Frame 2 (incremental): child leaves instancing, parent stays unchanged.
+    const f2 = makePacket({ entity_count: 1 });
+    fillIdentityTransforms(f2);
+    f2.entity_ids[0] = 42;
+    f2.mesh_handles[0] = 2;
+    f2.parent_ids[0] = 100;
+    (f2 as { instance_groups?: Uint32Array }).instance_groups =
+      new Uint32Array([INSTANCE_GROUP_NONE]);
+    (f2 as { change_flags?: Uint8Array }).change_flags = new Uint8Array([
+      CHANGED_INSTANCE_GROUP | CHANGED_TRANSFORM,
+    ]);
+    cache.applyFrame(f2);
+
+    const childObj = cache.getObject(42, 0);
+    expect(childObj).toBeDefined();
+    expect(childObj!.parent).toBe(parentObj!);
+  });
+
   test("CHANGED_INSTANCE_GROUP migrates entity between batches", () => {
     const scene = new THREE.Scene();
     const cache = new RendererCache(scene);
