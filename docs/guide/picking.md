@@ -124,6 +124,39 @@ import { GaleonProvider, MarqueeRenderer, SelectionRings } from "@galeon/r3f";
 `<SelectionRings />` reads the `RendererCache` from `GaleonProvider` and
 refreshes ring transforms during the R3F frame loop.
 
+## Picking Baseline
+
+Run the standalone baseline harness with:
+
+```bash
+bun run --cwd packages/picking bench:baseline
+```
+
+The harness drives the public `attachPicking` event path against deterministic
+standalone `THREE.Mesh` entities. Click picks use the current
+`Raycaster.intersectObjects(scene.children, true)` path; marquee picks use the
+current six-plane sub-frustum plus per-entity world-AABB path. Each operation
+uses 25 warmup iterations and 125 measured samples.
+
+Baseline captured on May 2, 2026 with Bun 1.3.8 on Windows x64:
+
+| Entities | Operation | Median ms | P95 ms | Result size |
+| ---: | --- | ---: | ---: | ---: |
+| 100 | click | 0.017 | 0.028 | 1 |
+| 100 | marquee | 0.038 | 0.055 | 100 |
+| 1,000 | click | 0.063 | 0.077 | 1 |
+| 1,000 | marquee | 0.141 | 0.332 | 1,000 |
+| 10,000 | click | 0.544 | 1.018 | 1 |
+| 10,000 | marquee | 1.649 | 3.017 | 10,000 |
+
+Use the default raycaster backend for ordinary standalone scenes up to roughly
+1,000 pickable entities. At 10,000 standalone entities, click remains fine for
+discrete input, but marquee p95 is already around 3 ms in a headless
+microbenchmark; treat continuous drag updates, hover picking, dense static
+geometry, and per-instance marquee selection as the threshold for a BVH or GPU
+backend. These numbers are a baseline for comparing backend work under #224,
+not a browser performance guarantee.
+
 ## Rust: `Selection` resource
 
 ```rust

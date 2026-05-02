@@ -9,6 +9,13 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Picking baseline benchmark (#224 / T1)** — `@galeon/picking` now includes
+  `bun run --cwd packages/picking bench:baseline`, a deterministic Three.js
+  harness that measures current raycaster click and world-AABB marquee latency
+  at 100, 1k, and 10k standalone entities. The measured baseline and switching
+  guidance are documented in `docs/guide/picking.md` for the follow-up
+  GPU/BVH backend work.
+
 - **Marquee renderer HUD primitive (#226 / T1)** — `@galeon/picking` now
   exports `attachMarqueeRenderer(camera)`, a framework-neutral visual helper
   that renders the current drag rectangle as camera-attached Three.js line
