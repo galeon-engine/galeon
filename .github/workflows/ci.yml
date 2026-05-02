@@ -44,6 +44,7 @@ jobs:
       - run: npm pack --dry-run --workspace=packages/runtime
       - run: npm pack --dry-run --workspace=packages/render-core
       - run: npm pack --dry-run --workspace=packages/three
+      - run: npm pack --dry-run --workspace=packages/picking
       - run: npm pack --dry-run --workspace=packages/r3f
       - run: npm pack --dry-run --workspace=packages/shell
 
