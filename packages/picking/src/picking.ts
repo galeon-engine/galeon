@@ -238,7 +238,7 @@ function pickPoint(
   raycaster.setFromCamera(ndc, camera);
   const intersections = raycaster.intersectObjects(scene.children, true);
   for (const hit of intersections) {
-    const instanceEntity = readInstanceEntity(hit);
+    const instanceEntity = visibleInstanceEntity(hit);
     if (instanceEntity != null) {
       const p = hit.point;
       return { entity: instanceEntity, point: { x: p.x, y: p.y, z: p.z } };
@@ -250,6 +250,11 @@ function pickPoint(
     }
   }
   return null;
+}
+
+function visibleInstanceEntity(hit: THREE.Intersection): PickingEntityRef | null {
+  if (!visibleObjectChain(hit.object)) return null;
+  return readInstanceEntity(hit);
 }
 
 function readInstanceEntity(hit: THREE.Intersection): PickingEntityRef | null {
@@ -397,6 +402,15 @@ function readEntity(object: THREE.Object3D): PickingEntityRef | null {
     return null;
   }
   return { entityId: stamped.entityId, generation: stamped.generation };
+}
+
+function visibleObjectChain(object: THREE.Object3D): boolean {
+  let current: THREE.Object3D | null = object;
+  while (current != null) {
+    if (!current.visible) return false;
+    current = current.parent;
+  }
+  return true;
 }
 
 function visibleAncestorEntity(object: THREE.Object3D): PickingEntityRef | null {

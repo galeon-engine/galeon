@@ -139,6 +139,43 @@ describe("@galeon/picking instanced mesh identity (#224)", () => {
     expect(events[0]!.point).not.toBeNull();
   });
 
+  test("click pick ignores hidden InstancedMesh hits", () => {
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 100);
+    camera.position.set(0, 0, 5);
+    camera.lookAt(0, 0, 0);
+    camera.updateMatrixWorld();
+
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(7, new THREE.BoxGeometry(1, 1, 1));
+    cache.registerMaterial(0, new THREE.MeshBasicMaterial());
+
+    const packet = makePacket({ entity_count: 1 });
+    fillIdentityTransforms(packet);
+    packet.entity_ids[0] = 10;
+    packet.entity_generations[0] = 3;
+    packet.mesh_handles[0] = 7;
+    packet.instance_groups = new Uint32Array([7]);
+    cache.applyFrame(packet);
+    cache.instancing.meshFor(7)!.visible = false;
+
+    const canvas = new CanvasStub();
+    const events: PickingEvent[] = [];
+    const dispose = attachPicking(canvas, scene, camera, {
+      onPick: (event) => events.push(event),
+    });
+
+    canvas.dispatch("mousedown", mouse("mousedown", 50, 50));
+    canvas.dispatch("mouseup", mouse("mouseup", 50, 50));
+    dispose();
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.kind).toBe("pick");
+    if (events[0]!.kind !== "pick") throw new Error("expected pick event");
+    expect(events[0]!.entity).toBeNull();
+    expect(events[0]!.point).toBeNull();
+  });
+
   test("standalone picks still use object entity stamps", () => {
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 100);
