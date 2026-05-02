@@ -29,6 +29,19 @@ fn spawn_n_cubes(engine: &mut WasmEngine, n: u32) -> Vec<(u32, u32)> {
         .collect()
 }
 
+fn selection_pairs(engine: &WasmEngine) -> Vec<(u32, u32)> {
+    let sel = engine
+        .engine()
+        .world()
+        .try_resource::<Selection>()
+        .expect("selection installed");
+
+    sel.entities
+        .iter()
+        .map(|entity| (entity.index(), entity.generation()))
+        .collect()
+}
+
 #[test]
 fn apply_pick_lazy_installs_selection_resource() {
     let mut engine = WasmEngine::new();
@@ -51,6 +64,31 @@ fn apply_pick_lazy_installs_selection_resource() {
 }
 
 #[test]
+fn apply_pick_filters_stale_entity_handle_before_selection_mutation() {
+    let mut engine = WasmEngine::new();
+    let cubes = spawn_n_cubes(&mut engine, 2);
+
+    engine.apply_pick(true, cubes[0].0, cubes[0].1, false, 0.0, 0.0, 0.0, 0);
+
+    let stale = Entity::from_raw(cubes[1].0, cubes[1].1);
+    assert!(engine.engine_mut().world_mut().despawn(stale));
+
+    engine.apply_pick(
+        true,
+        cubes[1].0,
+        cubes[1].1,
+        false,
+        0.0,
+        0.0,
+        0.0,
+        PickModifiers::SHIFT,
+    );
+
+    let pairs = selection_pairs(&engine);
+    assert_eq!(pairs, vec![cubes[0]]);
+}
+
+#[test]
 fn apply_pick_rect_with_shift_adds_to_selection() {
     let mut engine = WasmEngine::new();
     let cubes = spawn_n_cubes(&mut engine, 5);
@@ -66,6 +104,28 @@ fn apply_pick_rect_with_shift_adds_to_selection() {
     engine.apply_pick_rect(&flat, PickModifiers::SHIFT);
 
     assert_eq!(engine.selection_count(), 4);
+}
+
+#[test]
+fn apply_pick_rect_filters_stale_entity_handles_before_selection_mutation() {
+    let mut engine = WasmEngine::new();
+    let cubes = spawn_n_cubes(&mut engine, 3);
+
+    let stale = Entity::from_raw(cubes[1].0, cubes[1].1);
+    assert!(engine.engine_mut().world_mut().despawn(stale));
+
+    let mut flat = Vec::new();
+    for &(idx, generation) in &cubes {
+        flat.push(idx);
+        flat.push(generation);
+    }
+    engine.apply_pick_rect(&flat, 0);
+
+    let pairs = selection_pairs(&engine);
+    assert_eq!(pairs.len(), 2);
+    assert!(pairs.contains(&cubes[0]));
+    assert!(pairs.contains(&cubes[2]));
+    assert!(!pairs.contains(&cubes[1]));
 }
 
 #[test]
