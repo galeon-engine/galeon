@@ -15,9 +15,30 @@ export const CHANGED_MATERIAL = 1 << 3;
 export const CHANGED_OBJECT_TYPE = 1 << 4;
 /** Parent entity changed — matches Rust `CHANGED_PARENT`. */
 export const CHANGED_PARENT = 1 << 5;
+/**
+ * Entity's `InstanceOf` membership changed — added, removed, or migrated
+ * between mesh-handle batches. Matches Rust `CHANGED_INSTANCE_GROUP`.
+ *
+ * Renderer uses this to move the entity between the standalone-`Object3D`
+ * and `THREE.InstancedMesh` paths, or relocate it across batches.
+ */
+export const CHANGED_INSTANCE_GROUP = 1 << 6;
+/**
+ * Entity's `Tint` component changed — added, removed, or mutated. Matches
+ * Rust `CHANGED_TINT`. Renderer re-writes the per-instance color slot.
+ */
+export const CHANGED_TINT = 1 << 7;
 
 /** Sentinel value meaning "child of scene root" (no parent entity). Matches Rust `SCENE_ROOT`. */
 export const SCENE_ROOT = 0xffff_ffff;
+/**
+ * Sentinel value in `instance_groups` meaning "not part of an instance batch".
+ * Matches Rust `INSTANCE_GROUP_NONE`. Entities with this value render through
+ * the standalone-`Object3D` path; any other value selects a `THREE.InstancedMesh`
+ * keyed by that value (the wrapped `MeshHandle.id`). `MeshHandle.id` equal to
+ * this sentinel is reserved and rejected by Rust extraction.
+ */
+export const INSTANCE_GROUP_NONE = 0xffff_ffff;
 
 /**
  * Shape of the WASM-exported frame packet.
@@ -45,6 +66,27 @@ export interface FramePacketView {
   readonly change_flags?: Uint8Array;
   /** Object type per entity (0=Mesh, 1=PointLight, 2=DirectionalLight, 3=LineSegments, 4=Group). */
   readonly object_types?: Uint8Array;
+  /**
+   * GPU instance-group identifier per entity.
+   *
+   * `INSTANCE_GROUP_NONE` (= `0xFFFFFFFF`) selects the standalone-`Object3D`
+   * render path. Any other value is the wrapped `MeshHandle.id`; the renderer
+   * places the entity in the `THREE.InstancedMesh` keyed by that value.
+   * `MeshHandle.id === INSTANCE_GROUP_NONE` is reserved in Rust extraction.
+   *
+   * Optional for backward compatibility with packets emitted before issue #215.
+   */
+  readonly instance_groups?: Uint32Array;
+  /**
+   * Per-instance color tint, three floats `[r, g, b]` per entity, linear sRGB.
+   *
+   * Default `[1.0, 1.0, 1.0]` (white) is the no-op identity. Only meaningful
+   * for entities with `InstanceOf` — the standalone-`Object3D` path ignores
+   * the value. Length is `entity_count * 3` when present.
+   *
+   * Optional for backward compatibility with packets emitted before issue #215.
+   */
+  readonly tints?: Float32Array;
   /** Monotonic frame version — skip applyFrame() when unchanged. Omit for always-apply backward compat. */
   readonly frame_version?: bigint;
   readonly custom_channel_count: number;
@@ -171,6 +213,14 @@ export function assertFramePacketContract(
 
   if (packet.object_types !== undefined) {
     assertLength("object_types", packet.object_types.length, entityCount);
+  }
+
+  if (packet.instance_groups !== undefined) {
+    assertLength("instance_groups", packet.instance_groups.length, entityCount);
+  }
+
+  if (packet.tints !== undefined) {
+    assertLength("tints", packet.tints.length, entityCount * 3);
   }
 
   if (packet.change_flags !== undefined && packet.change_flags.length > 0) {
