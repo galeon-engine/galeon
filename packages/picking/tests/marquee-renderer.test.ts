@@ -43,6 +43,40 @@ describe("attachMarqueeRenderer", () => {
     expect(positions.getZ(0)).toBeLessThan(-camera.near);
   });
 
+  test("projects perspective marquee through camera zoom", () => {
+    const camera = new THREE.PerspectiveCamera(90, 1, 0.1, 100);
+    camera.zoom = 2;
+    const marquee = attachMarqueeRenderer(camera, { zOffset: -2 });
+
+    marquee.update({
+      start: { x: -1, y: -1 },
+      end: { x: 1, y: 1 },
+    });
+
+    const positions = marquee.line.geometry.getAttribute("position");
+    expect(positions.getX(0)).toBeCloseTo(-1);
+    expect(positions.getY(0)).toBeCloseTo(-1);
+    expect(positions.getX(2)).toBeCloseTo(1);
+    expect(positions.getY(2)).toBeCloseTo(1);
+  });
+
+  test("keeps off-center orthographic marquee centered while zoomed", () => {
+    const camera = new THREE.OrthographicCamera(2, 6, 8, 4, 0.1, 100);
+    camera.zoom = 2;
+    const marquee = attachMarqueeRenderer(camera);
+
+    marquee.update({
+      start: { x: -1, y: -1 },
+      end: { x: 1, y: 1 },
+    });
+
+    const positions = marquee.line.geometry.getAttribute("position");
+    expect(positions.getX(0)).toBeCloseTo(3);
+    expect(positions.getY(0)).toBeCloseTo(5);
+    expect(positions.getX(2)).toBeCloseTo(5);
+    expect(positions.getY(2)).toBeCloseTo(7);
+  });
+
   test("hides on null update and disposes the camera child", () => {
     const camera = new THREE.PerspectiveCamera();
     const marquee = attachMarqueeRenderer(camera);

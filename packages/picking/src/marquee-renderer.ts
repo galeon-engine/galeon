@@ -117,15 +117,15 @@ function ndcToCameraLocal(
 ): THREE.Vector3 {
   if (camera instanceof THREE.PerspectiveCamera) {
     const depth = Math.abs(z);
-    const halfHeight = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * depth;
+    const halfHeight = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * depth / camera.zoom;
     const halfWidth = halfHeight * camera.aspect;
     return new THREE.Vector3(x * halfWidth, y * halfHeight, z);
   }
   if (camera instanceof THREE.OrthographicCamera) {
     const halfWidth = (camera.right - camera.left) / (2 * camera.zoom);
     const halfHeight = (camera.top - camera.bottom) / (2 * camera.zoom);
-    const centerX = (camera.left + camera.right) / (2 * camera.zoom);
-    const centerY = (camera.top + camera.bottom) / (2 * camera.zoom);
+    const centerX = (camera.left + camera.right) / 2;
+    const centerY = (camera.top + camera.bottom) / 2;
     return new THREE.Vector3(centerX + x * halfWidth, centerY + y * halfHeight, z);
   }
   return new THREE.Vector3(x, y, z);
