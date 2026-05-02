@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 #
-# bump-version.sh — Update the shared version sources for Galeon's 10 lockstep published artifacts.
+# bump-version.sh — Update the shared version sources for Galeon's 9 lockstep published artifacts.
 #
 # Usage: scripts/bump-version.sh X.Y.Z
 #
 # Validates semver format, checks current versions are consistent,
-# then updates all versioned locations across 9 files. `galeon-cli`
+# then updates all versioned locations across 8 files. `galeon-cli`
 # inherits the workspace version, so it needs no separate bump file.
 # Fails fast on any inconsistency or missing file.
 
@@ -56,7 +56,7 @@ NEW_VERSION="${1:-}"
 if [[ -z "$NEW_VERSION" ]]; then
   echo "Usage: scripts/bump-version.sh X.Y.Z"
   echo ""
-  echo "Updates Galeon's shared version sources (15 edits across 9 files)."
+  echo "Updates Galeon's shared version sources (11 edits across 8 files)."
   exit 1
 fi
 
@@ -88,7 +88,6 @@ ALL_FILES=(
   "$RUNTIME_PKG"
   "$RENDER_CORE_PKG"
   "$THREE_PKG"
-  "$ENGINE_TS_PKG"
   "$R3F_PKG"
   "$SHELL_PKG"
 )
@@ -147,22 +146,6 @@ V_THREE_RENDER_CORE=$(read_pkg_dep_pin "$THREE_PKG" "@galeon/render-core")
 [[ -n "$V_THREE_RENDER_CORE" ]] || die "Cannot read @galeon/render-core pin from $THREE_PKG"
 ok "$THREE_PKG  @galeon/render-core = =$V_THREE_RENDER_CORE"
 
-V_ENGINE_TS=$(read_pkg_version "$ENGINE_TS_PKG")
-[[ -n "$V_ENGINE_TS" ]] || die "Cannot read version from $ENGINE_TS_PKG"
-ok "$ENGINE_TS_PKG  version = $V_ENGINE_TS"
-
-V_ENGINE_TS_RENDER_CORE=$(read_pkg_dep_pin "$ENGINE_TS_PKG" "@galeon/render-core")
-[[ -n "$V_ENGINE_TS_RENDER_CORE" ]] || die "Cannot read @galeon/render-core pin from $ENGINE_TS_PKG"
-ok "$ENGINE_TS_PKG  @galeon/render-core = =$V_ENGINE_TS_RENDER_CORE"
-
-V_ENGINE_TS_RUNTIME=$(read_pkg_dep_pin "$ENGINE_TS_PKG" "@galeon/runtime")
-[[ -n "$V_ENGINE_TS_RUNTIME" ]] || die "Cannot read @galeon/runtime pin from $ENGINE_TS_PKG"
-ok "$ENGINE_TS_PKG  @galeon/runtime = =$V_ENGINE_TS_RUNTIME"
-
-V_ENGINE_TS_THREE=$(read_pkg_dep_pin "$ENGINE_TS_PKG" "@galeon/three")
-[[ -n "$V_ENGINE_TS_THREE" ]] || die "Cannot read @galeon/three pin from $ENGINE_TS_PKG"
-ok "$ENGINE_TS_PKG  @galeon/three = =$V_ENGINE_TS_THREE"
-
 V_R3F=$(read_pkg_version "$R3F_PKG")
 [[ -n "$V_R3F" ]] || die "Cannot read version from $R3F_PKG"
 ok "$R3F_PKG  version = $V_R3F"
@@ -191,10 +174,6 @@ ALL_VERSIONS=(
   "$V_RENDER_CORE"
   "$V_THREE"
   "$V_THREE_RENDER_CORE"
-  "$V_ENGINE_TS"
-  "$V_ENGINE_TS_RENDER_CORE"
-  "$V_ENGINE_TS_RUNTIME"
-  "$V_ENGINE_TS_THREE"
   "$V_R3F"
   "$V_R3F_RENDER_CORE"
   "$V_R3F_THREE"
@@ -206,7 +185,7 @@ for v in "${ALL_VERSIONS[@]}"; do
     die "Version mismatch! Expected all to be '$CURRENT' but found '$v'. Fix manually before bumping."
   fi
 done
-ok "All 15 locations currently at $CURRENT"
+ok "All 11 locations currently at $CURRENT"
 echo ""
 
 # ── No-op check ─────────────────────────────────────────────────────
@@ -301,7 +280,7 @@ fi
 ROLLBACK_NEEDED=0
 
 echo ""
-echo "Done. All 15 locations updated to $NEW_VERSION."
+echo "Done. All 11 locations updated to $NEW_VERSION."
 echo ""
 echo "Next steps:"
 echo "  1. Update CHANGELOG.md (move Unreleased items under ## [$NEW_VERSION])"
