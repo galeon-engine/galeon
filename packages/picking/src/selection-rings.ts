@@ -5,6 +5,12 @@ import type { PickingEntityRef } from "./picking.js";
 
 export interface SelectionRingObjectResolver {
   getObject(entityId: number, generation: number): THREE.Object3D | undefined;
+  getInstance?(entityId: number, generation: number): SelectionRingInstance | undefined;
+}
+
+export interface SelectionRingInstance {
+  readonly mesh: THREE.InstancedMesh;
+  readonly instanceId: number;
 }
 
 export interface SelectionRingsOptions {
@@ -39,6 +45,7 @@ const _size = new THREE.Vector3();
 const _position = new THREE.Vector3();
 const _scale = new THREE.Vector3();
 const _quaternion = new THREE.Quaternion();
+const _instanceMatrix = new THREE.Matrix4();
 
 /**
  * Draw world-space selection rings for the current selected entity refs.
@@ -74,23 +81,26 @@ export function attachSelectionRings(
     group,
     update(selection: readonly PickingEntityRef[]): void {
       const active = new Set<string>();
-      scene.updateMatrixWorld(true);
       for (const entity of selection) {
+        const key = selectionKey(entity);
         const object = target.getObject(entity.entityId, entity.generation);
-        if (object === undefined || !visibleObjectChain(object)) {
+        if (object !== undefined) {
+          if (!visibleObjectChain(object)) {
+            continue;
+          }
+          active.add(key);
+          const ring = ensureRing(key);
+          updateObjectRingMatrix(ring, object, options);
           continue;
         }
-        const key = selectionKey(entity);
-        active.add(key);
-        let ring = rings.get(key);
-        if (ring === undefined) {
-          ring = new THREE.LineLoop(geometry, material);
-          ring.matrixAutoUpdate = false;
-          ring.renderOrder = options.renderOrder ?? DEFAULT_RENDER_ORDER;
-          rings.set(key, ring);
-          group.add(ring);
+
+        const instance = target.getInstance?.(entity.entityId, entity.generation);
+        if (instance === undefined || !visibleObjectChain(instance.mesh)) {
+          continue;
         }
-        updateRingMatrix(ring, object, options);
+        active.add(key);
+        const ring = ensureRing(key);
+        updateInstanceRingMatrix(ring, instance, options);
       }
 
       for (const [key, ring] of rings) {
@@ -111,21 +121,66 @@ export function attachSelectionRings(
   };
 
   return controller;
+
+  function ensureRing(key: string): THREE.LineLoop {
+    let ring = rings.get(key);
+    if (ring === undefined) {
+      ring = new THREE.LineLoop(geometry, material);
+      ring.matrixAutoUpdate = false;
+      ring.renderOrder = options.renderOrder ?? DEFAULT_RENDER_ORDER;
+      rings.set(key, ring);
+      group.add(ring);
+    }
+    return ring;
+  }
 }
 
 function selectionKey(entity: PickingEntityRef): string {
   return `${entity.entityId}:${entity.generation}`;
 }
 
-function updateRingMatrix(
+function updateObjectRingMatrix(
   ring: THREE.LineLoop,
   object: THREE.Object3D,
   options: SelectionRingsOptions,
 ): void {
+  object.updateWorldMatrix(true, false);
   _box.setFromObject(object);
+  composeRingMatrix(ring, object, options);
+}
+
+function updateInstanceRingMatrix(
+  ring: THREE.LineLoop,
+  instance: SelectionRingInstance,
+  options: SelectionRingsOptions,
+): void {
+  const { mesh, instanceId } = instance;
+  mesh.updateWorldMatrix(true, false);
+  const geometry = mesh.geometry;
+  if (geometry.boundingBox === null) {
+    geometry.computeBoundingBox();
+  }
+  if (geometry.boundingBox === null) {
+    mesh.getMatrixAt(instanceId, _instanceMatrix);
+    _position.setFromMatrixPosition(_instanceMatrix).applyMatrix4(mesh.matrixWorld);
+    _box.set(_position, _position);
+  } else {
+    mesh.getMatrixAt(instanceId, _instanceMatrix);
+    _box.copy(geometry.boundingBox)
+      .applyMatrix4(_instanceMatrix)
+      .applyMatrix4(mesh.matrixWorld);
+  }
+  composeRingMatrix(ring, mesh, options);
+}
+
+function composeRingMatrix(
+  ring: THREE.LineLoop,
+  fallbackObject: THREE.Object3D,
+  options: SelectionRingsOptions,
+): void {
   const minRadius = options.minRadius ?? DEFAULT_MIN_RADIUS;
   if (_box.isEmpty()) {
-    object.getWorldPosition(_position);
+    fallbackObject.getWorldPosition(_position);
     _scale.set(minRadius, 1, minRadius);
   } else {
     _box.getCenter(_center);

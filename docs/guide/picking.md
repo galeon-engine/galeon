@@ -101,10 +101,13 @@ rings.dispose();
 
 `attachSelectionRings` renders simple `THREE.LineLoop` rings in world space
 for selected entities resolved through a `RendererCache`-compatible
-`getObject(entityId, generation)` target. It intentionally uses per-entity
-wire rings instead of a post-processing `OutlinePass`, so consumers do not need
-to adopt `EffectComposer` just to show selection. Call `update(selection)` after
-selection changes or once per render frame if selected objects keep moving.
+target. Standalone entities resolve through `getObject(entityId, generation)`;
+instanced entities resolve through `getInstance(entityId, generation)` and draw
+against the selected `THREE.InstancedMesh` slot. It intentionally uses
+per-entity wire rings instead of a post-processing `OutlinePass`, so consumers
+do not need to adopt `EffectComposer` just to show selection. Call
+`update(selection)` after selection changes or once per render frame if
+selected objects keep moving.
 
 ## React Three Fiber Bindings
 

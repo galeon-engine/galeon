@@ -17,6 +17,11 @@ export interface InstancedEntityResolver {
   entityAt(instanceId: number): InstancedEntityRef | undefined;
 }
 
+export interface InstancedEntityPlacement {
+  readonly mesh: THREE.InstancedMesh;
+  readonly instanceId: number;
+}
+
 /** Stable key that identifies one instanced batch. */
 export type InstanceBatchKey = number | bigint;
 
@@ -214,6 +219,22 @@ export class InstancedMeshManager {
   /** Whether this entity is currently placed in any instance batch. */
   has(entityId: number): boolean {
     return this.entityToPlacement.has(entityId);
+  }
+
+  /** Resolve an entity to its current instanced mesh slot, if it is batched. */
+  getEntityInstance(
+    entityId: number,
+    generation: number,
+  ): InstancedEntityPlacement | undefined {
+    const placement = this.entityToPlacement.get(entityId);
+    if (placement === undefined) return undefined;
+    const batch = this.batches.get(placement.groupKey);
+    if (batch === undefined) return undefined;
+    if (batch.slotToGeneration[placement.slot] !== generation) return undefined;
+    return {
+      mesh: batch.mesh,
+      instanceId: placement.slot,
+    };
   }
 
   /**

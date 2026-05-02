@@ -445,6 +445,29 @@ describe("RendererCache instanced-mesh path (#215 T2)", () => {
     expect(pos.z).toBeCloseTo(9);
   });
 
+  test("cache resolves instanced entity slots by entity and generation", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(1, new THREE.BoxGeometry(1, 1, 1));
+    cache.registerMaterial(0, new THREE.MeshBasicMaterial());
+
+    const packet = makePacket({ entity_count: 1 });
+    fillIdentityTransforms(packet);
+    packet.entity_ids[0] = 1;
+    packet.entity_generations[0] = 7;
+    packet.mesh_handles[0] = 1;
+    (packet as { instance_groups?: Uint32Array }).instance_groups =
+      new Uint32Array([1]);
+    cache.applyFrame(packet);
+
+    const instance = cache.getInstance(1, 7);
+    expect(instance).toBeDefined();
+    expect(instance!.mesh).toBe(cache.instancing.meshFor(1));
+    expect(instance!.instanceId).toBe(0);
+    expect(cache.getInstance(1, 6)).toBeUndefined();
+    expect(cache.getObject(1, 7)).toBeUndefined();
+  });
+
   test("existing batches rebind when handle registrations change", () => {
     const scene = new THREE.Scene();
     const cache = new RendererCache(scene);
