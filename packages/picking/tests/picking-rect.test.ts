@@ -3,7 +3,12 @@
 import { describe, expect, test } from "bun:test";
 import * as THREE from "three";
 import { GALEON_ENTITY_KEY } from "../../three/src/renderer-cache.js";
-import { attachPicking, type PickingEvent, type PickingTarget } from "../src/picking.js";
+import {
+  attachPicking,
+  type PickingBackend,
+  type PickingEvent,
+  type PickingTarget,
+} from "../src/picking.js";
 
 interface FakeListener {
   type: string;
@@ -575,5 +580,35 @@ describe("attachPicking drag-rectangle marquee", () => {
     if (event.kind !== "pick-rect") throw new Error("unreachable");
     const ids = event.entities.map((e) => e.entityId).sort();
     expect(ids).toEqual([2]);
+  });
+
+  test("delegates marquee selection to a custom picking backend", () => {
+    const scene = new THREE.Scene();
+    const canvas = new FakeCanvas();
+    const events: PickingEvent[] = [];
+    const backend: PickingBackend = {
+      pickAt: () => null,
+      pickRect: ({ scene: backendScene, camera, ndcStart, ndcEnd }) => {
+        expect(backendScene).toBe(scene);
+        expect(camera).toBeInstanceOf(THREE.Camera);
+        expect(ndcStart.x).toBeLessThan(ndcEnd.x);
+        return [{ entityId: 55, generation: 4 }];
+      },
+    };
+
+    attachPicking(canvas, scene, makeOrthoCamera(), {
+      pickingBackend: backend,
+      onPick: (e) => events.push(e),
+      dragThreshold: 2,
+    });
+
+    canvas.fire("mousedown", { clientX: 100, clientY: 100 });
+    canvas.fire("mousemove", { clientX: 200, clientY: 200 });
+    canvas.fire("mouseup", { clientX: 200, clientY: 200 });
+
+    expect(events).toHaveLength(1);
+    const event = events[0]!;
+    if (event.kind !== "pick-rect") throw new Error("expected pick-rect event");
+    expect(event.entities).toEqual([{ entityId: 55, generation: 4 }]);
   });
 });

@@ -51,6 +51,14 @@ dispose();
 resolves to the entity stamped on the group. NDC math uses
 `getBoundingClientRect()`, so the canvas does not need to be fullscreen.
 
+`attachPicking` also accepts a `pickingBackend` option. Omitting it, passing
+`"raycaster"`, or switching a backend provider back to `"raycaster"` uses the
+same default `THREE.Raycaster` click path and world-AABB marquee path described
+here. Custom backends receive `pickAt({ scene, camera, ndc })` and
+`pickRect({ scene, camera, ndcStart, ndcEnd, filter })` requests and must return
+the same `{ entityId, generation }` refs, so accelerated implementations can
+swap in without changing Rust-side `Selection` semantics.
+
 Instanced render batches also resolve to Galeon entity handles for click
 picking. `@galeon/three` stamps each `THREE.InstancedMesh` with an
 `instanceId -> { entityId, generation }` resolver, and `@galeon/picking` uses

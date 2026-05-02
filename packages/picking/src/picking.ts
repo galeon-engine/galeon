@@ -48,6 +48,36 @@ export interface PickRectEvent {
 
 export type PickingEvent = PickEvent | PickRectEvent;
 
+/** Point hit returned by a picking backend. */
+export interface PickingPointHit {
+  readonly entity: PickingEntityRef;
+  readonly point: { readonly x: number; readonly y: number; readonly z: number };
+}
+
+export type PickingFilter = (object: THREE.Object3D, entity: PickingEntityRef) => boolean;
+
+export interface PickAtRequest {
+  readonly scene: THREE.Scene;
+  readonly camera: THREE.Camera;
+  readonly ndc: THREE.Vector2;
+}
+
+export interface PickRectRequest {
+  readonly scene: THREE.Scene;
+  readonly camera: THREE.Camera;
+  readonly ndcStart: THREE.Vector2;
+  readonly ndcEnd: THREE.Vector2;
+  readonly filter?: PickingFilter;
+}
+
+export interface PickingBackend {
+  pickAt(request: PickAtRequest): PickingPointHit | null;
+  pickRect(request: PickRectRequest): readonly PickingEntityRef[];
+}
+
+export type PickingBackendSelection = "raycaster" | PickingBackend;
+export type PickingBackendOption = PickingBackendSelection | (() => PickingBackendSelection);
+
 /**
  * Subset of `HTMLCanvasElement` that picking actually depends on.
  *
@@ -74,11 +104,31 @@ export interface PickingOptions {
   /** Pixels of mouse movement before drag becomes a marquee. Default: 4. */
   readonly dragThreshold?: number;
   /**
+   * Picking implementation used for click and drag-rectangle queries.
+   *
+   * Pass `"raycaster"` or omit the option for the built-in Three.js raycaster
+   * backend. A provider function is evaluated at pick time, which lets callers
+   * switch between compatible backends without reattaching DOM listeners.
+   */
+  readonly pickingBackend?: PickingBackendOption;
+  /**
    * Optional filter for marquee candidates. Receives every managed object
    * with a `GALEON_ENTITY_KEY` stamp; return `false` to exclude it (e.g.,
    * disable picking on UI gizmos).
    */
-  readonly filter?: (object: THREE.Object3D, entity: PickingEntityRef) => boolean;
+  readonly filter?: PickingFilter;
+}
+
+export function createRaycasterPickingBackend(): PickingBackend {
+  const raycaster = new THREE.Raycaster();
+  return {
+    pickAt({ scene, camera, ndc }) {
+      return pickPoint(scene, camera, ndc, raycaster);
+    },
+    pickRect({ scene, camera, ndcStart, ndcEnd, filter }) {
+      return pickRect(scene, camera, ndcStart, ndcEnd, filter);
+    },
+  };
 }
 
 /**
@@ -108,7 +158,7 @@ export function attachPicking(
   const dragThreshold = options.dragThreshold ?? 4;
   const onPick = options.onPick;
   const filter = options.filter;
-  const raycaster = new THREE.Raycaster();
+  const raycasterBackend = createRaycasterPickingBackend();
   const ndcStart = new THREE.Vector2();
   const ndcEnd = new THREE.Vector2();
 
@@ -142,12 +192,22 @@ export function attachPicking(
     const modifiers = readModifiers(event);
     if (dragging) {
       toNdc(canvas, event.clientX, event.clientY, ndcEnd);
-      const entities = pickRect(scene, camera, ndcStart, ndcEnd, filter);
+      const entities = currentPickingBackend(options.pickingBackend, raycasterBackend).pickRect({
+        scene,
+        camera,
+        ndcStart,
+        ndcEnd,
+        filter,
+      });
       onPick?.({ kind: "pick-rect", entities, modifiers });
     } else {
       const ndcClick = new THREE.Vector2();
       toNdc(canvas, event.clientX, event.clientY, ndcClick);
-      const result = pickPoint(scene, camera, ndcClick, raycaster);
+      const result = currentPickingBackend(options.pickingBackend, raycasterBackend).pickAt({
+        scene,
+        camera,
+        ndc: ndcClick,
+      });
       onPick?.({
         kind: "pick",
         entity: result?.entity ?? null,
@@ -179,6 +239,15 @@ export function attachPicking(
   };
 }
 
+function currentPickingBackend(
+  option: PickingBackendOption | undefined,
+  raycasterBackend: PickingBackend,
+): PickingBackend {
+  const selection = typeof option === "function" ? option() : option;
+  if (selection == null || selection === "raycaster") return raycasterBackend;
+  return selection;
+}
+
 /**
  * Convert client-space pixels to Normalised Device Coordinates relative to a
  * canvas. Uses `getBoundingClientRect()` (not `innerWidth`) so non-fullscreen
@@ -204,11 +273,6 @@ function readModifiers(event: MouseEvent): PickModifiers {
   };
 }
 
-interface PickPointResult {
-  entity: PickingEntityRef;
-  point: { x: number; y: number; z: number };
-}
-
 /**
  * Cast a single ray through `ndc` and return the first intersection whose
  * ancestor chain carries a `GALEON_ENTITY_KEY` stamp.
@@ -222,7 +286,7 @@ function pickPoint(
   camera: THREE.Camera,
   ndc: THREE.Vector2,
   raycaster: THREE.Raycaster,
-): PickPointResult | null {
+): PickingPointHit | null {
   scene.updateMatrixWorld(true);
   // `scene.updateMatrixWorld` does not touch a camera that lives outside the
   // scene graph, and `Camera.updateMatrixWorld` is what refreshes both
@@ -282,7 +346,7 @@ function pickRect(
   camera: THREE.Camera,
   ndcStart: THREE.Vector2,
   ndcEnd: THREE.Vector2,
-  filter: PickingOptions["filter"],
+  filter: PickingFilter | undefined,
 ): PickingEntityRef[] {
   scene.updateMatrixWorld(true);
   // `frustumFromRect` unprojects through `camera.matrixWorld` /

@@ -9,12 +9,20 @@ export {
 
 export {
   attachPicking,
+  createRaycasterPickingBackend,
+  type PickAtRequest,
   type PickingEntityRef,
+  type PickingBackend,
+  type PickingBackendOption,
+  type PickingBackendSelection,
   type PickingEvent,
+  type PickingFilter,
   type PickingOptions,
+  type PickingPointHit,
   type PickingTarget,
   type PickEvent,
   type PickModifiers,
+  type PickRectRequest,
   type PickRectEvent,
 } from "./picking.js";
 

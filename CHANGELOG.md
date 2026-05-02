@@ -16,6 +16,13 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   guidance are documented in `docs/guide/picking.md` for the follow-up
   GPU/BVH backend work.
 
+- **Picking backend seam (#224 / T2)** — `attachPicking` now accepts a
+  `pickingBackend` option and exports the backend request/result types plus
+  `createRaycasterPickingBackend()`. The default backend preserves the existing
+  `THREE.Raycaster` click path and world-AABB marquee behavior, while provider
+  functions can switch compatible backends at pick time without reattaching
+  DOM listeners.
+
 - **Marquee renderer HUD primitive (#226 / T1)** — `@galeon/picking` now
   exports `attachMarqueeRenderer(camera)`, a framework-neutral visual helper
   that renders the current drag rectangle as camera-attached Three.js line
