@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Galeon · Billboard Particles Demo</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #101820;
+        color: #d8e0e8;
+        font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+      }
+      #app {
+        position: fixed;
+        inset: 0;
+      }
+      #hud {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        padding: 12px 14px;
+        background: rgba(16, 24, 32, 0.78);
+        border: 1px solid rgba(216, 224, 232, 0.18);
+        border-radius: 6px;
+        line-height: 1.4;
+        font-size: 12px;
+        max-width: 320px;
+        backdrop-filter: blur(6px);
+        pointer-events: none;
+      }
+      #hud strong {
+        color: #f2ebd9;
+        font-weight: 600;
+      }
+      #hud kbd {
+        background: rgba(216, 224, 232, 0.12);
+        padding: 1px 6px;
+        border-radius: 3px;
+        border: 1px solid rgba(216, 224, 232, 0.24);
+      }
+      #count {
+        font-variant-numeric: tabular-nums;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="hud">
+      <strong>Galeon · Billboard Particles</strong><br />
+      Click on the ground plane to spawn a burst.<br />
+      <kbd>LMB drag</kbd> orbit · <kbd>RMB drag</kbd> pan · <kbd>scroll</kbd>
+      zoom<br />
+      Alive: <span id="count">0</span>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

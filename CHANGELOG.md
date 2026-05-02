@@ -9,6 +9,37 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Particle emitter primitive (#217 / T1)** — New `galeon_engine::particle`
+  module ships an `Emitter` component (`rate`, `lifetime`, `velocity`, `size`,
+  `color`, `max`), a `Particle` component, a `Billboard` tag, three
+  distribution shapes (`FloatDist`, `Vec3Dist`, `ColorDist`), a deterministic
+  per-emitter xorshift64 RNG (`ParticleRng`), and the
+  `emitter_spawn_expire_system` that consumes `FixedTimestep::step` to spawn /
+  expire particles each tick. Per-emitter `max` caps independently; spawn debt
+  drops to zero at the cap to prevent post-cap bursts. Rendering wiring (T2)
+  lands in a follow-up commit.
+
+- **Reference billboard shader (#217 / T3)** — `@galeon/three` now exports
+  `createBillboardFbmMaterial`, a `THREE.ShaderMaterial` factory that builds
+  a camera-facing billboard with a 2D-FBM density field, lifetime alpha fade,
+  and an optional soft-edge depth fade against a scene depth texture. Tunable
+  color, size, noise scale / octaves, density falloff, and soft-edge distance.
+  Premultiplied alpha output paired with `THREE.CustomBlending` so it
+  composites correctly regardless of renderer settings. Documented in
+  `docs/guide/effects.md` with a uniform reference and adaptation notes —
+  intended as a starting fragment for downstream effect work, not a
+  domain-specific shader.
+
+- **`examples/billboards` click-to-burst demo (#217 / T4)** — New Vite-based
+  example workspace package shows the T3 reference shader in action: click
+  the ground plane to spawn a 24-particle burst that drifts upward with
+  per-particle drag and fades over a sampled lifetime. Standalone-`Mesh`
+  rendering path (one mesh per particle, sharing one compiled program via
+  Three.js's program cache). The simulation logic (`spawnBurst` /
+  `updateParticles`) is extracted into `src/simulation.ts` so it is
+  exercised by 13 headless `bun:test` cases without requiring a WebGL
+  context. Root `package.json` workspaces now extends to `examples/*`.
+
 - **Mouse picking and drag-rectangle selection helper (#214)** — New
   `@galeon/picking` package wraps `THREE.Raycaster` to emit typed `pick` and
   `pick-rect` events that resolve back to the entity refs `@galeon/three`
@@ -119,6 +150,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   React 19 + R3F 9 as its supported peer combinations.
 
 ### Fixed
+
+- **Confirmed-click spawn in `examples/billboards` (#217)** — Burst spawning
+  now triggers on `pointerup` only when the pointer has not moved beyond a
+  drag threshold since `pointerdown`, instead of firing on `pointerdown`.
+  Without this, every left-button OrbitControls drag start would spawn a
+  burst at the drag origin before the user committed to a click.
 
 - **CLI scaffold dependency pin (#219)** — `galeon new` Rust templates now emit
   Galeon crate dependencies on the current major.minor line, such as

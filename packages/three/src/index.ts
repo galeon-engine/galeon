@@ -9,6 +9,11 @@ export {
 export { InstancedMeshManager } from "./instanced-mesh-manager.js";
 
 export {
+  createBillboardFbmMaterial,
+  type BillboardFbmMaterialOptions,
+} from "./materials/billboard-fbm.js";
+
+export {
   CHANGED_INSTANCE_GROUP,
   CHANGED_MATERIAL,
   CHANGED_MESH,

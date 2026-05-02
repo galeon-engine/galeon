@@ -20,6 +20,7 @@ pub mod game_loop;
 pub mod handler;
 pub mod handler_function;
 pub mod manifest;
+pub mod particle;
 pub mod protocol;
 pub mod query;
 pub mod render;
@@ -62,6 +63,10 @@ pub use handler_function::{
 pub use manifest::{
     FieldEntry, HandlerRegistration, ManifestEntry, ManifestField, ProtocolManifest,
     ProtocolRegistration,
+};
+pub use particle::{
+    Billboard, ColorDist, Emitter, FloatDist, Particle, ParticleRng, Vec3Dist,
+    emitter_spawn_expire_system,
 };
 pub use protocol::{Command, Dto, Event, ProtocolKind, ProtocolMeta, ProtocolQuery};
 pub use query::{
