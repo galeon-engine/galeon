@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 #
-# bump-version.sh — Update the shared version sources for Galeon's 9 lockstep published artifacts.
+# bump-version.sh — Update the shared version sources for Galeon's 10 lockstep published artifacts.
 #
 # Usage: scripts/bump-version.sh X.Y.Z
 #
 # Validates semver format, checks current versions are consistent,
-# then updates all versioned locations across 8 files. `galeon-cli`
+# then updates all versioned locations across 9 files. `galeon-cli`
 # inherits the workspace version, so it needs no separate bump file.
 # Fails fast on any inconsistency or missing file.
 
@@ -56,7 +56,7 @@ NEW_VERSION="${1:-}"
 if [[ -z "$NEW_VERSION" ]]; then
   echo "Usage: scripts/bump-version.sh X.Y.Z"
   echo ""
-  echo "Updates Galeon's shared version sources (11 edits across 8 files)."
+  echo "Updates Galeon's shared version sources (12 edits across 9 files)."
   exit 1
 fi
 
@@ -74,6 +74,7 @@ cd "$REPO_ROOT"
 
 WORKSPACE_CARGO="Cargo.toml"
 ENGINE_CARGO="crates/engine/Cargo.toml"
+TERRAIN_CARGO="crates/engine-terrain/Cargo.toml"
 THREE_SYNC_CARGO="crates/engine-three-sync/Cargo.toml"
 RUNTIME_PKG="packages/runtime/package.json"
 RENDER_CORE_PKG="packages/render-core/package.json"
@@ -84,6 +85,7 @@ SHELL_PKG="packages/shell/package.json"
 ALL_FILES=(
   "$WORKSPACE_CARGO"
   "$ENGINE_CARGO"
+  "$TERRAIN_CARGO"
   "$THREE_SYNC_CARGO"
   "$RUNTIME_PKG"
   "$RENDER_CORE_PKG"
@@ -114,12 +116,17 @@ V_ENGINE_MACROS=$(sed -n 's/^galeon-engine-macros.*version *= *"=\([^"]*\)".*/\1
 [[ -n "$V_ENGINE_MACROS" ]] || die "Cannot read galeon-engine-macros pin from $ENGINE_CARGO"
 ok "$ENGINE_CARGO  galeon-engine-macros = =$V_ENGINE_MACROS"
 
-# 3. three-sync dep on engine
+# 3. terrain dep on engine
+V_TERRAIN_ENGINE=$(sed -n 's/^galeon-engine.*version *= *"=\([^"]*\)".*/\1/p' "$TERRAIN_CARGO" | strip_cr)
+[[ -n "$V_TERRAIN_ENGINE" ]] || die "Cannot read galeon-engine pin from $TERRAIN_CARGO"
+ok "$TERRAIN_CARGO  galeon-engine = =$V_TERRAIN_ENGINE"
+
+# 4. three-sync dep on engine
 V_THREE_ENGINE=$(sed -n 's/^galeon-engine.*version *= *"=\([^"]*\)".*/\1/p' "$THREE_SYNC_CARGO" | strip_cr)
 [[ -n "$V_THREE_ENGINE" ]] || die "Cannot read galeon-engine pin from $THREE_SYNC_CARGO"
 ok "$THREE_SYNC_CARGO  galeon-engine = =$V_THREE_ENGINE"
 
-# 4-6. package.json versions (using grep to extract)
+# 5-9. package.json versions (using grep to extract)
 read_pkg_version() {
   sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$1" | head -1 | strip_cr
 }
@@ -169,6 +176,7 @@ echo "Checking consistency..."
 ALL_VERSIONS=(
   "$CURRENT"
   "$V_ENGINE_MACROS"
+  "$V_TERRAIN_ENGINE"
   "$V_THREE_ENGINE"
   "$V_RUNTIME"
   "$V_RENDER_CORE"
@@ -185,7 +193,7 @@ for v in "${ALL_VERSIONS[@]}"; do
     die "Version mismatch! Expected all to be '$CURRENT' but found '$v'. Fix manually before bumping."
   fi
 done
-ok "All 11 locations currently at $CURRENT"
+ok "All 12 locations currently at $CURRENT"
 echo ""
 
 # ── No-op check ─────────────────────────────────────────────────────
@@ -217,30 +225,34 @@ ok "$WORKSPACE_CARGO"
 sed -i "s/\(galeon-engine-macros.*version = \"=\)$OLD_ESC\"/\1$NEW_VERSION\"/" "$ENGINE_CARGO"
 ok "$ENGINE_CARGO"
 
-# 3. three-sync dep on engine
+# 3. terrain dep on engine
+sed -i "s/\(galeon-engine.*version = \"=\)$OLD_ESC\"/\1$NEW_VERSION\"/" "$TERRAIN_CARGO"
+ok "$TERRAIN_CARGO"
+
+# 4. three-sync dep on engine
 sed -i "s/\(galeon-engine.*version = \"=\)$OLD_ESC\"/\1$NEW_VERSION\"/" "$THREE_SYNC_CARGO"
 ok "$THREE_SYNC_CARGO"
 
-# 4. runtime package.json
+# 5. runtime package.json
 sed -i "s/\"version\": \"$OLD_ESC\"/\"version\": \"$NEW_VERSION\"/" "$RUNTIME_PKG"
 ok "$RUNTIME_PKG"
 
-# 5. render-core package.json
+# 6. render-core package.json
 sed -i "s/\"version\": \"$OLD_ESC\"/\"version\": \"$NEW_VERSION\"/" "$RENDER_CORE_PKG"
 ok "$RENDER_CORE_PKG"
 
-# 6. three package.json (version + render-core dep)
+# 7. three package.json (version + render-core dep)
 sed -i "s/\"version\": \"$OLD_ESC\"/\"version\": \"$NEW_VERSION\"/" "$THREE_PKG"
 sed -i "s/\"@galeon\/render-core\": \"=$OLD_ESC\"/\"@galeon\/render-core\": \"=$NEW_VERSION\"/" "$THREE_PKG"
 ok "$THREE_PKG"
 
-# 7. r3f package.json (version + internal deps)
+# 8. r3f package.json (version + internal deps)
 sed -i "s/\"version\": \"$OLD_ESC\"/\"version\": \"$NEW_VERSION\"/" "$R3F_PKG"
 sed -i "s/\"@galeon\/render-core\": \"=$OLD_ESC\"/\"@galeon\/render-core\": \"=$NEW_VERSION\"/" "$R3F_PKG"
 sed -i "s/\"@galeon\/three\": \"=$OLD_ESC\"/\"@galeon\/three\": \"=$NEW_VERSION\"/" "$R3F_PKG"
 ok "$R3F_PKG"
 
-# 8. shell package.json
+# 9. shell package.json
 sed -i "s/\"version\": \"$OLD_ESC\"/\"version\": \"$NEW_VERSION\"/" "$SHELL_PKG"
 ok "$SHELL_PKG"
 
@@ -263,6 +275,7 @@ verify() {
 
 verify "$WORKSPACE_CARGO"   "version = \"$NEW_VERSION\""            "workspace version"
 verify "$ENGINE_CARGO"       "version = \"=$NEW_VERSION\""           "macros pin"
+verify "$TERRAIN_CARGO"      "version = \"=$NEW_VERSION\""           "engine pin"
 verify "$THREE_SYNC_CARGO"   "version = \"=$NEW_VERSION\""           "engine pin"
 verify "$RUNTIME_PKG"        "\"version\": \"$NEW_VERSION\""         "runtime version"
 verify "$RENDER_CORE_PKG"    "\"version\": \"$NEW_VERSION\""         "render-core version"
@@ -280,7 +293,7 @@ fi
 ROLLBACK_NEEDED=0
 
 echo ""
-echo "Done. All 11 locations updated to $NEW_VERSION."
+echo "Done. All 12 locations updated to $NEW_VERSION."
 echo ""
 echo "Next steps:"
 echo "  1. Update CHANGELOG.md (move Unreleased items under ## [$NEW_VERSION])"
