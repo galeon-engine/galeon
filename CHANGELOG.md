@@ -165,6 +165,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Shared height storage for terrain resources (#233)** — `Terrain` now keeps
+  height samples in immutable shared storage, so cloning a terrain resource or
+  installing it through `HeightmapPlugin` no longer copies the full height
+  buffer. The public ECS resource type remains `Terrain`.
+
 - **React 19 support for `@galeon/r3f` (#211)** — Verified the R3F
   provider/hooks test path against React 19.2, React DOM 19.2, Three 0.183.x,
   and React Three Fiber 9.x. The package now advertises React 18 + R3F 8 and

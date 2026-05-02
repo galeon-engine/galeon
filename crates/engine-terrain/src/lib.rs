@@ -3,6 +3,7 @@
 use std::error::Error;
 use std::fmt;
 use std::io::{BufRead, Seek};
+use std::sync::Arc;
 
 use galeon_engine::{Engine, Plugin};
 
@@ -17,7 +18,7 @@ pub struct Terrain {
     size: [f32; 2],
     sample_count: [u32; 2],
     pixel_stride: [f32; 2],
-    heights: Vec<f32>,
+    heights: Arc<[f32]>,
     min_height: f32,
     max_height: f32,
 }
@@ -60,7 +61,7 @@ impl Terrain {
             size,
             sample_count: [width, height],
             pixel_stride: [size[0] / (width - 1) as f32, size[1] / (height - 1) as f32],
-            heights,
+            heights: heights.into(),
             min_height,
             max_height,
         })
@@ -461,11 +462,25 @@ mod tests {
     #[test]
     fn heightmap_plugin_inserts_terrain_resource() {
         let terrain = synthetic_4x4();
+        let height_storage = terrain.heights().as_ptr();
         let mut engine = Engine::new();
 
         engine.add_plugin(HeightmapPlugin::new(terrain.clone()));
 
         assert_eq!(engine.world().resource::<Terrain>(), &terrain);
+        assert_eq!(
+            engine.world().resource::<Terrain>().heights().as_ptr(),
+            height_storage
+        );
+    }
+
+    #[test]
+    fn terrain_clone_shares_immutable_height_storage() {
+        let terrain = synthetic_4x4();
+        let clone = terrain.clone();
+
+        assert_eq!(clone, terrain);
+        assert_eq!(clone.heights().as_ptr(), terrain.heights().as_ptr());
     }
 
     #[test]
