@@ -3,7 +3,7 @@
 [![CI](https://github.com/galeon-engine/galeon/actions/workflows/ci.yml/badge.svg)](https://github.com/galeon-engine/galeon/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/galeon-engine)](https://crates.io/crates/galeon-engine)
 [![cli](https://img.shields.io/crates/v/galeon-cli)](https://crates.io/crates/galeon-cli)
-[![npm](https://img.shields.io/npm/v/@galeon/engine-ts)](https://www.npmjs.com/package/@galeon/engine-ts)
+[![npm](https://img.shields.io/npm/v/@galeon/three)](https://www.npmjs.com/package/@galeon/three)
 [![license](https://img.shields.io/crates/l/galeon-engine)](https://github.com/galeon-engine/galeon/blob/master/LICENSE-AGPL)
 
 A Rust game engine with a Three.js renderer.
@@ -65,7 +65,6 @@ the engine itself is shell-agnostic.
 - `@galeon/render-core` defines the framework-neutral render snapshot contract
 - `@galeon/three` syncs `FramePacket` to an imperative Three.js scene graph
 - `@galeon/r3f` provides React Three Fiber provider/entities/hooks
-- `@galeon/engine-ts` remains a compatibility re-export for the Three.js path
 - Generational entity safety prevents stale object references
 - Fallback geometry for missing assets
 
@@ -152,7 +151,6 @@ packages/
   runtime/             @galeon/runtime — JS/WASM glue (workspace + npm package)
   render-core/         @galeon/render-core — render packet contract (workspace + npm package)
   three/               @galeon/three — imperative Three.js adapter (workspace + npm package)
-  engine-ts/           @galeon/engine-ts — compatibility re-export (workspace + npm package)
   r3f/                 @galeon/r3f — React Three Fiber adapter (workspace + npm package)
   shell/               @galeon/shell — editor UI package (workspace + npm package, experimental)
 ```
@@ -194,14 +192,14 @@ bun run check    # Type-check all packages (tsc --build)
 
 The Bun workspace in this repository is the checked-in `packages/*` tree:
 `packages/runtime`, `packages/render-core`, `packages/three`,
-`packages/engine-ts`, `packages/r3f`, and `packages/shell`. These are the same
+`packages/r3f`, and `packages/shell`. These are the same
 packages that publish to npm under the `@galeon/*` scope; they are not a separate
 publish-only surface outside this checkout.
 
 ## Public Packages
 
 Galeon publishes **four Rust packages** to [crates.io](https://crates.io) and
-**six TypeScript packages** to [npm](https://www.npmjs.com).
+**five TypeScript packages** to [npm](https://www.npmjs.com).
 
 The TypeScript packages listed here are also checked into this repository under
 `packages/*` and are the packages targeted by the root Bun workspace commands.
@@ -227,7 +225,6 @@ The TypeScript packages listed here are also checked into this repository under
 | `@galeon/runtime` | [![npm](https://img.shields.io/npm/v/@galeon/runtime)](https://www.npmjs.com/package/@galeon/runtime) | JS &harr; WASM glue |
 | `@galeon/render-core` | [![npm](https://img.shields.io/npm/v/@galeon/render-core)](https://www.npmjs.com/package/@galeon/render-core) | Framework-neutral render snapshot contract |
 | `@galeon/three` | [![npm](https://img.shields.io/npm/v/@galeon/three)](https://www.npmjs.com/package/@galeon/three) | Imperative Three.js adapter |
-| `@galeon/engine-ts` | [![npm](https://img.shields.io/npm/v/@galeon/engine-ts)](https://www.npmjs.com/package/@galeon/engine-ts) | Compatibility re-export for the Three.js adapter |
 | `@galeon/r3f` | [![npm](https://img.shields.io/npm/v/@galeon/r3f)](https://www.npmjs.com/package/@galeon/r3f) | React Three Fiber adapter |
 | `@galeon/shell` | [![npm](https://img.shields.io/npm/v/@galeon/shell)](https://www.npmjs.com/package/@galeon/shell) | Editor UI package (experimental) |
 
