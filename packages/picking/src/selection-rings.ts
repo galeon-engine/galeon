@@ -98,9 +98,12 @@ export function attachSelectionRings(
         if (instance === undefined || !visibleObjectChain(instance.mesh)) {
           continue;
         }
+        if (!readInstanceBounds(instance)) {
+          continue;
+        }
         active.add(key);
         const ring = ensureRing(key);
-        updateInstanceRingMatrix(ring, instance, options);
+        composeRingMatrix(ring, instance.mesh, options);
       }
 
       for (const [key, ring] of rings) {
@@ -149,28 +152,26 @@ function updateObjectRingMatrix(
   composeRingMatrix(ring, object, options);
 }
 
-function updateInstanceRingMatrix(
-  ring: THREE.LineLoop,
-  instance: SelectionRingInstance,
-  options: SelectionRingsOptions,
-): void {
+function readInstanceBounds(instance: SelectionRingInstance): boolean {
   const { mesh, instanceId } = instance;
   mesh.updateWorldMatrix(true, false);
+  mesh.getMatrixAt(instanceId, _instanceMatrix);
+  if (isZeroScaleMatrix(_instanceMatrix)) {
+    return false;
+  }
   const geometry = mesh.geometry;
   if (geometry.boundingBox === null) {
     geometry.computeBoundingBox();
   }
   if (geometry.boundingBox === null) {
-    mesh.getMatrixAt(instanceId, _instanceMatrix);
     _position.setFromMatrixPosition(_instanceMatrix).applyMatrix4(mesh.matrixWorld);
     _box.set(_position, _position);
   } else {
-    mesh.getMatrixAt(instanceId, _instanceMatrix);
     _box.copy(geometry.boundingBox)
       .applyMatrix4(_instanceMatrix)
       .applyMatrix4(mesh.matrixWorld);
   }
-  composeRingMatrix(ring, mesh, options);
+  return true;
 }
 
 function composeRingMatrix(
@@ -209,6 +210,14 @@ function createUnitRingGeometry(segments: number): THREE.BufferGeometry {
     points.push(new THREE.Vector3(Math.cos(t), 0, Math.sin(t)));
   }
   return new THREE.BufferGeometry().setFromPoints(points);
+}
+
+function isZeroScaleMatrix(matrix: THREE.Matrix4): boolean {
+  const e = matrix.elements;
+  const xScaleSq = e[0]! * e[0]! + e[1]! * e[1]! + e[2]! * e[2]!;
+  const yScaleSq = e[4]! * e[4]! + e[5]! * e[5]! + e[6]! * e[6]!;
+  const zScaleSq = e[8]! * e[8]! + e[9]! * e[9]! + e[10]! * e[10]!;
+  return xScaleSq === 0 && yScaleSq === 0 && zScaleSq === 0;
 }
 
 function visibleObjectChain(object: THREE.Object3D): boolean {

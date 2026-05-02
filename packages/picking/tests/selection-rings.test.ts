@@ -103,6 +103,68 @@ describe("attachSelectionRings", () => {
     expect(scale.z).toBeCloseTo(1.18);
   });
 
+  test("skips hidden zero-scale instanced mesh slots", () => {
+    const scene = new THREE.Scene();
+    const resolver = new FakeResolver();
+    const mesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(2, 1, 4),
+      new THREE.MeshBasicMaterial(),
+      1,
+    );
+    const matrix = new THREE.Matrix4().compose(
+      new THREE.Vector3(3, 0, 5),
+      new THREE.Quaternion(),
+      new THREE.Vector3(0, 0, 0),
+    );
+    mesh.setMatrixAt(0, matrix);
+    mesh.count = 1;
+    scene.add(mesh);
+    resolver.setInstance(1, 0, { mesh, instanceId: 0 });
+
+    const rings = attachSelectionRings(scene, resolver);
+    rings.update([{ entityId: 1, generation: 0 }]);
+
+    expect(rings.group.children).toHaveLength(0);
+  });
+
+  test("removes an existing ring when an instanced mesh slot becomes zero-scale", () => {
+    const scene = new THREE.Scene();
+    const resolver = new FakeResolver();
+    const mesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(2, 1, 4),
+      new THREE.MeshBasicMaterial(),
+      1,
+    );
+    mesh.setMatrixAt(
+      0,
+      new THREE.Matrix4().compose(
+        new THREE.Vector3(3, 0, 5),
+        new THREE.Quaternion(),
+        new THREE.Vector3(1, 1, 1),
+      ),
+    );
+    mesh.count = 1;
+    scene.add(mesh);
+    resolver.setInstance(1, 0, { mesh, instanceId: 0 });
+    const selection = [{ entityId: 1, generation: 0 }];
+
+    const rings = attachSelectionRings(scene, resolver);
+    rings.update(selection);
+    expect(rings.group.children).toHaveLength(1);
+
+    mesh.setMatrixAt(
+      0,
+      new THREE.Matrix4().compose(
+        new THREE.Vector3(3, 0, 5),
+        new THREE.Quaternion(),
+        new THREE.Vector3(0, 0, 0),
+      ),
+    );
+    rings.update(selection);
+
+    expect(rings.group.children).toHaveLength(0);
+  });
+
   test("skips hidden object chains", () => {
     const scene = new THREE.Scene();
     const resolver = new FakeResolver();

@@ -43,6 +43,21 @@ describe("attachMarqueeRenderer", () => {
     expect(positions.getZ(0)).toBeLessThan(-camera.near);
   });
 
+  test("keeps default perspective marquee inside a tight far plane", () => {
+    const camera = new THREE.PerspectiveCamera(50, 1, 1, 1.5);
+    const marquee = attachMarqueeRenderer(camera);
+
+    marquee.update({
+      start: { x: -1, y: -1 },
+      end: { x: 1, y: 1 },
+    });
+
+    const positions = marquee.line.geometry.getAttribute("position");
+    const depth = Math.abs(positions.getZ(0));
+    expect(depth).toBeGreaterThan(camera.near);
+    expect(depth).toBeLessThan(camera.far);
+  });
+
   test("projects perspective marquee through camera zoom", () => {
     const camera = new THREE.PerspectiveCamera(90, 1, 0.1, 100);
     camera.zoom = 2;

@@ -106,7 +106,12 @@ function writeRectGeometry(
 function resolveZOffset(camera: THREE.Camera, zOffset: number | undefined): number {
   if (zOffset !== undefined) return zOffset;
   const near = "near" in camera && typeof camera.near === "number" ? camera.near : 0.1;
-  return -Math.max(near * 2, near + 0.01);
+  const far = "far" in camera && typeof camera.far === "number" ? camera.far : Infinity;
+  const preferredDepth = Math.max(near * 2, near + 0.01);
+  if (!Number.isFinite(far) || preferredDepth < far) {
+    return -preferredDepth;
+  }
+  return -(near + (far - near) / 2);
 }
 
 function ndcToCameraLocal(
