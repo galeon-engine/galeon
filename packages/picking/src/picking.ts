@@ -268,13 +268,18 @@ function pickRect(
   const out: PickingEntityRef[] = [];
   // Manual walker — `scene.traverse` always recurses, but a hidden subtree must
   // be skipped wholesale to keep marquee semantics consistent with click picking.
-  // Layer mismatches against the camera are pruned for the same reason: marquee
-  // selection should only return entities the camera would actually render.
+  // Visibility is inherited in Three.js, so an invisible parent prunes the whole
+  // subtree. Layers are NOT inherited — each object's own `layers.test(camera)`
+  // governs whether it is rendered, so layer-mismatched ancestors must not hide
+  // their visible children. Only the per-node candidate test gates on layer.
   function visit(object: THREE.Object3D): void {
     if (!object.visible) return;
-    if (!object.layers.test(camera.layers)) return;
     const entity = readEntity(object);
-    if (entity != null && (filter == null || filter(object, entity))) {
+    if (
+      entity != null &&
+      object.layers.test(camera.layers) &&
+      (filter == null || filter(object, entity))
+    ) {
       if (worldAabb(object, aabb, camera) !== null && frustum.intersectsBox(aabb)) {
         out.push(entity);
       }
@@ -324,23 +329,33 @@ function worldAabb(
   // Manual recursion — `Object3D.traverse` always descends, so a hidden
   // mid-tree node would still let its visible grandchildren expand the AABB.
   // Pruning the whole subtree at the first hidden ancestor matches what the
-  // renderer would actually draw. Layer mismatches against the camera are
-  // pruned for the same reason.
+  // renderer would actually draw.
+  //
+  // Two more pruning rules:
+  // - Stop at nested managed entities. Click picking resolves to the nearest
+  //   stamped ancestor, so a stamped child's geometry belongs to *that*
+  //   entity's bounds, not its stamped parent's. Including it here would
+  //   inflate the parent's AABB and produce false-positive parent selections.
+  // - Layers are not inherited in Three.js: only contribute geometry from
+  //   meshes whose own layer mask overlaps the camera, but keep traversing
+  //   into children regardless (children may be on different layers).
   function visit(node: THREE.Object3D): void {
     if (node !== object) {
       if (!node.visible) return;
-      if (!node.layers.test(camera.layers)) return;
+      if (readEntity(node) != null) return;
     }
     if (node !== object && (node instanceof THREE.Mesh || node instanceof THREE.LineSegments)) {
-      const geom = node.geometry;
-      if (geom != null) {
-        if (geom.boundingBox === null) {
-          geom.computeBoundingBox();
-        }
-        if (geom.boundingBox !== null) {
-          tmp.copy(geom.boundingBox).applyMatrix4(node.matrixWorld);
-          out.union(tmp);
-          hasGeometry = true;
+      if (node.layers.test(camera.layers)) {
+        const geom = node.geometry;
+        if (geom != null) {
+          if (geom.boundingBox === null) {
+            geom.computeBoundingBox();
+          }
+          if (geom.boundingBox !== null) {
+            tmp.copy(geom.boundingBox).applyMatrix4(node.matrixWorld);
+            out.union(tmp);
+            hasGeometry = true;
+          }
         }
       }
     }

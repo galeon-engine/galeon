@@ -393,4 +393,70 @@ describe("attachPicking drag-rectangle marquee", () => {
     if (event.kind !== "pick-rect") throw new Error("unreachable");
     expect(event.entities).toHaveLength(0);
   });
+
+  test("descendant entities with matching layers are still found under a layer-mismatched parent", () => {
+    // Three.js does not inherit layer membership from parent to child, so a
+    // parent on a non-rendered layer must NOT cause the marquee walker to
+    // drop a child entity whose own layer mask overlaps the camera.
+    // Click picking would still find such a child via recursive raycasting.
+    const scene = new THREE.Scene();
+    const parent = new THREE.Group();
+    parent.layers.set(2);
+    parent.position.set(0, 0, 0);
+    const child = makeMeshAt(42, 0.5, 0.5, 0);
+    parent.add(child);
+    scene.add(parent);
+
+    const canvas = new FakeCanvas();
+    const events: PickingEvent[] = [];
+    attachPicking(canvas, scene, makeOrthoCamera(), {
+      onPick: (e) => events.push(e),
+      dragThreshold: 2,
+    });
+
+    canvas.fire("mousedown", { clientX: 380, clientY: 280 });
+    canvas.fire("mousemove", { clientX: 420, clientY: 320 });
+    canvas.fire("mouseup", { clientX: 420, clientY: 320 });
+
+    expect(events).toHaveLength(1);
+    const event = events[0]!;
+    if (event.kind !== "pick-rect") throw new Error("unreachable");
+    const ids = event.entities.map((e) => e.entityId).sort();
+    expect(ids).toEqual([42]);
+  });
+
+  test("nested stamped entity does not inflate its parent's AABB", () => {
+    // Stamped parent Group at the origin with a stamped child mesh at (5,5).
+    // Click picking resolves the deeper stamped ancestor, so marquee bounds
+    // for the parent must exclude the child's geometry — otherwise a rect
+    // that covers only the child would also select the parent.
+    const scene = new THREE.Scene();
+    const parent = new THREE.Group();
+    parent.position.set(0, 0, 0);
+    (parent.userData as Record<PropertyKey, unknown>)[GALEON_ENTITY_KEY] = {
+      entityId: 1,
+      generation: 0,
+    };
+    const child = makeMeshAt(2, 1.5, 1.5, 0);
+    parent.add(child);
+    scene.add(parent);
+
+    const canvas = new FakeCanvas();
+    const events: PickingEvent[] = [];
+    attachPicking(canvas, scene, makeOrthoCamera(), {
+      onPick: (e) => events.push(e),
+      dragThreshold: 2,
+    });
+
+    // Tight marquee around the child's world position only.
+    canvas.fire("mousedown", { clientX: 700, clientY: 100 });
+    canvas.fire("mousemove", { clientX: 740, clientY: 140 });
+    canvas.fire("mouseup", { clientX: 740, clientY: 140 });
+
+    expect(events).toHaveLength(1);
+    const event = events[0]!;
+    if (event.kind !== "pick-rect") throw new Error("unreachable");
+    const ids = event.entities.map((e) => e.entityId).sort();
+    expect(ids).toEqual([2]);
+  });
 });
