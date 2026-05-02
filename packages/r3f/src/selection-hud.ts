@@ -2,10 +2,11 @@
 
 import { useFrame, useThree } from "@react-three/fiber";
 import {
-  attachMarqueeOverlay,
+  attachMarqueeRenderer,
   attachSelectionRings,
-  type MarqueeOverlayOptions,
-  type MarqueeOverlayTarget,
+  type MarqueeRect,
+  type MarqueeRendererController,
+  type MarqueeRendererOptions,
   type PickingEntityRef,
   type SelectionRingsController,
   type SelectionRingsOptions,
@@ -17,31 +18,41 @@ import {
 } from "react";
 import { useGaleonRendererCache } from "./provider.js";
 
-export interface MarqueeOverlayProps extends MarqueeOverlayOptions {
-  readonly canvas?: MarqueeOverlayTarget | null;
+export interface MarqueeRendererProps extends MarqueeRendererOptions {
+  readonly rect: MarqueeRect | null;
 }
 
-export function MarqueeOverlay({
-  canvas,
-  className,
-  container,
-  border,
-  background,
-  zIndex,
-}: MarqueeOverlayProps) {
-  const defaultCanvas = useThree((state) => state.gl.domElement as MarqueeOverlayTarget);
-  const target = canvas ?? defaultCanvas;
+export function MarqueeRenderer({
+  rect,
+  color,
+  opacity,
+  renderOrder,
+  zOffset,
+  material,
+}: MarqueeRendererProps) {
+  const camera = useThree((state) => state.camera);
+  const controller = useRef<MarqueeRendererController | null>(null);
+  const options = useMemo<MarqueeRendererOptions>(() => ({
+    color,
+    opacity,
+    renderOrder,
+    zOffset,
+    material,
+  }), [color, material, opacity, renderOrder, zOffset]);
 
   useLayoutEffect(() => {
-    if (target == null) return;
-    return attachMarqueeOverlay(target, {
-      className,
-      container,
-      border,
-      background,
-      zIndex,
-    });
-  }, [background, border, className, container, target, zIndex]);
+    const marquee = attachMarqueeRenderer(camera, options);
+    controller.current = marquee;
+    marquee.update(rect);
+    return () => {
+      controller.current = null;
+      marquee.dispose();
+    };
+  }, [camera, options]);
+
+  useLayoutEffect(() => {
+    controller.current?.update(rect);
+  }, [rect]);
 
   return null;
 }

@@ -15,8 +15,8 @@ export {
 export { GaleonEntityStore, type GaleonEntityRef } from "./entity-store.js";
 
 export {
-  MarqueeOverlay,
+  MarqueeRenderer,
   SelectionRings,
-  type MarqueeOverlayProps,
+  type MarqueeRendererProps,
   type SelectionRingsProps,
 } from "./selection-hud.js";

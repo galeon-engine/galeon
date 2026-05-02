@@ -13,79 +13,11 @@ import {
 } from "../../render-core/src/index.js";
 import {
   GaleonProvider,
-  MarqueeOverlay,
+  MarqueeRenderer,
   SelectionRings,
 } from "../src/index.js";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
-interface FakeListener {
-  type: string;
-  fn: (event: MouseEvent) => void;
-}
-
-class FakeStyle {
-  position = "";
-  pointerEvents = "";
-  boxSizing = "";
-  border = "";
-  background = "";
-  zIndex = "";
-  left = "";
-  top = "";
-  width = "";
-  height = "";
-}
-
-class FakeElement {
-  readonly style = new FakeStyle() as CSSStyleDeclaration;
-  readonly children: FakeElement[] = [];
-  className = "";
-  parent: FakeElement | null = null;
-
-  appendChild(child: FakeElement): FakeElement {
-    child.parent = this;
-    this.children.push(child);
-    return child;
-  }
-
-  remove(): void {
-    if (this.parent == null) return;
-    const index = this.parent.children.indexOf(this);
-    if (index >= 0) this.parent.children.splice(index, 1);
-    this.parent = null;
-  }
-}
-
-class FakeDocument {
-  readonly body = new FakeElement();
-
-  createElement(): FakeElement {
-    return new FakeElement();
-  }
-}
-
-class FakeCanvas {
-  readonly ownerDocument = new FakeDocument() as unknown as Document;
-  readonly listeners: FakeListener[] = [];
-
-  addEventListener(type: string, fn: (event: MouseEvent) => void): void {
-    this.listeners.push({ type, fn });
-  }
-
-  removeEventListener(type: string, fn: (event: MouseEvent) => void): void {
-    const index = this.listeners.findIndex((listener) => listener.type === type && listener.fn === fn);
-    if (index >= 0) this.listeners.splice(index, 1);
-  }
-
-  getBoundingClientRect() {
-    return { left: 0, top: 0, width: 800, height: 600 };
-  }
-
-  body(): FakeElement {
-    return (this.ownerDocument.body as unknown) as FakeElement;
-  }
-}
 
 function makePacket(): FramePacketView {
   const transforms = new Float32Array(TRANSFORM_STRIDE);
@@ -123,33 +55,63 @@ function findRingGroup(scene: THREE.Scene): THREE.Group | undefined {
     | undefined;
 }
 
+function findMarqueeLine(camera: THREE.Camera): THREE.LineLoop | undefined {
+  return camera.children.find((child) => child.name === "GaleonMarqueeRenderer") as
+    | THREE.LineLoop
+    | undefined;
+}
+
 let capturedScene: THREE.Scene | null = null;
+let capturedCamera: THREE.Camera | null = null;
 
 function SceneProbe() {
   capturedScene = useThree((state) => state.scene);
+  capturedCamera = useThree((state) => state.camera);
   return null;
 }
 
 describe("selection HUD R3F bindings", () => {
-  test("MarqueeOverlay mounts and unmounts the vanilla overlay listeners", async () => {
-    const canvas = new FakeCanvas();
+  test("MarqueeRenderer mounts camera-attached geometry and follows rect updates", async () => {
+    capturedCamera = null;
     const renderer = await create(
-      createElement(MarqueeOverlay, { canvas }),
+      createElement(
+        Fragment,
+        null,
+        createElement(MarqueeRenderer, { rect: null }),
+        createElement(SceneProbe),
+      ),
     );
 
-    expect(canvas.listeners.map((listener) => listener.type).sort()).toEqual([
-      "mousedown",
-      "mouseleave",
-      "mousemove",
-      "mouseup",
-    ]);
+    await act(async () => {
+      await renderer.advanceFrames(1, 1 / 60);
+    });
+    const line = findMarqueeLine(capturedCamera!)!;
+    expect(line).toBeDefined();
+    expect(line.visible).toBe(false);
+
+    await act(async () => {
+      await renderer.update(
+        createElement(
+          Fragment,
+          null,
+          createElement(MarqueeRenderer, {
+            rect: { start: { x: -0.5, y: -0.25 }, end: { x: 0.5, y: 0.75 } },
+          }),
+          createElement(SceneProbe),
+        ),
+      );
+      await renderer.advanceFrames(1, 1 / 60);
+    });
+
+    expect(line.visible).toBe(true);
+    const positions = line.geometry.getAttribute("position");
+    expect([positions.getX(0), positions.getY(0)]).toEqual([-0.5, -0.25]);
+    expect([positions.getX(2), positions.getY(2)]).toEqual([0.5, 0.75]);
 
     await act(async () => {
       await renderer.unmount();
     });
-
-    expect(canvas.listeners).toHaveLength(0);
-    expect(canvas.body().children).toHaveLength(0);
+    expect(capturedCamera!.children.some((child) => child.name === "GaleonMarqueeRenderer")).toBe(false);
   });
 
   test("SelectionRings updates ring structure when selection changes", async () => {

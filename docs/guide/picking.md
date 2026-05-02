@@ -58,23 +58,30 @@ the `THREE.Raycaster` intersection's `instanceId` before falling back to the
 normal ancestor-stamp path. Marquee selection still uses object AABBs; large
 per-instance marquee acceleration remains a follow-up under #224.
 
-## TypeScript: `attachMarqueeOverlay`
+## TypeScript: `attachMarqueeRenderer`
 
 ```ts
-import { attachMarqueeOverlay } from "@galeon/picking";
+import { attachMarqueeRenderer } from "@galeon/picking";
 
-const disposeOverlay = attachMarqueeOverlay(canvas);
+const marquee = attachMarqueeRenderer(camera);
+
+function onDrag(startNdc, endNdc) {
+  marquee.update({ start: startNdc, end: endNdc });
+}
+
+function onDragEnd() {
+  marquee.update(null);
+}
 
 // On unmount:
-disposeOverlay();
+marquee.dispose();
 ```
 
-`attachMarqueeOverlay` is a visual-only HUD primitive. It appends a transient
-fixed-position `<div>` to the canvas document while the left mouse button is
-held, updates the rectangle as the cursor moves, and removes it on mouse-up,
-mouseleave, or disposal. It does not emit picking events or modify
-`Selection`; pair it with `attachPicking` when a project wants both selection
-behavior and the standard drag rectangle.
+`attachMarqueeRenderer` is a visual-only HUD primitive. It renders the current
+drag rectangle as camera-attached Three.js line geometry using Normalised
+Device Coordinates. It does not emit picking events or modify `Selection`;
+pair it with `attachPicking` when a project wants both selection behavior and
+the standard in-engine drag rectangle.
 
 ## TypeScript: `attachSelectionRings`
 
@@ -102,15 +109,15 @@ selection changes or once per render frame if selected objects keep moving.
 ## React Three Fiber Bindings
 
 ```tsx
-import { GaleonProvider, MarqueeOverlay, SelectionRings } from "@galeon/r3f";
+import { GaleonProvider, MarqueeRenderer, SelectionRings } from "@galeon/r3f";
 
 <GaleonProvider engine={engine}>
-  <MarqueeOverlay />
+  <MarqueeRenderer rect={dragRectNdc} />
   <SelectionRings selection={selectionEntities} />
 </GaleonProvider>
 ```
 
-`<MarqueeOverlay />` uses the active R3F renderer canvas by default.
+`<MarqueeRenderer />` attaches the rectangle geometry to the active R3F camera.
 `<SelectionRings />` reads the `RendererCache` from `GaleonProvider` and
 refreshes ring transforms during the R3F frame loop.
 
