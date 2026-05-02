@@ -6,7 +6,12 @@ export {
   type RendererEntityHandle,
 } from "./renderer-cache.js";
 
-export { InstancedMeshManager } from "./instanced-mesh-manager.js";
+export {
+  GALEON_INSTANCE_ENTITIES_KEY,
+  InstancedMeshManager,
+  type InstancedEntityRef,
+  type InstancedEntityResolver,
+} from "./instanced-mesh-manager.js";
 
 export {
   createBillboardFbmMaterial,

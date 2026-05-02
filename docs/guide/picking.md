@@ -51,6 +51,13 @@ dispose();
 resolves to the entity stamped on the group. NDC math uses
 `getBoundingClientRect()`, so the canvas does not need to be fullscreen.
 
+Instanced render batches also resolve to Galeon entity handles for click
+picking. `@galeon/three` stamps each `THREE.InstancedMesh` with an
+`instanceId -> { entityId, generation }` resolver, and `@galeon/picking` uses
+the `THREE.Raycaster` intersection's `instanceId` before falling back to the
+normal ancestor-stamp path. Marquee selection still uses object AABBs; large
+per-instance marquee acceleration remains a follow-up under #224.
+
 ## Rust: `Selection` resource
 
 ```rust
@@ -94,7 +101,9 @@ reports the modifiers; the `Selection` resource decides what they mean.
 - **Multi-rect / lasso selection** — single rectangle only.
 - **GPU-accelerated picking** — when scenes scale past what raycasting can
   handle, look at `@three.ez/instanced-mesh` (per-instance BVH) or
-  `three-mesh-bvh` (static geometry). The discovery notes have details.
+  `three-mesh-bvh` (static geometry). The default click path already preserves
+  instanced entity identity through `Intersection.instanceId`; faster backends
+  must preserve the same `{ entityId, generation }` result shape.
 
 ## Native Verification
 

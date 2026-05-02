@@ -211,6 +211,7 @@ export class RendererCache {
         );
         this.instancedMeshes.upsert(
           entityId,
+          generation,
           batchKey,
           geometry,
           material,

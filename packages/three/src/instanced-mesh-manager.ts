@@ -3,6 +3,20 @@
 import * as THREE from "three";
 import { TRANSFORM_STRIDE } from "@galeon/render-core";
 
+/** Symbol key for resolving `THREE.InstancedMesh` hit `instanceId`s to Galeon entities. */
+export const GALEON_INSTANCE_ENTITIES_KEY: unique symbol = Symbol.for(
+  "galeon.instanceEntities",
+);
+
+export interface InstancedEntityRef {
+  readonly entityId: number;
+  readonly generation: number;
+}
+
+export interface InstancedEntityResolver {
+  entityAt(instanceId: number): InstancedEntityRef | undefined;
+}
+
 /** Stable key that identifies one instanced batch. */
 export type InstanceBatchKey = number | bigint;
 
@@ -34,6 +48,8 @@ interface Batch {
   count: number;
   /** `slot → entityId` (`-1` for empty slots, but only `[0, count)` is meaningful). */
   slotToEntity: Int32Array;
+  /** `slot → entity generation`, parallel to `slotToEntity`. */
+  slotToGeneration: Uint32Array;
   /** Last registry-resolved geometry and material for this batch. */
   geometry: THREE.BufferGeometry;
   material: THREE.Material;
@@ -75,6 +91,7 @@ export class InstancedMeshManager {
    */
   upsert(
     entityId: number,
+    generation: number,
     groupKey: InstanceBatchKey,
     geometry: THREE.BufferGeometry,
     material: THREE.Material,
@@ -100,10 +117,12 @@ export class InstancedMeshManager {
       }
       slot = batch.count;
       batch.slotToEntity[slot] = entityId;
+      batch.slotToGeneration[slot] = generation;
       batch.count += 1;
       batch.mesh.count = batch.count;
       this.entityToPlacement.set(entityId, { groupKey, slot });
     }
+    batch.slotToGeneration[slot] = generation;
 
     this.writeSlotMatrix(batch, slot, transforms, transformIndex, visible);
     if (tints !== undefined) {
@@ -139,7 +158,9 @@ export class InstancedMeshManager {
       batch.mesh.getColorAt(lastSlot, _scratchColor);
       batch.mesh.setColorAt(slot, _scratchColor);
       const movedEntity = batch.slotToEntity[lastSlot]!;
+      const movedGeneration = batch.slotToGeneration[lastSlot]!;
       batch.slotToEntity[slot] = movedEntity;
+      batch.slotToGeneration[slot] = movedGeneration;
       this.entityToPlacement.set(movedEntity, {
         groupKey: batch.groupKey,
         slot,
@@ -151,6 +172,7 @@ export class InstancedMeshManager {
     }
 
     batch.slotToEntity[lastSlot] = -1;
+    batch.slotToGeneration[lastSlot] = 0;
     batch.count = lastSlot;
     batch.mesh.count = batch.count;
     batch.mesh.instanceMatrix.needsUpdate = true;
@@ -268,9 +290,11 @@ export class InstancedMeshManager {
       capacity,
       count: 0,
       slotToEntity: createSlotArray(capacity),
+      slotToGeneration: new Uint32Array(capacity),
       geometry,
       material,
     };
+    attachResolver(mesh, batch);
     this.batches.set(groupKey, batch);
     return batch;
   }
@@ -328,10 +352,14 @@ export class InstancedMeshManager {
 
     const newSlots = createSlotArray(newCapacity);
     newSlots.set(batch.slotToEntity.subarray(0, batch.count));
+    const newGenerations = new Uint32Array(newCapacity);
+    newGenerations.set(batch.slotToGeneration.subarray(0, batch.count));
 
     batch.mesh = newMesh;
     batch.capacity = newCapacity;
     batch.slotToEntity = newSlots;
+    batch.slotToGeneration = newGenerations;
+    attachResolver(newMesh, batch);
   }
 
   private writeSlotTint(
@@ -406,4 +434,21 @@ function allocateInstanceColor(mesh: THREE.InstancedMesh, capacity: number): voi
   const attr = new THREE.InstancedBufferAttribute(data, 3);
   attr.setUsage(THREE.DynamicDrawUsage);
   mesh.instanceColor = attr;
+}
+
+function attachResolver(mesh: THREE.InstancedMesh, batch: Batch): void {
+  const resolver: InstancedEntityResolver = {
+    entityAt(instanceId: number): InstancedEntityRef | undefined {
+      if (!Number.isInteger(instanceId) || instanceId < 0 || instanceId >= batch.count) {
+        return undefined;
+      }
+      const entityId = batch.slotToEntity[instanceId]!;
+      if (entityId < 0) return undefined;
+      return {
+        entityId,
+        generation: batch.slotToGeneration[instanceId]!,
+      };
+    },
+  };
+  (mesh.userData as Record<PropertyKey, unknown>)[GALEON_INSTANCE_ENTITIES_KEY] = resolver;
 }
