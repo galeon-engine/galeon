@@ -20,4 +20,5 @@ syn = { version = "2", features = ["full"] }
 clap = { version = "4", features = ["derive"] }
 tempfile = "3"
 toml = "1"
+png = "0.18.1"
 

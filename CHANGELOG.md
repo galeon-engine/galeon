@@ -9,6 +9,15 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Heightmap terrain engine primitive (#213 / T1-T2)** — New
+  `galeon-engine-terrain` crate provides a Rust-owned `Terrain` resource with
+  bilinear `height_at(x, z)` sampling, central-difference `normal_at(x, z)`
+  queries, bounds / stride metadata, and a `HeightmapPlugin` that installs the
+  loaded terrain into the engine world. The crate also loads 16-bit grayscale
+  PNG heightmaps with explicit origin, size, height range, and vertical
+  exaggeration options. DEM / GeoTIFF ingestion, terrain mesh sync, LOD, and
+  examples remain deferred follow-up work.
+
 - **Particle emitter primitive (#217 / T1)** — New `galeon_engine::particle`
   module ships an `Emitter` component (`rate`, `lifetime`, `velocity`, `size`,
   `color`, `max`), a `Particle` component, a `Billboard` tag, three

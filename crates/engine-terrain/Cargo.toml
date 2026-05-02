@@ -1,0 +1,13 @@
+[package]
+name = "galeon-engine-terrain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Heightmap terrain resource and loaders for Galeon."
+keywords = ["galeon", "game-engine", "terrain", "heightmap"]
+categories = ["game-development"]
+
+[dependencies]
+galeon-engine = { path = "../engine", version = "=0.4.0" }
+png = { workspace = true }

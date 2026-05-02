@@ -144,6 +144,7 @@ fn main() {
 crates/
   engine-macros/       Proc-macro crate (#[derive(Component)], #[command], etc.)
   engine/              Core ECS, scheduler, protocol, data loading
+  engine-terrain/      Heightmap terrain resource and loaders
   engine-three-sync/   WASM bridge — packed ECS snapshots to Three.js
   galeon-cli/          CLI binary (galeon new / generate / routes)
 
@@ -161,6 +162,8 @@ Crate dependency graph:
 engine-macros (proc-macro, standalone)
       |
    engine
+      |
+      +-- engine-terrain (heightmap plugin)
       |
 engine-three-sync (WASM cdylib)
 ```

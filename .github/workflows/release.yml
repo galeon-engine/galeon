@@ -95,6 +95,31 @@ jobs:
           echo "Timed out waiting for galeon-engine-macros dependency."
           exit 1
 
+      - name: Publish galeon-engine-terrain
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          for attempt in $(seq 1 30); do
+            set +e
+            output="$(cargo publish -p galeon-engine-terrain 2>&1)"
+            status=$?
+            set -e
+            echo "$output"
+            if [ $status -eq 0 ]; then exit 0; fi
+            if [[ "$output" == *"already exists on crates.io index"* ]]; then
+              echo "galeon-engine-terrain v${VERSION} already published; skipping."
+              exit 0
+            fi
+            if [[ "$output" == *"failed to select a version"* ]] && [[ "$output" == *"galeon-engine"* ]]; then
+              echo "galeon-engine still propagating (attempt ${attempt}/30). Waiting 10s..."
+              sleep 10
+              continue
+            fi
+            exit $status
+          done
+          echo "Timed out waiting for galeon-engine dependency."
+          exit 1
+
       - name: Publish galeon-engine-three-sync
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -275,6 +300,14 @@ jobs:
           cd "$tmp"
           cargo init --name verify-galeon
           cargo add "galeon-engine@=${VERSION}"
+          cargo check
+
+      - name: Verify crate — galeon-engine-terrain
+        run: |
+          tmp="$(mktemp -d)"
+          cd "$tmp"
+          cargo init --name verify-galeon-terrain
+          cargo add "galeon-engine-terrain@=${VERSION}"
           cargo check
 
       - name: Verify npm packages

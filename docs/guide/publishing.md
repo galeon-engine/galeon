@@ -4,7 +4,7 @@
 > to install and what stability to expect. This guide covers the release
 > procedure for maintainers.
 
-Galeon publishes **four Rust packages** to crates.io and **six TypeScript
+Galeon publishes **five Rust packages** to crates.io and **five TypeScript
 packages** to npm. Everything else in the workspace is internal.
 
 The npm packages in this guide are the checked-in workspace packages under
@@ -18,13 +18,14 @@ The npm packages in this guide are the checked-in workspace packages under
 |-------|-------------|-------|
 | Macros | `galeon-engine-macros` | 1 — publish first |
 | Core engine | `galeon-engine` | 2 — depends on macros |
-| Three.js sync | `galeon-engine-three-sync` | 3 — depends on engine |
+| Terrain | `galeon-engine-terrain` | 3 — depends on engine |
+| Three.js sync | `galeon-engine-three-sync` | 4 — depends on engine |
 
 ### CLI binary (crates.io)
 
 | Artifact | Package name | Order |
 |----------|--------------|-------|
-| CLI install surface | `galeon-cli` | 4 — publish after the libraries and npm starter deps |
+| CLI install surface | `galeon-cli` | 5 — publish after the libraries and npm starter deps |
 
 ### TypeScript packages (npm)
 
@@ -42,7 +43,7 @@ The npm packages in this guide are the checked-in workspace packages under
 
 ## Versioning
 
-All four Rust packages and all TypeScript packages move in **lockstep**. The Rust
+All five Rust packages and all TypeScript packages move in **lockstep**. The Rust
 workspace version lives in `Cargo.toml` → `[workspace.package] version` and is
 inherited by publishable crates via `version.workspace = true`, including
 `galeon-cli`. npm package versions are kept in sync manually. Internal
@@ -56,7 +57,7 @@ Run the bump script from the repo root:
 bash scripts/bump-version.sh A.B.C
 ```
 
-This updates all 9 files (15 edits) after verifying the current versions are
+This updates all 9 files (16 edits) after verifying the current versions are
 consistent, and rolls back if verification fails. `galeon-cli` inherits the
 workspace version automatically, so it does not need a separate version edit.
 The script supports prerelease and build metadata tags
@@ -66,16 +67,17 @@ The script edits these locations:
 
 1. `Cargo.toml` → `[workspace.package] version = "A.B.C"`
 2. `crates/engine/Cargo.toml` → `galeon-engine-macros = { …, version = "=A.B.C" }`
-3. `crates/engine-three-sync/Cargo.toml` → `galeon-engine = { …, version = "=A.B.C" }`
-4. `packages/runtime/package.json` → `"version": "A.B.C"`
-5. `packages/render-core/package.json` → `"version": "A.B.C"`
-6. `packages/three/package.json` → `"version": "A.B.C"` **and** `"@galeon/render-core": "=A.B.C"`
-7. `packages/r3f/package.json` → `"version": "A.B.C"` **and** exact `@galeon/*` pins
-8. `packages/shell/package.json` → `"version": "A.B.C"`
+3. `crates/engine-terrain/Cargo.toml` → `galeon-engine = { …, version = "=A.B.C" }`
+4. `crates/engine-three-sync/Cargo.toml` → `galeon-engine = { …, version = "=A.B.C" }`
+5. `packages/runtime/package.json` → `"version": "A.B.C"`
+6. `packages/render-core/package.json` → `"version": "A.B.C"`
+7. `packages/three/package.json` → `"version": "A.B.C"` **and** `"@galeon/render-core": "=A.B.C"`
+8. `packages/r3f/package.json` → `"version": "A.B.C"` **and** exact `@galeon/*` pins
+9. `packages/shell/package.json` → `"version": "A.B.C"`
 
 After running, manually update the changelog:
 
-7. `CHANGELOG.md` → move `## Unreleased` items under `## [A.B.C]`
+10. `CHANGELOG.md` → move `## Unreleased` items under `## [A.B.C]`
 
 ## Path dependencies and versions (Rust)
 
@@ -96,8 +98,9 @@ cargo publish -p galeon-engine-macros --dry-run
 cargo publish -p galeon-cli --dry-run
 ```
 
-`galeon-engine` and `galeon-engine-three-sync` dry-runs only pass after their
-dependencies exist on crates.io at the pinned version.
+`galeon-engine`, `galeon-engine-terrain`, and `galeon-engine-three-sync`
+dry-runs only pass after their dependencies exist on crates.io at the pinned
+version.
 
 To validate the supported installed-binary bootstrap flow from source, run:
 
@@ -148,6 +151,7 @@ GitHub Release.
 cargo publish -p galeon-engine-macros
 # wait for crates.io index (CI uses cargo search polling)
 cargo publish -p galeon-engine
+cargo publish -p galeon-engine-terrain
 cargo publish -p galeon-engine-three-sync
 ```
 
