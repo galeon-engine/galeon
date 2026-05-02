@@ -37,6 +37,10 @@ differences over the same source grid using the same world X/Z convention. This
 query normal is for gameplay and sampling; render mesh normals belong to the
 future mesh builder.
 
+Cloning a `Terrain` shares immutable height storage. `HeightmapPlugin` still
+installs a normal `Terrain` resource, so systems can read `Res<Terrain>` without
+an `Arc` wrapper, but plugin installation does not copy the full height buffer.
+
 ## PNG16 Loading
 
 `Terrain::from_png16_reader` accepts 16-bit grayscale PNG data and maps each
