@@ -225,6 +225,11 @@ impl Terrain {
     }
 
     fn sample_bilinear(&self, u: f32, v: f32) -> f32 {
+        let max_x = (self.sample_count[0] - 1) as f32;
+        let max_z = (self.sample_count[1] - 1) as f32;
+        let u = u.clamp(0.0, max_x);
+        let v = v.clamp(0.0, max_z);
+
         let x0 = u.floor() as u32;
         let z0 = v.floor() as u32;
         let x1 = (x0 + 1).min(self.sample_count[0] - 1);
@@ -489,5 +494,14 @@ mod tests {
         let err = Terrain::from_png16_reader(Cursor::new(bytes), Png16HeightmapOptions::default())
             .unwrap_err();
         assert!(matches!(err, TerrainError::UnsupportedPng { .. }));
+    }
+
+    #[test]
+    fn sample_bilinear_clamps_coordinates_above_max_index() {
+        let terrain = synthetic_4x4();
+
+        let height = terrain.sample_bilinear(4.0, 4.0);
+
+        assert_eq!(height, 6.0);
     }
 }
