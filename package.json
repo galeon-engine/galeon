@@ -2,7 +2,7 @@
   "name": "galeon",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*"],
+  "workspaces": ["packages/*", "examples/*"],
   "scripts": {
     "check": "bunx tsc --build",
     "build": "bunx tsc --build"

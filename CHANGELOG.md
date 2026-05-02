@@ -30,6 +30,16 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   intended as a starting fragment for downstream effect work, not a
   domain-specific shader.
 
+- **`examples/billboards` click-to-burst demo (#217 / T4)** — New Vite-based
+  example workspace package shows the T3 reference shader in action: click
+  the ground plane to spawn a 24-particle burst that drifts upward with
+  per-particle drag and fades over a sampled lifetime. Standalone-`Mesh`
+  rendering path (one mesh per particle, sharing one compiled program via
+  Three.js's program cache). The simulation logic (`spawnBurst` /
+  `updateParticles`) is extracted into `src/simulation.ts` so it is
+  exercised by 13 headless `bun:test` cases without requiring a WebGL
+  context. Root `package.json` workspaces now extends to `examples/*`.
+
 ### Changed
 
 - **React 19 support for `@galeon/r3f` (#211)** — Verified the R3F
