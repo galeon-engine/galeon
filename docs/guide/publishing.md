@@ -57,9 +57,10 @@ Run the bump script from the repo root:
 bash scripts/bump-version.sh A.B.C
 ```
 
-This updates all 9 files (16 edits) after verifying the current versions are
-consistent, and rolls back if verification fails. `galeon-cli` inherits the
-workspace version automatically, so it does not need a separate version edit.
+This updates Galeon's shared version sources (12 edits across 9 files) after
+verifying the current versions are consistent, and rolls back if verification
+fails. `galeon-cli` inherits the workspace version automatically, so it does not
+need a separate version edit.
 The script supports prerelease and build metadata tags
 (`0.4.0-alpha.1`, `0.4.0-alpha-1+build-7`).
 
