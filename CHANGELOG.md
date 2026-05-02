@@ -15,13 +15,16 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stamps on managed objects. Drag-rectangle uses a six-plane sub-frustum
   derived from the rect's NDC corners (the `SelectionBox.js` algorithm,
   re-oriented inward via the corner centroid for camera-handedness safety).
-  On the Rust side, a new `Selection` resource in `galeon-engine` carries
-  the current entity set plus the last hit point and applies pick events
-  with StarCraft / OpenRA modifier semantics (`shift` = additive, `ctrl` =
+  Click and marquee paths align with the active camera's `layers` mask so
+  picking only returns objects the camera would actually render. On the
+  Rust side, a new `Selection` resource in `galeon-engine` carries the
+  current entity set plus the last hit point and applies pick events with
+  StarCraft / OpenRA modifier semantics (`shift` = additive, `ctrl` =
   subtractive, `alt` = intersect). The `engine-three-sync` WASM bridge
   exposes `applyPick` / `applyPickRect` / `selectionEntities` on
-  `WasmEngine`, and a native `cargo run --example picking_demo` walks the
-  data flow against a 50-cube scene.
+  `WasmEngine` (filtering despawned entries before forwarding to JS), and a
+  native `cargo run --example picking_demo` walks the data flow against a
+  50-cube scene.
 
 ### Changed
 

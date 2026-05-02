@@ -325,4 +325,72 @@ describe("attachPicking drag-rectangle marquee", () => {
 
     expect(events).toHaveLength(0);
   });
+
+  test("excludes entities whose layers do not match the camera", () => {
+    const scene = new THREE.Scene();
+    // `a` is on the camera's default layer; `b` is on a layer the camera
+    // does not render. Both fall inside the marquee rect.
+    const a = makeMeshAt(1, 0, 0, 0);
+    const b = makeMeshAt(2, 0.5, 0.5, 0);
+    b.layers.set(2);
+    scene.add(a, b);
+
+    const canvas = new FakeCanvas();
+    const events: PickingEvent[] = [];
+    attachPicking(canvas, scene, makeOrthoCamera(), {
+      onPick: (e) => events.push(e),
+      dragThreshold: 2,
+    });
+
+    canvas.fire("mousedown", { clientX: 380, clientY: 280 });
+    canvas.fire("mousemove", { clientX: 420, clientY: 320 });
+    canvas.fire("mouseup", { clientX: 420, clientY: 320 });
+
+    expect(events).toHaveLength(1);
+    const event = events[0]!;
+    if (event.kind !== "pick-rect") throw new Error("unreachable");
+    const ids = event.entities.map((e) => e.entityId).sort();
+    expect(ids).toEqual([1]);
+  });
+
+  test("prunes layer-mismatched descendants when computing a group's AABB", () => {
+    const scene = new THREE.Scene();
+    // Group entity at the origin with one in-rect mesh on the camera layer
+    // and one far-away mesh on a non-rendered layer. Without layer-aware
+    // AABB pruning, the far mesh would inflate the group's bounds and let
+    // it match a rect that does not actually cover anything drawn.
+    const group = new THREE.Group();
+    (group.userData as Record<PropertyKey, unknown>)[GALEON_ENTITY_KEY] = {
+      entityId: 7,
+      generation: 0,
+    };
+    const drawn = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), new THREE.MeshBasicMaterial());
+    drawn.position.set(0, 0, 0);
+    const offscreen = new THREE.Mesh(
+      new THREE.BoxGeometry(0.2, 0.2, 0.2),
+      new THREE.MeshBasicMaterial(),
+    );
+    offscreen.position.set(10, 10, 0);
+    offscreen.layers.set(2);
+    group.add(drawn, offscreen);
+    scene.add(group);
+
+    const canvas = new FakeCanvas();
+    const events: PickingEvent[] = [];
+    attachPicking(canvas, scene, makeOrthoCamera(), {
+      onPick: (e) => events.push(e),
+      dragThreshold: 2,
+    });
+
+    // Tight marquee far away from the group's origin but where `offscreen`
+    // sits in world space. With a layer-blind AABB this would still match.
+    canvas.fire("mousedown", { clientX: 760, clientY: 0 });
+    canvas.fire("mousemove", { clientX: 800, clientY: 40 });
+    canvas.fire("mouseup", { clientX: 800, clientY: 40 });
+
+    expect(events).toHaveLength(1);
+    const event = events[0]!;
+    if (event.kind !== "pick-rect") throw new Error("unreachable");
+    expect(event.entities).toHaveLength(0);
+  });
 });

@@ -5,7 +5,7 @@
 //! exposing the selected entities as a flat `[idx, gen, …]` packing.
 
 use galeon_engine::{
-    MaterialHandle, MeshHandle, ObjectType, PickModifiers, Selection, Transform, Visibility,
+    Entity, MaterialHandle, MeshHandle, ObjectType, PickModifiers, Selection, Transform, Visibility,
 };
 use galeon_engine_three_sync::WasmEngine;
 
@@ -114,4 +114,38 @@ fn apply_pick_rect_ignores_trailing_odd_element() {
     ];
     engine.apply_pick_rect(&flat, 0);
     assert_eq!(engine.selection_count(), 2);
+}
+
+#[test]
+fn selection_entities_excludes_despawned_entries() {
+    // `Selection.entities` keeps stale handles between picks. The JS bridge
+    // must filter dead entities out so consumers cannot act on stale refs.
+    let mut engine = WasmEngine::new();
+    let cubes = spawn_n_cubes(&mut engine, 3);
+
+    // Marquee-select all three.
+    let mut flat = Vec::new();
+    for &(idx, generation) in &cubes {
+        flat.push(idx);
+        flat.push(generation);
+    }
+    engine.apply_pick_rect(&flat, 0);
+    assert_eq!(engine.selection_count(), 3);
+    assert_eq!(engine.selection_entities().len(), 6);
+
+    // Despawn the middle cube — without filtering, it would still be reported.
+    let despawned = Entity::from_raw(cubes[1].0, cubes[1].1);
+    let world = engine.engine_mut().world_mut();
+    assert!(world.despawn(despawned));
+
+    assert_eq!(engine.selection_count(), 2);
+    let flat_after = engine.selection_entities();
+    assert_eq!(flat_after.len(), 4);
+    let pairs: Vec<(u32, u32)> = flat_after
+        .chunks_exact(2)
+        .map(|chunk| (chunk[0], chunk[1]))
+        .collect();
+    assert!(pairs.contains(&cubes[0]));
+    assert!(pairs.contains(&cubes[2]));
+    assert!(!pairs.contains(&cubes[1]));
 }

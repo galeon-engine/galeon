@@ -289,26 +289,37 @@ impl WasmEngine {
             .apply_pick_rect(entities, modifiers);
     }
 
-    /// Returns the current selected entity count, or `0` if no [`Selection`]
-    /// resource exists yet.
+    /// Returns the current count of *live* selected entities, or `0` if no
+    /// [`Selection`] resource exists yet.
+    ///
+    /// Despawned entities still present in `Selection.entities` are filtered
+    /// out so the count matches the entries [`selection_entities`] would emit.
     #[wasm_bindgen(js_name = selectionCount)]
     pub fn selection_count(&self) -> u32 {
-        self.engine
-            .world()
-            .try_resource::<Selection>()
-            .map(|sel| sel.len() as u32)
-            .unwrap_or(0)
+        let world = self.engine.world();
+        let Some(sel) = world.try_resource::<Selection>() else {
+            return 0;
+        };
+        sel.entities.iter().filter(|e| world.is_alive(**e)).count() as u32
     }
 
     /// Returns the currently selected entities as a flat
     /// `[idx0, gen0, idx1, gen1, …]` packing.
+    ///
+    /// Despawned entities are skipped — `Selection.entities` retains stale
+    /// handles between picks, but the JS bridge only forwards entries that
+    /// are still alive in the world so consumers cannot act on dead refs.
     #[wasm_bindgen(js_name = selectionEntities)]
     pub fn selection_entities(&self) -> Vec<u32> {
-        let Some(sel) = self.engine.world().try_resource::<Selection>() else {
+        let world = self.engine.world();
+        let Some(sel) = world.try_resource::<Selection>() else {
             return Vec::new();
         };
         let mut out = Vec::with_capacity(sel.len() * 2);
         for entity in &sel.entities {
+            if !world.is_alive(*entity) {
+                continue;
+            }
             out.push(entity.index());
             out.push(entity.generation());
         }

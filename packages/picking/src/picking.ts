@@ -226,6 +226,11 @@ function pickPoint(
   // reads. Without this, picks taken between a camera move and the next
   // render would use stale ray origins and select the wrong entity.
   camera.updateMatrixWorld();
+  // Align the raycaster's layer mask with the active camera so picks ignore
+  // objects the camera would not render. Cameras using non-default layers
+  // (editor gizmo views, multi-pass setups) would otherwise hit the wrong
+  // objects via the raycaster's default layer-0 mask.
+  raycaster.layers.mask = camera.layers.mask;
   raycaster.setFromCamera(ndc, camera);
   const intersections = raycaster.intersectObjects(scene.children, true);
   for (const hit of intersections) {
@@ -263,11 +268,14 @@ function pickRect(
   const out: PickingEntityRef[] = [];
   // Manual walker — `scene.traverse` always recurses, but a hidden subtree must
   // be skipped wholesale to keep marquee semantics consistent with click picking.
+  // Layer mismatches against the camera are pruned for the same reason: marquee
+  // selection should only return entities the camera would actually render.
   function visit(object: THREE.Object3D): void {
     if (!object.visible) return;
+    if (!object.layers.test(camera.layers)) return;
     const entity = readEntity(object);
     if (entity != null && (filter == null || filter(object, entity))) {
-      if (worldAabb(object, aabb) !== null && frustum.intersectsBox(aabb)) {
+      if (worldAabb(object, aabb, camera) !== null && frustum.intersectsBox(aabb)) {
         out.push(entity);
       }
     }
@@ -289,8 +297,16 @@ function pickRect(
  * Falls back to a zero-size box at the object's world origin when no
  * descendant geometry exists (lights, empty groups), so they still pick when
  * the rect covers their position.
+ *
+ * Descendants whose `layers` mask does not overlap `camera.layers` are pruned
+ * along with hidden subtrees so the bounds match what the renderer would
+ * actually draw under this camera.
  */
-function worldAabb(object: THREE.Object3D, out: THREE.Box3): THREE.Box3 | null {
+function worldAabb(
+  object: THREE.Object3D,
+  out: THREE.Box3,
+  camera: THREE.Camera,
+): THREE.Box3 | null {
   if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments) {
     const geom = object.geometry;
     if (geom == null) return null;
@@ -308,9 +324,13 @@ function worldAabb(object: THREE.Object3D, out: THREE.Box3): THREE.Box3 | null {
   // Manual recursion — `Object3D.traverse` always descends, so a hidden
   // mid-tree node would still let its visible grandchildren expand the AABB.
   // Pruning the whole subtree at the first hidden ancestor matches what the
-  // renderer would actually draw.
+  // renderer would actually draw. Layer mismatches against the camera are
+  // pruned for the same reason.
   function visit(node: THREE.Object3D): void {
-    if (node !== object && !node.visible) return;
+    if (node !== object) {
+      if (!node.visible) return;
+      if (!node.layers.test(camera.layers)) return;
+    }
     if (node !== object && (node instanceof THREE.Mesh || node instanceof THREE.LineSegments)) {
       const geom = node.geometry;
       if (geom != null) {

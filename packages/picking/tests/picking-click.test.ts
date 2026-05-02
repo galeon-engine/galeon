@@ -263,4 +263,35 @@ describe("attachPicking single-click", () => {
     if (event.kind !== "pick") throw new Error("unreachable");
     expect(event.entity).toEqual({ entityId: 9, generation: 1 });
   });
+
+  test("ignores layer-mismatched objects (raycaster syncs layers from camera)", () => {
+    const scene = new THREE.Scene();
+    // Foreground mesh on a non-default layer that the camera does NOT render.
+    const hidden = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshBasicMaterial());
+    hidden.position.set(0, 0, 1);
+    hidden.layers.set(2);
+    stampEntity(hidden, 1, 1);
+    // Background mesh on the default layer that the camera DOES render.
+    const visible = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+    visible.position.set(0, 0, -1);
+    stampEntity(visible, 2, 1);
+    scene.add(hidden, visible);
+    scene.updateMatrixWorld(true);
+
+    // Camera renders the default layer only. Without the layer sync,
+    // the raycaster's default layer-0 mask would still hit the foreground
+    // `hidden` mesh and `visible` would never be reported.
+    const camera = makeOrthoCamera();
+    const canvas = new FakeCanvas();
+    const events: PickingEvent[] = [];
+    attachPicking(canvas, scene, camera, { onPick: (e) => events.push(e) });
+
+    canvas.fire("mousedown", { clientX: 400, clientY: 300 });
+    canvas.fire("mouseup", { clientX: 400, clientY: 300 });
+
+    expect(events).toHaveLength(1);
+    const event = events[0]!;
+    if (event.kind !== "pick") throw new Error("unreachable");
+    expect(event.entity).toEqual({ entityId: 2, generation: 1 });
+  });
 });
