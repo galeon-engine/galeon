@@ -215,6 +215,43 @@ describe("attachPicking drag-rectangle marquee", () => {
     expect(ids).toEqual([1]);
   });
 
+  test("prunes hidden descendant branches when computing a group's AABB", () => {
+    const scene = new THREE.Scene();
+    // Stamped visible group whose only descendant geometry lives under a
+    // hidden mid-tree branch. Marquee covering that grandchild's position
+    // must NOT select the group — those bounds would never render.
+    const group = new THREE.Group();
+    group.position.set(0, 0, 0);
+    (group.userData as Record<PropertyKey, unknown>)[GALEON_ENTITY_KEY] = {
+      entityId: 50,
+      generation: 1,
+    };
+    const hiddenBranch = new THREE.Group();
+    hiddenBranch.visible = false;
+    const stowaway = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+    stowaway.position.set(1, 1, 0);
+    hiddenBranch.add(stowaway);
+    group.add(hiddenBranch);
+    scene.add(group);
+
+    const canvas = new FakeCanvas();
+    const events: PickingEvent[] = [];
+    attachPicking(canvas, scene, makeOrthoCamera(), {
+      onPick: (e) => events.push(e),
+      dragThreshold: 4,
+    });
+
+    // Upper-right rect — over the stowaway's position, away from the group origin.
+    canvas.fire("mousedown", { clientX: 500, clientY: 100 });
+    canvas.fire("mousemove", { clientX: 700, clientY: 200 });
+    canvas.fire("mouseup", { clientX: 700, clientY: 200 });
+
+    expect(events).toHaveLength(1);
+    const event = events[0]!;
+    if (event.kind !== "pick-rect") throw new Error("unreachable");
+    expect(event.entities).toEqual([]);
+  });
+
   test("excludes entities whose ancestor is invisible", () => {
     const scene = new THREE.Scene();
     const hiddenParent = new THREE.Group();

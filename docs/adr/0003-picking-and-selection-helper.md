@@ -45,9 +45,13 @@ does not touch a camera that lives outside the scene graph), and both skip
 hidden entities — the click path filters intersections via the visible
 ancestor chain, and the marquee path walks the scene tree manually so an
 invisible parent prunes its entire subtree. A stamped `THREE.Group`'s AABB is
-computed by unioning the world-space boxes of its visible descendant geometry,
-so grouped entities with offset child meshes marquee-select by their actual
-bounds rather than by the group origin alone.
+computed by unioning the world-space boxes of its visible descendant geometry
+through a manual recursive walker (not `Object3D.traverse`, which would still
+descend into hidden subtrees and let visible grandchildren under a hidden
+ancestor enlarge the AABB beyond what the renderer would draw). Grouped
+entities with offset child meshes therefore marquee-select by the bounds the
+viewer can actually see, rather than by the group origin or by hidden
+geometry.
 
 The marquee frustum is the canonical `SelectionBox.js` algorithm from three.js
 examples (unproject the four NDC corners through the camera at near/far,

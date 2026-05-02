@@ -305,21 +305,28 @@ function worldAabb(object: THREE.Object3D, out: THREE.Box3): THREE.Box3 | null {
   out.makeEmpty();
   const tmp = new THREE.Box3();
   let hasGeometry = false;
-  object.traverse((descendant) => {
-    if (descendant === object) return;
-    if (!descendant.visible) return;
-    if (descendant instanceof THREE.Mesh || descendant instanceof THREE.LineSegments) {
-      const geom = descendant.geometry;
-      if (geom == null) return;
-      if (geom.boundingBox === null) {
-        geom.computeBoundingBox();
+  // Manual recursion — `Object3D.traverse` always descends, so a hidden
+  // mid-tree node would still let its visible grandchildren expand the AABB.
+  // Pruning the whole subtree at the first hidden ancestor matches what the
+  // renderer would actually draw.
+  function visit(node: THREE.Object3D): void {
+    if (node !== object && !node.visible) return;
+    if (node !== object && (node instanceof THREE.Mesh || node instanceof THREE.LineSegments)) {
+      const geom = node.geometry;
+      if (geom != null) {
+        if (geom.boundingBox === null) {
+          geom.computeBoundingBox();
+        }
+        if (geom.boundingBox !== null) {
+          tmp.copy(geom.boundingBox).applyMatrix4(node.matrixWorld);
+          out.union(tmp);
+          hasGeometry = true;
+        }
       }
-      if (geom.boundingBox === null) return;
-      tmp.copy(geom.boundingBox).applyMatrix4(descendant.matrixWorld);
-      out.union(tmp);
-      hasGeometry = true;
     }
-  });
+    for (const child of node.children) visit(child);
+  }
+  visit(object);
   if (hasGeometry) return out;
 
   const pos = new THREE.Vector3();

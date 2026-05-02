@@ -40,8 +40,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `@galeon/picking` `pick-rect` now (a) computes a stamped `THREE.Group`'s
   AABB from the union of its visible descendant geometry instead of a
   zero-size box at the group origin, so grouped entities with offset child
-  meshes marquee-select correctly, and (b) skips invisible objects and
-  descendants of invisible parents, matching the click path's behaviour.
+  meshes marquee-select correctly, (b) skips invisible objects and
+  descendants of invisible parents, matching the click path's behaviour,
+  and (c) prunes hidden mid-tree branches when accumulating a group's
+  AABB so visible grandchildren under a hidden ancestor cannot enlarge
+  the group's selection bounds beyond what the renderer would draw.
 - **Picking refreshes camera matrices (#214)** — both click and marquee
   paths now call `camera.updateMatrixWorld()` before raycasting.
   `scene.updateMatrixWorld` does not touch a camera that lives outside the
