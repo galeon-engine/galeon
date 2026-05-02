@@ -63,6 +63,13 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   empty group or light on a non-camera layer could still be marquee-selected
   if the rect covered its origin even though the renderer would skip it and
   click picking could never reach it.
+- **Stamped Mesh marquee bounds include unstamped child meshes (#214)** —
+  `worldAabb` no longer short-circuits stamped `Mesh` / `LineSegments` to
+  their own geometry; it unions the descendant geometry with the same
+  visibility / layer / nested-entity gates as the Group path. Click picking
+  is recursive and walks unstamped child meshes up to the nearest stamped
+  ancestor, so without this a stamped Mesh with offset child geometry was
+  selectable by click but missed by drag-rectangle.
 
 ## [0.4.0]
 

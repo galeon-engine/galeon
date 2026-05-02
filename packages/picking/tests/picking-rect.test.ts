@@ -500,6 +500,48 @@ describe("attachPicking drag-rectangle marquee", () => {
     expect(ids).toEqual([99]);
   });
 
+  test("stamped Mesh marquee bounds include unstamped child meshes", () => {
+    // Click picking is recursive: a ray that hits an unstamped child Mesh
+    // walks up via `visibleAncestorEntity` to the nearest stamped ancestor.
+    // Marquee must include the same descendant geometry, otherwise a stamped
+    // Mesh with offset unstamped children is selectable by click but missed
+    // by drag-rectangle. Stamped Mesh sits at the canvas centre (NDC 0,0)
+    // with a child mesh offset into the upper-right; marquee covering only
+    // the upper-right must still select the parent entity.
+    const scene = new THREE.Scene();
+    const parent = new THREE.Mesh(
+      new THREE.BoxGeometry(0.2, 0.2, 0.2),
+      new THREE.MeshBasicMaterial(),
+    );
+    parent.position.set(0, 0, 0);
+    (parent.userData as Record<PropertyKey, unknown>)[GALEON_ENTITY_KEY] = {
+      entityId: 77,
+      generation: 0,
+    };
+    const child = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+    child.position.set(1, 1, 0);
+    parent.add(child);
+    scene.add(parent);
+
+    const canvas = new FakeCanvas();
+    const events: PickingEvent[] = [];
+    attachPicking(canvas, scene, makeOrthoCamera(), {
+      onPick: (e) => events.push(e),
+      dragThreshold: 4,
+    });
+
+    // Upper-right rect — covers child mesh, not the parent's own geometry.
+    canvas.fire("mousedown", { clientX: 500, clientY: 100 });
+    canvas.fire("mousemove", { clientX: 700, clientY: 200 });
+    canvas.fire("mouseup", { clientX: 700, clientY: 200 });
+
+    expect(events).toHaveLength(1);
+    const event = events[0]!;
+    if (event.kind !== "pick-rect") throw new Error("unreachable");
+    const ids = event.entities.map((e) => e.entityId).sort();
+    expect(ids).toEqual([77]);
+  });
+
   test("nested stamped entity does not inflate its parent's AABB", () => {
     // Stamped parent Group at the origin with a stamped child mesh at (5,5).
     // Click picking resolves the deeper stamped ancestor, so marquee bounds

@@ -292,79 +292,61 @@ function pickRect(
 }
 
 /**
- * Compute a world-space AABB for an object.
+ * Compute a world-space AABB for a stamped object.
  *
- * For a `Mesh` / `LineSegments`, transforms its geometry box to world space.
- * For a `Group` (or any non-geometry object stamped as a managed entity),
- * unions every visible descendant geometry into a world-space AABB so that
- * grouped entities with offset child meshes marquee-select by their bounds,
- * not by the group origin alone.
+ * Unions every contributing geometry under `object` into a world-space AABB:
+ * the stamped object's own geometry (if it is a `Mesh` / `LineSegments`) plus
+ * every visible descendant geometry that is not under another stamped entity.
+ * Click picking is recursive (`intersectObjects(scene.children, true)`) and
+ * walks hits up to the nearest stamped ancestor, so the marquee bounds must
+ * include the same descendant geometry — otherwise a stamped Mesh or Group
+ * with offset unstamped child meshes is selectable by click but missed by
+ * drag-rectangle.
  *
  * Falls back to a zero-size box at the object's world origin when no
  * descendant geometry exists (lights, empty groups), so they still pick when
- * the rect covers their position.
+ * the rect covers their position — but only if the stamped object's own
+ * layer mask overlaps the camera.
  *
- * Descendants whose `layers` mask does not overlap `camera.layers` are pruned
- * along with hidden subtrees so the bounds match what the renderer would
- * actually draw under this camera.
+ * Pruning rules during the walk:
+ * - Hidden subtrees are skipped wholesale (visibility is inherited).
+ * - Nested stamped entities terminate the walk: click resolves to the nearest
+ *   stamped ancestor, so a stamped child's geometry belongs to that child's
+ *   bounds, not its stamped parent's.
+ * - Per-mesh layer test prunes contributions whose own layer mask does not
+ *   overlap the camera (layers are NOT inherited in Three.js), but traversal
+ *   continues into children regardless because a layer-mismatched parent can
+ *   still own visible-on-camera descendants.
  */
 function worldAabb(
   object: THREE.Object3D,
   out: THREE.Box3,
   camera: THREE.Camera,
 ): THREE.Box3 | null {
-  if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments) {
-    // A stamped Mesh whose own layer mask does not overlap the camera is not
-    // rendered, so it is also not selectable — return null so the candidate
-    // walker drops it. Click picking already drops it via the raycaster's
-    // synced layer mask; this keeps marquee aligned.
-    if (!object.layers.test(camera.layers)) return null;
-    const geom = object.geometry;
-    if (geom == null) return null;
-    if (geom.boundingBox === null) {
-      geom.computeBoundingBox();
-    }
-    if (geom.boundingBox === null) return null;
-    out.copy(geom.boundingBox).applyMatrix4(object.matrixWorld);
-    return out;
-  }
-
   out.makeEmpty();
   const tmp = new THREE.Box3();
   let hasGeometry = false;
-  // Manual recursion — `Object3D.traverse` always descends, so a hidden
-  // mid-tree node would still let its visible grandchildren expand the AABB.
-  // Pruning the whole subtree at the first hidden ancestor matches what the
-  // renderer would actually draw.
-  //
-  // Two more pruning rules:
-  // - Stop at nested managed entities. Click picking resolves to the nearest
-  //   stamped ancestor, so a stamped child's geometry belongs to *that*
-  //   entity's bounds, not its stamped parent's. Including it here would
-  //   inflate the parent's AABB and produce false-positive parent selections.
-  // - Layers are not inherited in Three.js: only contribute geometry from
-  //   meshes whose own layer mask overlaps the camera, but keep traversing
-  //   into children regardless (children may be on different layers).
+
+  function contribute(node: THREE.Object3D): void {
+    if (!(node instanceof THREE.Mesh) && !(node instanceof THREE.LineSegments)) return;
+    if (!node.layers.test(camera.layers)) return;
+    const geom = node.geometry;
+    if (geom == null) return;
+    if (geom.boundingBox === null) {
+      geom.computeBoundingBox();
+    }
+    if (geom.boundingBox === null) return;
+    tmp.copy(geom.boundingBox).applyMatrix4(node.matrixWorld);
+    out.union(tmp);
+    hasGeometry = true;
+  }
+
   function visit(node: THREE.Object3D): void {
     if (node !== object) {
       if (!node.visible) return;
       if (readEntity(node) != null) return;
     }
-    if (node !== object && (node instanceof THREE.Mesh || node instanceof THREE.LineSegments)) {
-      if (node.layers.test(camera.layers)) {
-        const geom = node.geometry;
-        if (geom != null) {
-          if (geom.boundingBox === null) {
-            geom.computeBoundingBox();
-          }
-          if (geom.boundingBox !== null) {
-            tmp.copy(geom.boundingBox).applyMatrix4(node.matrixWorld);
-            out.union(tmp);
-            hasGeometry = true;
-          }
-        }
-      }
-    }
+    contribute(node);
     for (const child of node.children) visit(child);
   }
   visit(object);
