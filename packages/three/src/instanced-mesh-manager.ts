@@ -3,13 +3,16 @@
 import * as THREE from "three";
 import { TRANSFORM_STRIDE } from "@galeon/render-core";
 
+/** Stable key that identifies one instanced batch. */
+export type InstanceBatchKey = number | bigint;
+
 /** Initial slot capacity allocated when a new instance batch is created. */
 const INITIAL_CAPACITY = 16;
 /** Minimum capacity floor — keeps tiny batches from thrashing the grow path. */
 const MIN_CAPACITY = 4;
 
 /**
- * Per-`MeshHandle` `THREE.InstancedMesh` lifecycle:
+ * Per-group `THREE.InstancedMesh` lifecycle:
  *
  * - **Lazy creation** — a batch is allocated the first time an entity with that
  *   group key arrives.
@@ -25,7 +28,7 @@ const MIN_CAPACITY = 4;
  * rules (placeholder, missing-handle warnings, override-survival semantics).
  */
 interface Batch {
-  readonly groupKey: number;
+  readonly groupKey: InstanceBatchKey;
   mesh: THREE.InstancedMesh;
   capacity: number;
   count: number;
@@ -45,11 +48,11 @@ const _scratchColor = new THREE.Color();
 
 export class InstancedMeshManager {
   private readonly scene: THREE.Scene;
-  private readonly batches = new Map<number, Batch>();
+  private readonly batches = new Map<InstanceBatchKey, Batch>();
   /** `entityId → (groupKey, slot)` — single source of truth for placement. */
   private readonly entityToPlacement = new Map<
     number,
-    { groupKey: number; slot: number }
+    { groupKey: InstanceBatchKey; slot: number }
   >();
 
   constructor(scene: THREE.Scene) {
@@ -72,14 +75,14 @@ export class InstancedMeshManager {
    */
   upsert(
     entityId: number,
-    groupKey: number,
+    groupKey: InstanceBatchKey,
     geometry: THREE.BufferGeometry,
     material: THREE.Material,
     transforms: Float32Array,
     transformIndex: number,
     visible: boolean,
     tints?: Float32Array,
-  ): { groupKey: number; slot: number } {
+  ): { groupKey: InstanceBatchKey; slot: number } {
     const existing = this.entityToPlacement.get(entityId);
     if (existing !== undefined && existing.groupKey !== groupKey) {
       this.remove(entityId);
@@ -161,18 +164,24 @@ export class InstancedMeshManager {
   // ---------------------------------------------------------------------------
 
   /** The `THREE.InstancedMesh` backing a group key, if one has been created. */
-  meshFor(groupKey: number): THREE.InstancedMesh | undefined {
-    return this.batches.get(groupKey)?.mesh;
+  meshFor(groupKey: InstanceBatchKey): THREE.InstancedMesh | undefined {
+    return this.batchForQuery(groupKey)?.mesh;
   }
 
   /** Number of live instance slots in a group's batch (== `mesh.count`). */
-  slotsFor(groupKey: number): number {
-    return this.batches.get(groupKey)?.count ?? 0;
+  slotsFor(groupKey: InstanceBatchKey): number {
+    return this.batchesForQuery(groupKey).reduce(
+      (count, batch) => count + batch.count,
+      0,
+    );
   }
 
   /** Allocated capacity of a group's batch — distinct from the live `slotsFor` count. */
-  capacityFor(groupKey: number): number {
-    return this.batches.get(groupKey)?.capacity ?? 0;
+  capacityFor(groupKey: InstanceBatchKey): number {
+    return this.batchesForQuery(groupKey).reduce(
+      (capacity, batch) => capacity + batch.capacity,
+      0,
+    );
   }
 
   /** Number of distinct mesh-handle batches currently allocated. */
@@ -219,7 +228,7 @@ export class InstancedMeshManager {
   // ---------------------------------------------------------------------------
 
   private getOrCreateBatch(
-    groupKey: number,
+    groupKey: InstanceBatchKey,
     geometry: THREE.BufferGeometry,
     material: THREE.Material,
   ): Batch {
@@ -264,6 +273,30 @@ export class InstancedMeshManager {
     };
     this.batches.set(groupKey, batch);
     return batch;
+  }
+
+  private batchForQuery(groupKey: InstanceBatchKey): Batch | undefined {
+    const direct = this.batches.get(groupKey);
+    if (direct !== undefined) return direct;
+
+    const matches = this.batchesForQuery(groupKey);
+    return matches.length === 1 ? matches[0] : undefined;
+  }
+
+  private batchesForQuery(groupKey: InstanceBatchKey): Batch[] {
+    const direct = this.batches.get(groupKey);
+    if (direct !== undefined) return [direct];
+    if (typeof groupKey === "bigint") return [];
+
+    const prefix = BigInt(groupKey) << 32n;
+    const nextPrefix = BigInt(groupKey + 1) << 32n;
+    const matches: Batch[] = [];
+    for (const [key, batch] of this.batches) {
+      if (typeof key === "bigint" && key >= prefix && key < nextPrefix) {
+        matches.push(batch);
+      }
+    }
+    return matches;
   }
 
   private growBatch(batch: Batch): void {

@@ -14,7 +14,10 @@ import {
   SCENE_ROOT,
   TRANSFORM_STRIDE,
 } from "@galeon/render-core";
-import { InstancedMeshManager } from "./instanced-mesh-manager.js";
+import {
+  InstancedMeshManager,
+  type InstanceBatchKey,
+} from "./instanced-mesh-manager.js";
 
 /**
  * Renderer-side cache that consumes packed extraction tables from the
@@ -34,6 +37,8 @@ import { InstancedMeshManager } from "./instanced-mesh-manager.js";
  * Using a Symbol avoids namespace collisions with string-keyed custom render channels.
  */
 export const GALEON_ENTITY_KEY: unique symbol = Symbol.for("galeon.entity");
+const INSTANCE_KEY_SHIFT = 32n;
+const INSTANCE_KEY_MASK = 0xffff_ffffn;
 
 export interface RendererEntityHandle {
   readonly entityId: number;
@@ -180,9 +185,10 @@ export class RendererCache {
 
       // ----- Instanced routing -----
       // Entities tagged with `InstanceOf` skip the standalone-Object3D path
-      // and live inside a per-`MeshHandle` `THREE.InstancedMesh` instead.
-      // Group key equals the wrapped `MeshHandle.id` (see Rust frame_packet),
-      // so the same handle drives geometry resolution and batch routing.
+      // and live in `THREE.InstancedMesh` batches instead.
+      // Batch key is `(instanceGroup, materialHandle)`: the Rust group
+      // chooses geometry, and the material handle keeps each InstancedMesh on
+      // one material.
       const groupKey = instanceGroups?.[i] ?? INSTANCE_GROUP_NONE;
       if (groupKey !== INSTANCE_GROUP_NONE) {
         // If the entity was previously standalone, tear it down before
@@ -199,9 +205,13 @@ export class RendererCache {
         const material =
           this.materials.get(matHandle) ?? this.placeholderMaterial;
         const visible = visibility[i]! === 1;
+        const batchKey = this.resolveInstanceBatchKey(
+          groupKey,
+          matHandle,
+        );
         this.instancedMeshes.upsert(
           entityId,
-          groupKey,
+          batchKey,
           geometry,
           material,
           transforms,
@@ -592,5 +602,21 @@ export class RendererCache {
     } else {
       this.warnedMaterials.delete(entityId);
     }
+  }
+
+  /**
+   * Instancing key policy:
+   * Batch by `(instanceGroup, materialHandle)` so one `THREE.InstancedMesh`
+   * never has to represent rows with different materials. This covers both
+   * Billboard-derived groups and general `InstanceOf` groups.
+   */
+  private resolveInstanceBatchKey(
+    instanceGroup: number,
+    materialHandle: number,
+  ): InstanceBatchKey {
+    return (
+      (BigInt(instanceGroup) << INSTANCE_KEY_SHIFT) |
+      (BigInt(materialHandle) & INSTANCE_KEY_MASK)
+    );
   }
 }

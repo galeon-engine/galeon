@@ -2,6 +2,23 @@
 
 import * as THREE from "three";
 
+const BILLBOARD_FBM_MATERIAL_MARK = Symbol.for("galeon.billboard-fbm");
+const BILLBOARD_FBM_PROGRAM_KEY = "galeon.billboard-fbm.v1";
+
+/**
+ * Type guard for materials produced by `createBillboardFbmMaterial`.
+ */
+export function isBillboardFbmMaterial(
+  material: THREE.Material,
+): material is THREE.ShaderMaterial {
+  return (
+    material instanceof THREE.ShaderMaterial &&
+    (material.userData as Record<PropertyKey, unknown>)[
+      BILLBOARD_FBM_MATERIAL_MARK
+    ] === true
+  );
+}
+
 /**
  * Reference billboard material for Galeon particle effects.
  *
@@ -104,11 +121,21 @@ varying float vEyeDepth;
 void main() {
   vUv = uv;
 
-  // Camera-facing billboard: place the quad center at the model origin in
-  // view space, then offset by the quad-local position scaled by uSize.
-  vec4 mvCenter = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-  vec3 offset = vec3(position.xy * uSize, 0.0);
-  vec4 mvPosition = mvCenter + vec4(offset, 0.0);
+  // Camera-facing billboard:
+  // 1) place the quad center at the mesh/instance origin in view space
+  // 2) offset corners in camera-plane by uSize, preserving instance scale.
+  vec4 mvCenter;
+  vec2 billboardScale = vec2(1.0, 1.0);
+  #ifdef USE_INSTANCING
+    vec4 worldCenter = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+    mvCenter = viewMatrix * worldCenter;
+    billboardScale = vec2(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz));
+  #else
+    mvCenter = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+  #endif
+
+  vec2 quadOffset = position.xy * (uSize * billboardScale);
+  vec4 mvPosition = mvCenter + vec4(quadOffset, 0.0, 0.0);
   vEyeDepth = -mvPosition.z;
   gl_Position = projectionMatrix * mvPosition;
 }
@@ -243,7 +270,7 @@ export function createBillboardFbmMaterial(
 
   const hasDepthFade = softEdgeDistance > 0 && depthTexture !== null;
 
-  return new THREE.ShaderMaterial({
+  const material = new THREE.ShaderMaterial({
     defines: { OCTAVES: octaves },
     uniforms: {
       uColor: { value: color },
@@ -268,4 +295,15 @@ export function createBillboardFbmMaterial(
     blendDst: THREE.OneMinusSrcAlphaFactor,
     blendEquation: THREE.AddEquation,
   });
+
+  // Keep a stable program key marker so billboard materials can be routed into
+  // billboard-specific instancing batches without clashing with other shaders.
+  const prevProgramKey = material.customProgramCacheKey.bind(material);
+  material.customProgramCacheKey = (): string =>
+    `${prevProgramKey()}|${BILLBOARD_FBM_PROGRAM_KEY}`;
+  (material.userData as Record<PropertyKey, unknown>)[
+    BILLBOARD_FBM_MATERIAL_MARK
+  ] = true;
+
+  return material;
 }
