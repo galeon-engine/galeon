@@ -78,10 +78,13 @@ read it before any input fires.
 | Shift    | Toggle entity in/out (no-op on miss) | Add to selection |
 | Ctrl     | Remove entity (no-op on miss)        | Remove from selection |
 | Alt      | (treated as no-modifier on hit)      | Intersect (keep entities in both) |
+| Multiple modifiers (Shift+Ctrl, Ctrl+Alt, …) | Replace on hit, no-op on miss | Replace |
 
 These follow the StarCraft / OpenRA consensus catalogued in the discovery
-notes for issue #214. The TS helper only reports the modifiers; the
-`Selection` resource decides what they mean.
+notes for issue #214. Both `apply_pick` and `apply_pick_rect` dispatch on
+the full modifier bitmask, so a multi-modifier event is never silently
+absorbed by the first matching single-modifier rule. The TS helper only
+reports the modifiers; the `Selection` resource decides what they mean.
 
 ## Out Of Scope
 

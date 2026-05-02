@@ -142,6 +142,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (#214)** — clicks with multi-modifier combinations (e.g. Shift+Ctrl) now
   fall through to the "replace on hit, no-op on miss" branch as documented,
   instead of being absorbed by the first matching single-modifier rule.
+- **`Selection::apply_pick_rect` mirrors the multi-modifier discipline
+  (#214)** — marquees with multi-modifier combinations (Shift+Ctrl,
+  Ctrl+Alt, …) now fall through to the replace branch instead of being
+  absorbed by the first matching single-modifier rule. Click and rect
+  paths now share the same bitmask-match dispatch, so a stray Shift+Ctrl
+  drag no longer silently adds where a user expected a replace.
 - **Layer-hidden non-geometry entities excluded from marquee picks (#214)** —
   `worldAabb`'s zero-size fallback for non-mesh entities (lights, empty
   groups) now respects the stamped object's own layer mask. Previously, an

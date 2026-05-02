@@ -79,6 +79,10 @@ point. Two methods apply input events:
     single-modifier rule.
 - `Selection::apply_pick_rect(entities, modifiers)` — marquee.
   - No modifier replaces. `shift` adds. `ctrl` subtracts. `alt` intersects.
+  - Any other combination (Shift+Ctrl, Ctrl+Alt, Meta, …) falls through to
+    replace, so a multi-modifier marquee is not silently absorbed by the
+    first matching single-modifier rule. Dispatch is on the full modifier
+    bitmask, mirroring `apply_pick`.
 
 Modifier semantics follow the StarCraft / OpenRA consensus catalogued in the
 discovery notes; the helper only reports modifiers, the resource decides what

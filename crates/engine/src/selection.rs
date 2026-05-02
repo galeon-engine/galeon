@@ -139,26 +139,39 @@ impl Selection {
     /// Apply a marquee pick.
     ///
     /// - **No modifier**: replace selection with `entities`.
-    /// - **Shift**: add `entities` to selection.
-    /// - **Ctrl**: remove `entities` from selection.
-    /// - **Alt**: keep only entities present in both the current selection
+    /// - **Shift only**: add `entities` to selection.
+    /// - **Ctrl only**: remove `entities` from selection.
+    /// - **Alt only**: keep only entities present in both the current selection
     ///   and `entities` (set intersection).
+    /// - **Other modifier combinations** (Shift+Ctrl, Shift+Alt, Meta, …):
+    ///   same as no-modifier (replace).
+    ///
+    /// Dispatch is on the full modifier bitmask — mirroring
+    /// [`apply_pick`](Self::apply_pick) — so that a multi-modifier marquee
+    /// (e.g. a user holding Shift+Ctrl during a drag) falls through to the
+    /// documented replace branch instead of being absorbed by the first
+    /// matching single-modifier rule.
     pub fn apply_pick_rect<I>(&mut self, entities: I, modifiers: PickModifiers)
     where
         I: IntoIterator<Item = Entity>,
     {
-        if modifiers.shift() {
-            self.entities.extend(entities);
-        } else if modifiers.ctrl() {
-            for e in entities {
-                self.entities.remove(&e);
+        match modifiers.0 {
+            PickModifiers::SHIFT => {
+                self.entities.extend(entities);
             }
-        } else if modifiers.alt() {
-            let new: HashSet<Entity> = entities.into_iter().collect();
-            self.entities.retain(|e| new.contains(e));
-        } else {
-            self.entities.clear();
-            self.entities.extend(entities);
+            PickModifiers::CTRL => {
+                for e in entities {
+                    self.entities.remove(&e);
+                }
+            }
+            PickModifiers::ALT => {
+                let new: HashSet<Entity> = entities.into_iter().collect();
+                self.entities.retain(|e| new.contains(e));
+            }
+            _ => {
+                self.entities.clear();
+                self.entities.extend(entities);
+            }
         }
     }
 
@@ -321,5 +334,34 @@ mod tests {
         assert!(sel.contains(e(2, 0)));
         assert!(sel.contains(e(3, 0)));
         assert!(!sel.contains(e(1, 0)));
+    }
+
+    #[test]
+    fn rect_shift_plus_other_modifier_falls_through_to_replace() {
+        let mut sel = Selection::new();
+        sel.entities.insert(e(1, 0));
+        sel.entities.insert(e(2, 0));
+        // Shift+Ctrl is a non-plain combination: docs say it should behave
+        // like no-modifier (replace), not like Shift alone (add). Mirrors
+        // the click handler's multi-modifier discipline.
+        let bits = PickModifiers::SHIFT | PickModifiers::CTRL;
+        sel.apply_pick_rect([e(3, 0), e(4, 0)], PickModifiers(bits));
+        assert_eq!(sel.entities.len(), 2);
+        assert!(sel.contains(e(3, 0)));
+        assert!(sel.contains(e(4, 0)));
+        assert!(!sel.contains(e(1, 0)));
+        assert!(!sel.contains(e(2, 0)));
+    }
+
+    #[test]
+    fn rect_alt_plus_other_modifier_falls_through_to_replace() {
+        let mut sel = Selection::new();
+        sel.entities.insert(e(1, 0));
+        // Ctrl+Alt should NOT intersect (Alt-alone behaviour). Falls through
+        // to replace so the rect's contents become the new selection.
+        let bits = PickModifiers::CTRL | PickModifiers::ALT;
+        sel.apply_pick_rect([e(2, 0)], PickModifiers(bits));
+        assert_eq!(sel.entities.len(), 1);
+        assert!(sel.contains(e(2, 0)));
     }
 }
