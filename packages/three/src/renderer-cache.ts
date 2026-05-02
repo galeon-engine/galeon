@@ -57,6 +57,11 @@ export class RendererCache {
 
   /** Current parent entity index per entity (`SCENE_ROOT` = scene root). */
   private readonly parentOf = new Map<number, number>();
+  /**
+   * Child -> previous parent mapping for standalone children orphaned when the
+   * parent is temporarily routed into instancing.
+   */
+  private readonly detachedChildrenParentHint = new Map<number, number>();
 
   /** Entities already warned about missing mesh handles (cleared when handle becomes registered). */
   private readonly warnedMeshes = new Set<number>();
@@ -183,7 +188,9 @@ export class RendererCache {
         // If the entity was previously standalone, tear it down before
         // routing into the batch — the entity must not own both objects.
         const stale = this.objects.get(entityId);
-        if (stale) this.removeEntity(entityId, stale);
+        if (stale) {
+          this.removeEntity(entityId, stale, { rememberChildrenForReattach: true });
+        }
 
         const meshHandle = mesh_handles[i]!;
         const matHandle = material_handles[i]!;
@@ -305,6 +312,10 @@ export class RendererCache {
         }
       }
 
+      if (forceParentReconcile.has(entityId)) {
+        this.restoreDetachedChildren(entityId, obj);
+      }
+
       // Custom channels: always applied per entity when present on the packet.
       // There is no CHANGED_CUSTOM (or per-channel) bit yet, so change_flags do not
       // gate this path — a future optimization could skip writes when the Rust
@@ -329,6 +340,9 @@ export class RendererCache {
       const shouldReparent =
         (flag & CHANGED_PARENT) !== 0 || forceParentReconcile.has(entityId);
       if (!shouldReparent) continue;
+
+      // Explicit parent reconciliation supersedes stale migration hints.
+      this.detachedChildrenParentHint.delete(entityId);
 
       const parentId = parent_ids[i]!;
       const prevParent = this.parentOf.get(entityId);
@@ -370,6 +384,7 @@ export class RendererCache {
       for (const id of instancedToRemove) {
         this.instancedMeshes.remove(id);
         this.generations.delete(id);
+        this.clearDetachedChildrenHintsForParent(id);
       }
     }
   }
@@ -424,6 +439,7 @@ export class RendererCache {
       this.removeEntity(id, obj);
     }
     this.instancedMeshes.clear();
+    this.detachedChildrenParentHint.clear();
     this.lastFrameVersion = 0n;
     this._dirty = true;
   }
@@ -471,7 +487,39 @@ export class RendererCache {
    * Remove an entity's mesh from the scene and clean up internal tracking.
    * Notifies `onEntityRemoved` so the consumer can dispose resources it owns.
    */
-  private removeEntity(id: number, obj: THREE.Object3D): void {
+  private restoreDetachedChildren(parentId: number, parentObj: THREE.Object3D): void {
+    const childIdsToRestore: number[] = [];
+    for (const [childId, hintedParentId] of this.detachedChildrenParentHint) {
+      if (hintedParentId === parentId) childIdsToRestore.push(childId);
+    }
+    if (childIdsToRestore.length === 0) return;
+
+    for (const childId of childIdsToRestore) {
+      const childObj = this.objects.get(childId);
+      if (!childObj) continue;
+      if (this.parentOf.get(childId) !== SCENE_ROOT) continue;
+      childObj.parent?.remove(childObj);
+      parentObj.add(childObj);
+      this.parentOf.set(childId, parentId);
+    }
+    for (const childId of childIdsToRestore) {
+      this.detachedChildrenParentHint.delete(childId);
+    }
+  }
+
+  private clearDetachedChildrenHintsForParent(parentId: number): void {
+    for (const [childId, hintedParentId] of this.detachedChildrenParentHint) {
+      if (hintedParentId === parentId) {
+        this.detachedChildrenParentHint.delete(childId);
+      }
+    }
+  }
+
+  private removeEntity(
+    id: number,
+    obj: THREE.Object3D,
+    options: { rememberChildrenForReattach?: boolean } = {},
+  ): void {
     // Reparent orphaned children to the scene root before detaching.
     // Without this, children become invisible (still attached to a
     // removed parent object that is no longer in the scene graph).
@@ -481,6 +529,9 @@ export class RendererCache {
       if (childObj) {
         obj.remove(childObj);
         this.scene.add(childObj);
+        if (options.rememberChildrenForReattach) {
+          this.detachedChildrenParentHint.set(childId, id);
+        }
       }
       this.parentOf.set(childId, SCENE_ROOT);
     }
@@ -499,6 +550,7 @@ export class RendererCache {
       this.warnedMeshes.delete(id);
       this.warnedMaterials.delete(id);
       this.objectKinds.delete(id);
+      this.detachedChildrenParentHint.delete(id);
     }
   }
 

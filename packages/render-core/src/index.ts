@@ -35,7 +35,8 @@ export const SCENE_ROOT = 0xffff_ffff;
  * Sentinel value in `instance_groups` meaning "not part of an instance batch".
  * Matches Rust `INSTANCE_GROUP_NONE`. Entities with this value render through
  * the standalone-`Object3D` path; any other value selects a `THREE.InstancedMesh`
- * keyed by that value (the wrapped `MeshHandle.id`).
+ * keyed by that value (the wrapped `MeshHandle.id`). `MeshHandle.id` equal to
+ * this sentinel is reserved and rejected by Rust extraction.
  */
 export const INSTANCE_GROUP_NONE = 0xffff_ffff;
 
@@ -71,6 +72,7 @@ export interface FramePacketView {
    * `INSTANCE_GROUP_NONE` (= `0xFFFFFFFF`) selects the standalone-`Object3D`
    * render path. Any other value is the wrapped `MeshHandle.id`; the renderer
    * places the entity in the `THREE.InstancedMesh` keyed by that value.
+   * `MeshHandle.id === INSTANCE_GROUP_NONE` is reserved in Rust extraction.
    *
    * Optional for backward compatibility with packets emitted before issue #215.
    */

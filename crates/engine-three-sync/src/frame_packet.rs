@@ -42,6 +42,8 @@ pub struct FramePacket {
     /// When the entity has an `InstanceOf(MeshHandle)` component, this holds
     /// the wrapped mesh handle id — the renderer routes the entity's
     /// transform into a shared `THREE.InstancedMesh` keyed by this value.
+    /// `MeshHandle.id == INSTANCE_GROUP_NONE` is reserved and rejected by
+    /// extraction to avoid sentinel collisions on the TS side.
     /// Otherwise it holds [`INSTANCE_GROUP_NONE`] and the renderer creates a
     /// standalone `Object3D`.
     pub instance_groups: Vec<u32>,
@@ -91,6 +93,7 @@ pub const SCENE_ROOT: u32 = u32::MAX;
 /// Entities with this value render through the standard per-entity `Object3D`
 /// path. Entities with any other value share a `THREE.InstancedMesh` keyed by
 /// that value (the wrapped `MeshHandle.id`).
+/// `InstanceOf(MeshHandle { id: INSTANCE_GROUP_NONE })` is invalid.
 pub const INSTANCE_GROUP_NONE: u32 = u32::MAX;
 
 /// Number of f32 values per entity in the transforms array.

@@ -59,7 +59,15 @@ type Renderable = (Entity, [f32; 3], [f32; 4], [f32; 3], u32, u8);
 fn resolved_instance_group(world: &World, entity: Entity) -> u32 {
     world
         .get::<InstanceOf>(entity)
-        .map(|i| i.0.id)
+        .map(|i| {
+            let mesh_id = i.0.id;
+            assert_ne!(
+                mesh_id, INSTANCE_GROUP_NONE,
+                "InstanceOf(MeshHandle {{ id: {mesh_id} }}) collides with \
+                 INSTANCE_GROUP_NONE ({INSTANCE_GROUP_NONE}); id is reserved"
+            );
+            mesh_id
+        })
         .unwrap_or(INSTANCE_GROUP_NONE)
 }
 
@@ -1412,6 +1420,44 @@ mod tests {
         let flags = packet.change_flags[0];
         assert!(flags & CHANGED_TRANSFORM != 0);
         assert!(flags & CHANGED_INSTANCE_GROUP == 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "INSTANCE_GROUP_NONE")]
+    fn extract_rejects_instance_group_sentinel_collision() {
+        use galeon_engine::render::InstanceOf;
+
+        let mut world = World::new();
+        world.spawn((
+            Transform::identity(),
+            MeshHandle {
+                id: INSTANCE_GROUP_NONE,
+            },
+            InstanceOf(MeshHandle {
+                id: INSTANCE_GROUP_NONE,
+            }),
+        ));
+
+        let _ = extract_frame(&world);
+    }
+
+    #[test]
+    #[should_panic(expected = "INSTANCE_GROUP_NONE")]
+    fn incremental_extract_rejects_instance_group_sentinel_collision() {
+        use galeon_engine::render::InstanceOf;
+
+        let mut world = World::new();
+        let since = world.change_tick();
+        world.advance_tick();
+
+        world.spawn((
+            Transform::identity(),
+            InstanceOf(MeshHandle {
+                id: INSTANCE_GROUP_NONE,
+            }),
+        ));
+
+        let _ = extract_frame_incremental(&world, since);
     }
 
     // -------------------------------------------------------------------------
