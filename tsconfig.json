@@ -5,6 +5,7 @@
     { "path": "packages/render-core" },
     { "path": "packages/three" },
     { "path": "packages/r3f" },
+    { "path": "packages/picking" },
     { "path": "packages/shell" },
     { "path": "examples/instanced-cubes" }
   ]

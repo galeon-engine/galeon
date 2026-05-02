@@ -18,6 +18,7 @@
       "@galeon/three": ["./packages/three/src/index.ts"],
       "@galeon/r3f": ["./packages/r3f/src/index.ts"],
       "@galeon/runtime": ["./packages/runtime/src/index.ts"],
+      "@galeon/picking": ["./packages/picking/src/index.ts"],
       "@galeon/shell": ["./packages/shell/src/index.ts"]
     },
 

@@ -9,6 +9,22 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Mouse picking and drag-rectangle selection helper (#214)** — New
+  `@galeon/picking` package wraps `THREE.Raycaster` to emit typed `pick` and
+  `pick-rect` events that resolve back to the entity refs `@galeon/three`
+  stamps on managed objects. Drag-rectangle uses a six-plane sub-frustum
+  derived from the rect's NDC corners (the `SelectionBox.js` algorithm,
+  re-oriented inward via the corner centroid for camera-handedness safety).
+  Click and marquee paths align with the active camera's `layers` mask so
+  picking only returns objects the camera would actually render. On the
+  Rust side, a new `Selection` resource in `galeon-engine` carries the
+  current entity set plus the last hit point and applies pick events with
+  StarCraft / OpenRA modifier semantics (`shift` = additive, `ctrl` =
+  subtractive, `alt` = intersect). The `engine-three-sync` WASM bridge
+  exposes `applyPick` / `applyPickRect` / `selectionEntities` on
+  `WasmEngine` (filtering despawned entries before forwarding to JS), and a
+  native `cargo run --example picking_demo` walks the data flow against a
+  50-cube scene.
 - **`InstanceOf(MeshHandle)` ECS component and `FramePacket.instance_groups`
   channel (#215, T1)** — New marker component that opts an entity into a
   shared GPU instance batch keyed by its wrapped `MeshHandle`. Render
@@ -108,6 +124,43 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Galeon crate dependencies on the current major.minor line, such as
   `galeon-engine = "0.4"`, so generated projects can pick up patch releases
   without waiting for a new CLI patch release.
+- **Marquee selection respects hierarchy and visibility (#214)** —
+  `@galeon/picking` `pick-rect` now (a) computes a stamped `THREE.Group`'s
+  AABB from the union of its visible descendant geometry instead of a
+  zero-size box at the group origin, so grouped entities with offset child
+  meshes marquee-select correctly, (b) skips invisible objects and
+  descendants of invisible parents, matching the click path's behaviour,
+  and (c) prunes hidden mid-tree branches when accumulating a group's
+  AABB so visible grandchildren under a hidden ancestor cannot enlarge
+  the group's selection bounds beyond what the renderer would draw.
+- **Picking refreshes camera matrices (#214)** — both click and marquee
+  paths now call `camera.updateMatrixWorld()` before raycasting.
+  `scene.updateMatrixWorld` does not touch a camera that lives outside the
+  scene graph, so picks taken between a camera move and the next render
+  could otherwise use stale ray origins and select the wrong entity.
+- **`Selection::apply_pick` honours documented multi-modifier semantics
+  (#214)** — clicks with multi-modifier combinations (e.g. Shift+Ctrl) now
+  fall through to the "replace on hit, no-op on miss" branch as documented,
+  instead of being absorbed by the first matching single-modifier rule.
+- **`Selection::apply_pick_rect` mirrors the multi-modifier discipline
+  (#214)** — marquees with multi-modifier combinations (Shift+Ctrl,
+  Ctrl+Alt, …) now fall through to the replace branch instead of being
+  absorbed by the first matching single-modifier rule. Click and rect
+  paths now share the same bitmask-match dispatch, so a stray Shift+Ctrl
+  drag no longer silently adds where a user expected a replace.
+- **Layer-hidden non-geometry entities excluded from marquee picks (#214)** —
+  `worldAabb`'s zero-size fallback for non-mesh entities (lights, empty
+  groups) now respects the stamped object's own layer mask. Previously, an
+  empty group or light on a non-camera layer could still be marquee-selected
+  if the rect covered its origin even though the renderer would skip it and
+  click picking could never reach it.
+- **Stamped Mesh marquee bounds include unstamped child meshes (#214)** —
+  `worldAabb` no longer short-circuits stamped `Mesh` / `LineSegments` to
+  their own geometry; it unions the descendant geometry with the same
+  visibility / layer / nested-entity gates as the Group path. Click picking
+  is recursive and walks unstamped child meshes up to the nearest stamped
+  ancestor, so without this a stamped Mesh with offset child geometry was
+  selectable by click but missed by drag-rectangle.
 
 ## [0.4.0]
 

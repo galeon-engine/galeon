@@ -28,6 +28,7 @@ pub mod render_event;
 mod resource;
 pub mod route_scanner;
 pub mod schedule;
+pub mod selection;
 pub mod system_param;
 pub mod virtual_time;
 pub mod world;
@@ -77,6 +78,7 @@ pub use route_scanner::{
     resolve_routes, scan_api_routes, strip_type_prefix,
 };
 pub use schedule::Schedule;
+pub use selection::{PickModifiers, PickPoint, Selection};
 pub use system_param::{Access, Query, QueryMut, Res, ResMut, SystemParam};
 pub use virtual_time::VirtualTime;
 pub use world::{UnsafeWorldCell, World};
