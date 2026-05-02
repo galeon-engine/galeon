@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
 import * as THREE from "three";
+import type { GaleonInstancedMesh } from "@galeon/three";
 import type { PickingEntityRef } from "./picking.js";
 
 export interface SelectionRingObjectResolver {
@@ -9,7 +10,7 @@ export interface SelectionRingObjectResolver {
 }
 
 export interface SelectionRingInstance {
-  readonly mesh: THREE.InstancedMesh;
+  readonly mesh: THREE.InstancedMesh | GaleonInstancedMesh;
   readonly instanceId: number;
 }
 
@@ -155,6 +156,13 @@ function updateObjectRingMatrix(
 function readInstanceBounds(instance: SelectionRingInstance): boolean {
   const { mesh, instanceId } = instance;
   mesh.updateWorldMatrix(true, false);
+  if (
+    (mesh as { readonly getActiveAndVisibilityAt?: (id: number) => boolean }).getActiveAndVisibilityAt?.(
+      instanceId,
+    ) === false
+  ) {
+    return false;
+  }
   mesh.getMatrixAt(instanceId, _instanceMatrix);
   if (isZeroScaleMatrix(_instanceMatrix)) {
     return false;

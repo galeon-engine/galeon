@@ -9,6 +9,28 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Picking baseline benchmark (#224 / T1)** — `@galeon/picking` now includes
+  `bun run --cwd packages/picking bench:baseline`, a deterministic Three.js
+  harness that measures current raycaster click and world-AABB marquee latency
+  at 100, 1k, and 10k standalone entities. The measured baseline and switching
+  guidance are documented in `docs/guide/picking.md` for the follow-up
+  GPU/BVH backend work.
+
+- **Picking backend seam (#224 / T2)** — `attachPicking` now accepts a
+  `pickingBackend` option and exports the backend request/result types plus
+  `createRaycasterPickingBackend()`. Provider functions can switch compatible
+  backends at pick time without reattaching DOM listeners.
+
+- **BVH-backed instanced picking (#224 / T3/T4)** — `@galeon/three` now uses
+  `@three.ez/instanced-mesh` for renderer-owned instanced batches and computes
+  a per-instance BVH. `@galeon/picking` defaults to `createGaleonPickingBackend`,
+  which keeps raycasting for standalone objects but queries the instanced BVH
+  for clicks and drag rectangles. Overlapping instanced clicks resolve to the
+  closer entity through BVH + exact geometry tests, so the old
+  `THREE.InstancedMesh.raycast` first-hit limitation is avoided without adding
+  a GPU-readback fallback. `bun run --cwd packages/picking bench:instanced-bvh`
+  records the 10k-cube linear-vs-BVH comparison.
+
 - **Marquee renderer HUD primitive (#226 / T1)** — `@galeon/picking` now
   exports `attachMarqueeRenderer(camera)`, a framework-neutral visual helper
   that renders the current drag rectangle as camera-attached Three.js line
@@ -186,6 +208,13 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Picking filter candidates (#224)** — `@galeon/picking` marquee filters now
+  receive a `PickingCandidate` object with `{ object, entity, instanceId }`
+  instead of positional `(object, entity)` arguments. Standalone picks use
+  `instanceId: null`; instanced picks expose the concrete batch slot so
+  filters can make entity-first decisions without relying on nonexistent
+  per-instance `Object3D` stamps.
+
 - **Shared height storage for terrain resources (#233)** — `Terrain` now keeps
   height samples in immutable shared storage, so cloning a terrain resource or
   installing it through `HeightmapPlugin` no longer copies the full height
@@ -197,6 +226,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   React 19 + R3F 9 as its supported peer combinations.
 
 ### Fixed
+
+- **Local-first starter smoke (#224)** — Generated local-first starters now set
+  `skipLibCheck: true` in `client/tsconfig.json`, matching the Galeon workspace
+  policy and preventing starter CI from failing on linked dependency
+  declaration internals.
 
 - **Instanced click picking preserves entity identity (#224)** —
   `@galeon/three` now stamps each managed `THREE.InstancedMesh` batch with an

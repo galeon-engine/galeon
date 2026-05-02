@@ -20,6 +20,8 @@
     "directory": "packages/picking"
   },
   "scripts": {
+    "bench:baseline": "bun bench/picking-baseline.ts",
+    "bench:instanced-bvh": "bun bench/instanced-bvh.ts",
     "prepublishOnly": "tsc --build"
   },
   "dependencies": {

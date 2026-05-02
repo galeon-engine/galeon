@@ -9,12 +9,22 @@ export {
 
 export {
   attachPicking,
+  createGaleonPickingBackend,
+  createRaycasterPickingBackend,
+  type PickAtRequest,
+  type PickingBackend,
+  type PickingBackendOption,
+  type PickingBackendSelection,
+  type PickingCandidate,
   type PickingEntityRef,
   type PickingEvent,
+  type PickingFilter,
   type PickingOptions,
+  type PickingPointHit,
   type PickingTarget,
   type PickEvent,
   type PickModifiers,
+  type PickRectRequest,
   type PickRectEvent,
 } from "./picking.js";
 

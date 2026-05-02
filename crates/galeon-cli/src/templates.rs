@@ -295,6 +295,7 @@ pub fn local_first_client_tsconfig_json() -> String {
     "moduleResolution": "Bundler",
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "strict": true,
+    "skipLibCheck": true,
     "noEmit": true,
     "types": ["vite/client"]
   },

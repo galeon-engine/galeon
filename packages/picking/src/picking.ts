@@ -4,6 +4,7 @@ import * as THREE from "three";
 import {
   GALEON_ENTITY_KEY,
   GALEON_INSTANCE_ENTITIES_KEY,
+  type GaleonInstancedMesh,
   type InstancedEntityResolver,
 } from "@galeon/three";
 import { frustumFromRect } from "./selection-frustum.js";
@@ -48,6 +49,49 @@ export interface PickRectEvent {
 
 export type PickingEvent = PickEvent | PickRectEvent;
 
+/** Point hit returned by a picking backend. */
+export interface PickingPointHit {
+  readonly entity: PickingEntityRef;
+  readonly point: { readonly x: number; readonly y: number; readonly z: number };
+}
+
+/**
+ * Candidate surfaced to marquee filters before a pick is accepted.
+ *
+ * For standalone managed objects, `object` is the stamped Three.js object and
+ * `instanceId` is `null`. For instanced objects, `object` is the backing batch
+ * mesh and `instanceId` identifies the concrete instance within that mesh.
+ */
+export interface PickingCandidate {
+  readonly object: THREE.Object3D;
+  readonly entity: PickingEntityRef;
+  readonly instanceId: number | null;
+}
+
+export type PickingFilter = (candidate: PickingCandidate) => boolean;
+
+export interface PickAtRequest {
+  readonly scene: THREE.Scene;
+  readonly camera: THREE.Camera;
+  readonly ndc: THREE.Vector2;
+}
+
+export interface PickRectRequest {
+  readonly scene: THREE.Scene;
+  readonly camera: THREE.Camera;
+  readonly ndcStart: THREE.Vector2;
+  readonly ndcEnd: THREE.Vector2;
+  readonly filter?: PickingFilter;
+}
+
+export interface PickingBackend {
+  pickAt(request: PickAtRequest): PickingPointHit | null;
+  pickRect(request: PickRectRequest): readonly PickingEntityRef[];
+}
+
+export type PickingBackendSelection = "galeon" | "raycaster" | PickingBackend;
+export type PickingBackendOption = PickingBackendSelection | (() => PickingBackendSelection);
+
 /**
  * Subset of `HTMLCanvasElement` that picking actually depends on.
  *
@@ -74,11 +118,50 @@ export interface PickingOptions {
   /** Pixels of mouse movement before drag becomes a marquee. Default: 4. */
   readonly dragThreshold?: number;
   /**
-   * Optional filter for marquee candidates. Receives every managed object
-   * with a `GALEON_ENTITY_KEY` stamp; return `false` to exclude it (e.g.,
-   * disable picking on UI gizmos).
+   * Picking implementation used for click and drag-rectangle queries.
+   *
+   * Pass `"raycaster"` or omit the option for the built-in Three.js raycaster
+   * backend. A provider function is evaluated at pick time, which lets callers
+   * switch between compatible backends without reattaching DOM listeners.
    */
-  readonly filter?: (object: THREE.Object3D, entity: PickingEntityRef) => boolean;
+  readonly pickingBackend?: PickingBackendOption;
+  /**
+   * Optional filter for marquee candidates. Return `false` to exclude a
+   * candidate before it is emitted. Instanced candidates carry the backing mesh
+   * plus an `instanceId`; non-instanced candidates carry `instanceId: null`.
+   */
+  readonly filter?: PickingFilter;
+}
+
+export function createRaycasterPickingBackend(): PickingBackend {
+  const raycaster = new THREE.Raycaster();
+  return {
+    pickAt({ scene, camera, ndc }) {
+      return pickPoint(scene, camera, ndc, raycaster);
+    },
+    pickRect({ scene, camera, ndcStart, ndcEnd, filter }) {
+      return pickRect(scene, camera, ndcStart, ndcEnd, filter);
+    },
+  };
+}
+
+export function createGaleonPickingBackend(): PickingBackend {
+  const raycaster = new THREE.Raycaster();
+  return {
+    pickAt({ scene, camera, ndc }) {
+      const standalone = pickPoint(scene, camera, ndc, raycaster, isBvhInstancedMesh);
+      const instanced = pickInstancedBvhPoint(scene, camera, raycaster);
+      if (standalone == null) return instanced?.hit ?? null;
+      if (instanced == null) return standalone;
+      const standaloneDistance = pointDistance(raycaster.ray.origin, standalone.point);
+      return instanced.distance < standaloneDistance ? instanced.hit : standalone;
+    },
+    pickRect({ scene, camera, ndcStart, ndcEnd, filter }) {
+      const standalone = pickRect(scene, camera, ndcStart, ndcEnd, filter, isBvhInstancedMesh);
+      const instanced = pickInstancedBvhRect(scene, camera, ndcStart, ndcEnd, filter);
+      return [...standalone, ...instanced];
+    },
+  };
 }
 
 /**
@@ -108,7 +191,8 @@ export function attachPicking(
   const dragThreshold = options.dragThreshold ?? 4;
   const onPick = options.onPick;
   const filter = options.filter;
-  const raycaster = new THREE.Raycaster();
+  const galeonBackend = createGaleonPickingBackend();
+  const raycasterBackend = createRaycasterPickingBackend();
   const ndcStart = new THREE.Vector2();
   const ndcEnd = new THREE.Vector2();
 
@@ -142,12 +226,30 @@ export function attachPicking(
     const modifiers = readModifiers(event);
     if (dragging) {
       toNdc(canvas, event.clientX, event.clientY, ndcEnd);
-      const entities = pickRect(scene, camera, ndcStart, ndcEnd, filter);
+      const entities = currentPickingBackend(
+        options.pickingBackend,
+        galeonBackend,
+        raycasterBackend,
+      ).pickRect({
+        scene,
+        camera,
+        ndcStart,
+        ndcEnd,
+        filter,
+      });
       onPick?.({ kind: "pick-rect", entities, modifiers });
     } else {
       const ndcClick = new THREE.Vector2();
       toNdc(canvas, event.clientX, event.clientY, ndcClick);
-      const result = pickPoint(scene, camera, ndcClick, raycaster);
+      const result = currentPickingBackend(
+        options.pickingBackend,
+        galeonBackend,
+        raycasterBackend,
+      ).pickAt({
+        scene,
+        camera,
+        ndc: ndcClick,
+      });
       onPick?.({
         kind: "pick",
         entity: result?.entity ?? null,
@@ -179,6 +281,17 @@ export function attachPicking(
   };
 }
 
+function currentPickingBackend(
+  option: PickingBackendOption | undefined,
+  galeonBackend: PickingBackend,
+  raycasterBackend: PickingBackend,
+): PickingBackend {
+  const selection = typeof option === "function" ? option() : option;
+  if (selection == null || selection === "galeon") return galeonBackend;
+  if (selection === "raycaster") return raycasterBackend;
+  return selection;
+}
+
 /**
  * Convert client-space pixels to Normalised Device Coordinates relative to a
  * canvas. Uses `getBoundingClientRect()` (not `innerWidth`) so non-fullscreen
@@ -204,11 +317,6 @@ function readModifiers(event: MouseEvent): PickModifiers {
   };
 }
 
-interface PickPointResult {
-  entity: PickingEntityRef;
-  point: { x: number; y: number; z: number };
-}
-
 /**
  * Cast a single ray through `ndc` and return the first intersection whose
  * ancestor chain carries a `GALEON_ENTITY_KEY` stamp.
@@ -222,7 +330,8 @@ function pickPoint(
   camera: THREE.Camera,
   ndc: THREE.Vector2,
   raycaster: THREE.Raycaster,
-): PickPointResult | null {
+  skipObject?: (object: THREE.Object3D) => boolean,
+): PickingPointHit | null {
   scene.updateMatrixWorld(true);
   // `scene.updateMatrixWorld` does not touch a camera that lives outside the
   // scene graph, and `Camera.updateMatrixWorld` is what refreshes both
@@ -238,6 +347,7 @@ function pickPoint(
   raycaster.setFromCamera(ndc, camera);
   const intersections = raycaster.intersectObjects(scene.children, true);
   for (const hit of intersections) {
+    if (skipObject?.(hit.object)) continue;
     const instanceEntity = visibleInstanceEntity(hit);
     if (instanceEntity != null) {
       const p = hit.point;
@@ -282,7 +392,8 @@ function pickRect(
   camera: THREE.Camera,
   ndcStart: THREE.Vector2,
   ndcEnd: THREE.Vector2,
-  filter: PickingOptions["filter"],
+  filter: PickingFilter | undefined,
+  skipObject?: (object: THREE.Object3D) => boolean,
 ): PickingEntityRef[] {
   scene.updateMatrixWorld(true);
   // `frustumFromRect` unprojects through `camera.matrixWorld` /
@@ -304,8 +415,12 @@ function pickRect(
   // is what filters out unrenderable entities.
   function visit(object: THREE.Object3D): void {
     if (!object.visible) return;
+    if (skipObject?.(object)) return;
     const entity = readEntity(object);
-    if (entity != null && (filter == null || filter(object, entity))) {
+    if (
+      entity != null &&
+      (filter == null || filter({ object, entity, instanceId: null }))
+    ) {
       const bounds = worldAabb(object, aabb, camera);
       if (bounds !== null && frustum.intersectsBox(bounds)) {
         out.push(entity);
@@ -315,6 +430,152 @@ function pickRect(
   }
   for (const child of scene.children) visit(child);
   return out;
+}
+
+const _instancedLocalRaycaster = new THREE.Raycaster();
+const _instancedInverseWorld = new THREE.Matrix4();
+const _instancedMatrix = new THREE.Matrix4();
+const _instancedWorldMatrix = new THREE.Matrix4();
+const _instancedProbe = new THREE.Mesh();
+const _instancedIntersections: THREE.Intersection[] = [];
+const _cropMatrix = new THREE.Matrix4();
+const _projectionMatrix = new THREE.Matrix4();
+
+interface InstancedPointCandidate {
+  readonly hit: PickingPointHit;
+  readonly distance: number;
+}
+
+function pickInstancedBvhPoint(
+  scene: THREE.Scene,
+  camera: THREE.Camera,
+  raycaster: THREE.Raycaster,
+): InstancedPointCandidate | null {
+  let best: InstancedPointCandidate | null = null;
+  visitBvhInstancedMeshes(scene, camera, (mesh) => {
+    const resolver = readInstanceResolver(mesh);
+    if (resolver == null || mesh.bvh == null) return;
+
+    _instancedInverseWorld.copy(mesh.matrixWorld).invert();
+    _instancedLocalRaycaster.ray.copy(raycaster.ray).applyMatrix4(_instancedInverseWorld);
+    _instancedLocalRaycaster.near = raycaster.near;
+    _instancedLocalRaycaster.far = raycaster.far;
+    _instancedLocalRaycaster.layers.mask = raycaster.layers.mask;
+
+    mesh.bvh.raycast(_instancedLocalRaycaster, (instanceId) => {
+      if (!mesh.getActiveAndVisibilityAt(instanceId)) return;
+      const entity = resolver.entityAt(instanceId);
+      if (entity == null) return;
+      mesh.getMatrixAt(instanceId, _instancedMatrix);
+      _instancedWorldMatrix.multiplyMatrices(mesh.matrixWorld, _instancedMatrix);
+      _instancedProbe.geometry = mesh.geometry;
+      _instancedProbe.material = Array.isArray(mesh.material) ? mesh.material[0]! : mesh.material;
+      _instancedProbe.matrixWorld.copy(_instancedWorldMatrix);
+      _instancedIntersections.length = 0;
+      _instancedProbe.raycast(raycaster, _instancedIntersections);
+      for (const preciseHit of _instancedIntersections) {
+        const p = preciseHit.point;
+        const distance = p.distanceTo(raycaster.ray.origin);
+        if (best != null && distance >= best.distance) continue;
+        best = {
+          distance,
+          hit: {
+            entity,
+            point: { x: p.x, y: p.y, z: p.z },
+          },
+        };
+      }
+    });
+  });
+  return best;
+}
+
+function pickInstancedBvhRect(
+  scene: THREE.Scene,
+  camera: THREE.Camera,
+  ndcStart: THREE.Vector2,
+  ndcEnd: THREE.Vector2,
+  filter: PickingFilter | undefined,
+): PickingEntityRef[] {
+  camera.updateMatrixWorld();
+  const out: PickingEntityRef[] = [];
+  makeCropMatrix(ndcStart, ndcEnd, _cropMatrix);
+  visitBvhInstancedMeshes(scene, camera, (mesh) => {
+    const resolver = readInstanceResolver(mesh);
+    if (resolver == null || mesh.bvh == null) return;
+    _projectionMatrix
+      .multiplyMatrices(_cropMatrix, camera.projectionMatrix)
+      .multiply(camera.matrixWorldInverse)
+      .multiply(mesh.matrixWorld);
+    mesh.bvh.frustumCulling(_projectionMatrix, (node) => {
+      const instanceId = node.object;
+      if (instanceId == null) return;
+      if (!mesh.getActiveAndVisibilityAt(instanceId)) return;
+      const entity = resolver.entityAt(instanceId);
+      if (entity == null) return;
+      if (filter != null && !filter({ object: mesh, entity, instanceId })) return;
+      out.push(entity);
+    });
+  });
+  return out;
+}
+
+function visitBvhInstancedMeshes(
+  scene: THREE.Scene,
+  camera: THREE.Camera,
+  visit: (mesh: GaleonInstancedMesh) => void,
+): void {
+  scene.traverse((object) => {
+    if (!isBvhInstancedMesh(object)) return;
+    if (!visibleObjectChain(object)) return;
+    if (!object.layers.test(camera.layers)) return;
+    visit(object);
+  });
+}
+
+function isBvhInstancedMesh(object: THREE.Object3D): object is GaleonInstancedMesh {
+  return (
+    (object as { readonly isInstancedMesh2?: unknown }).isInstancedMesh2 === true &&
+    (object as { readonly bvh?: unknown }).bvh != null
+  );
+}
+
+function readInstanceResolver(mesh: GaleonInstancedMesh): InstancedEntityResolver | undefined {
+  const data = mesh.userData as Record<PropertyKey, unknown> | undefined;
+  return data?.[GALEON_INSTANCE_ENTITIES_KEY] as InstancedEntityResolver | undefined;
+}
+
+function makeCropMatrix(
+  ndcStart: THREE.Vector2,
+  ndcEnd: THREE.Vector2,
+  out: THREE.Matrix4,
+): THREE.Matrix4 {
+  const minX = Math.min(ndcStart.x, ndcEnd.x);
+  const maxX = Math.max(ndcStart.x, ndcEnd.x);
+  const minY = Math.min(ndcStart.y, ndcEnd.y);
+  const maxY = Math.max(ndcStart.y, ndcEnd.y);
+  const width = Math.max(maxX - minX, Number.EPSILON);
+  const height = Math.max(maxY - minY, Number.EPSILON);
+  const sx = 2 / width;
+  const sy = 2 / height;
+  const tx = -(maxX + minX) / width;
+  const ty = -(maxY + minY) / height;
+  return out.set(
+    sx, 0, 0, tx,
+    0, sy, 0, ty,
+    0, 0, 1, 0,
+    0, 0, 0, 1,
+  );
+}
+
+function pointDistance(
+  origin: THREE.Vector3,
+  point: { readonly x: number; readonly y: number; readonly z: number },
+): number {
+  const dx = point.x - origin.x;
+  const dy = point.y - origin.y;
+  const dz = point.z - origin.z;
+  return Math.sqrt(dx * dx + dy * dy + dz * dz);
 }
 
 /**

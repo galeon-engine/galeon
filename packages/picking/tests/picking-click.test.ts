@@ -3,7 +3,13 @@
 import { describe, expect, test } from "bun:test";
 import * as THREE from "three";
 import { GALEON_ENTITY_KEY } from "../../three/src/renderer-cache.js";
-import { attachPicking, type PickingEvent, type PickingTarget } from "../src/picking.js";
+import {
+  attachPicking,
+  type PickingBackend,
+  type PickingBackendSelection,
+  type PickingEvent,
+  type PickingTarget,
+} from "../src/picking.js";
 
 interface FakeListener {
   type: string;
@@ -293,5 +299,45 @@ describe("attachPicking single-click", () => {
     const event = events[0]!;
     if (event.kind !== "pick") throw new Error("unreachable");
     expect(event.entity).toEqual({ entityId: 2, generation: 1 });
+  });
+
+  test("resolves the picking backend provider at click time", () => {
+    const scene = new THREE.Scene();
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+    stampEntity(mesh, 7, 1);
+    scene.add(mesh);
+    scene.updateMatrixWorld(true);
+
+    const customBackend: PickingBackend = {
+      pickAt: () => ({
+        entity: { entityId: 70, generation: 2 },
+        point: { x: 1, y: 2, z: 3 },
+      }),
+      pickRect: () => [],
+    };
+    let backend: PickingBackendSelection = customBackend;
+
+    const canvas = new FakeCanvas();
+    const events: PickingEvent[] = [];
+    attachPicking(canvas, scene, makeOrthoCamera(), {
+      pickingBackend: () => backend,
+      onPick: (e) => events.push(e),
+    });
+
+    canvas.fire("mousedown", { clientX: 400, clientY: 300 });
+    canvas.fire("mouseup", { clientX: 400, clientY: 300 });
+    backend = "raycaster";
+    canvas.fire("mousedown", { clientX: 400, clientY: 300 });
+    canvas.fire("mouseup", { clientX: 400, clientY: 300 });
+
+    expect(events).toHaveLength(2);
+    const customEvent = events[0]!;
+    const raycasterEvent = events[1]!;
+    if (customEvent.kind !== "pick" || raycasterEvent.kind !== "pick") {
+      throw new Error("expected pick events");
+    }
+    expect(customEvent.entity).toEqual({ entityId: 70, generation: 2 });
+    expect(customEvent.point).toEqual({ x: 1, y: 2, z: 3 });
+    expect(raycasterEvent.entity).toEqual({ entityId: 7, generation: 1 });
   });
 });
