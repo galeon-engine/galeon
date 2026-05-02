@@ -249,6 +249,29 @@ impl Terrain {
     fn sample_at(&self, x: u32, z: u32) -> f32 {
         self.heights[(z * self.sample_count[0] + x) as usize]
     }
+
+    fn normal_at_sample(&self, x: u32, z: u32) -> [f32; 3] {
+        debug_assert!(x < self.sample_count[0]);
+        debug_assert!(z < self.sample_count[1]);
+
+        let max_x = self.sample_count[0] - 1;
+        let max_z = self.sample_count[1] - 1;
+        let left_x = x.saturating_sub(1);
+        let right_x = (x + 1).min(max_x);
+        let down_z = z.saturating_sub(1);
+        let up_z = (z + 1).min(max_z);
+
+        let left = self.sample_at(left_x, z);
+        let right = self.sample_at(right_x, z);
+        let down = self.sample_at(x, down_z);
+        let up = self.sample_at(x, up_z);
+
+        let dx = (right_x - left_x) as f32 * self.pixel_stride[0];
+        let dz = (up_z - down_z) as f32 * self.pixel_stride[1];
+        let dhdx = (right - left) / dx;
+        let dhdz = (up - down) / dz;
+        normalize([-dhdx, 1.0, -dhdz]).expect("normal vector includes +Y component")
+    }
 }
 
 /// CPU-side terrain mesh generated from a [`Terrain`] height grid.
@@ -281,11 +304,7 @@ impl TerrainMesh {
                 let local_z = z as f32 * stride_z;
                 positions.extend_from_slice(&[local_x, terrain.sample_at(x, z), local_z]);
 
-                let world_x = terrain.origin[0] + local_x;
-                let world_z = terrain.origin[1] + local_z;
-                let normal = terrain
-                    .normal_at(world_x, world_z)
-                    .unwrap_or([0.0, 1.0, 0.0]);
+                let normal = terrain.normal_at_sample(x, z);
                 normals.extend_from_slice(&normal);
             }
         }
@@ -638,6 +657,35 @@ mod tests {
         let center_normal = &mesh.normals()[12..15];
         for i in 0..3 {
             assert!((center_normal[i] - expected[i]).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn terrain_mesh_computes_edge_normals_from_grid_samples() {
+        let terrain = Terrain::new(
+            [0.0, 0.0],
+            [0.1, 0.1],
+            4,
+            4,
+            vec![
+                0.0, 1.0, 2.0, 3.0, //
+                1.0, 2.0, 3.0, 4.0, //
+                2.0, 3.0, 4.0, 5.0, //
+                3.0, 4.0, 5.0, 6.0,
+            ],
+        )
+        .unwrap();
+
+        let mesh = TerrainMesh::from_terrain(&terrain);
+        let last_normal = &mesh.normals()[45..48];
+        let gradient = 1.0 / (0.1_f32 / 3.0);
+        let expected = normalize([-gradient, 1.0, -gradient]).unwrap();
+
+        for i in 0..3 {
+            assert!(
+                (last_normal[i] - expected[i]).abs() < 1e-6,
+                "component {i}: expected {expected:?}, got {last_normal:?}",
+            );
         }
     }
 
