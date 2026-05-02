@@ -31,7 +31,7 @@ interface Batch {
   count: number;
   /** `slot → entityId` (`-1` for empty slots, but only `[0, count)` is meaningful). */
   slotToEntity: Int32Array;
-  /** Geometry and material captured on first sighting; re-bound only via `clear()`. */
+  /** Last registry-resolved geometry and material for this batch. */
   geometry: THREE.BufferGeometry;
   material: THREE.Material;
 }
@@ -224,7 +224,17 @@ export class InstancedMeshManager {
     material: THREE.Material,
   ): Batch {
     let batch = this.batches.get(groupKey);
-    if (batch !== undefined) return batch;
+    if (batch !== undefined) {
+      if (batch.geometry !== geometry) {
+        batch.mesh.geometry = geometry;
+        batch.geometry = geometry;
+      }
+      if (batch.material !== material) {
+        batch.mesh.material = material;
+        batch.material = material;
+      }
+      return batch;
+    }
 
     const capacity = INITIAL_CAPACITY;
     const mesh = new THREE.InstancedMesh(geometry, material, capacity);
@@ -364,4 +374,3 @@ function allocateInstanceColor(mesh: THREE.InstancedMesh, capacity: number): voi
   attr.setUsage(THREE.DynamicDrawUsage);
   mesh.instanceColor = attr;
 }
-

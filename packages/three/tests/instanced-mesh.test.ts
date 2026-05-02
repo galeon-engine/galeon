@@ -246,6 +246,36 @@ describe("RendererCache instanced-mesh path (#215 T2)", () => {
     expect(pos.z).toBeCloseTo(9);
   });
 
+  test("existing batches rebind when handle registrations change", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+
+    const packet = makePacket({ entity_count: 1 });
+    fillIdentityTransforms(packet);
+    packet.entity_ids[0] = 1;
+    packet.mesh_handles[0] = 1;
+    packet.material_handles[0] = 2;
+    (packet as { instance_groups?: Uint32Array }).instance_groups =
+      new Uint32Array([1]);
+
+    cache.applyFrame(packet);
+    const mesh = cache.instancing.meshFor(1)!;
+    const placeholderGeometry = mesh.geometry;
+    const placeholderMaterial = mesh.material;
+
+    const registeredGeometry = new THREE.SphereGeometry(1);
+    const registeredMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+    cache.registerGeometry(1, registeredGeometry);
+    cache.registerMaterial(2, registeredMaterial);
+    cache.applyFrame(packet);
+
+    expect(cache.instancing.meshFor(1)).toBe(mesh);
+    expect(mesh.geometry).toBe(registeredGeometry);
+    expect(mesh.material).toBe(registeredMaterial);
+    expect(mesh.geometry).not.toBe(placeholderGeometry);
+    expect(mesh.material).not.toBe(placeholderMaterial);
+  });
+
   test("hidden instance writes zero scale", () => {
     const scene = new THREE.Scene();
     const cache = new RendererCache(scene);
