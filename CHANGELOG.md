@@ -177,6 +177,14 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Instanced click picking preserves entity identity (#224)** —
+  `@galeon/three` now stamps each managed `THREE.InstancedMesh` batch with an
+  `instanceId -> { entityId, generation }` resolver, and `@galeon/picking`
+  consults `Intersection.instanceId` before falling back to the standalone
+  object/ancestor stamp path. Clicks on entities routed through
+  `InstanceOf(MeshHandle)` or billboard instancing now forward the selected
+  entity handle to Rust instead of missing the shared batch object.
+
 - **Confirmed-click spawn in `examples/billboards` (#217)** — Burst spawning
   now triggers on `pointerup` only when the pointer has not moved beyond a
   drag threshold since `pointerdown`, instead of firing on `pointerdown`.

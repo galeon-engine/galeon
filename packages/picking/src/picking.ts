@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
 import * as THREE from "three";
-import { GALEON_ENTITY_KEY } from "@galeon/three";
+import {
+  GALEON_ENTITY_KEY,
+  GALEON_INSTANCE_ENTITIES_KEY,
+  type InstancedEntityResolver,
+} from "@galeon/three";
 import { frustumFromRect } from "./selection-frustum.js";
 
 /**
@@ -234,6 +238,11 @@ function pickPoint(
   raycaster.setFromCamera(ndc, camera);
   const intersections = raycaster.intersectObjects(scene.children, true);
   for (const hit of intersections) {
+    const instanceEntity = readInstanceEntity(hit);
+    if (instanceEntity != null) {
+      const p = hit.point;
+      return { entity: instanceEntity, point: { x: p.x, y: p.y, z: p.z } };
+    }
     const entity = visibleAncestorEntity(hit.object);
     if (entity != null) {
       const p = hit.point;
@@ -241,6 +250,18 @@ function pickPoint(
     }
   }
   return null;
+}
+
+function readInstanceEntity(hit: THREE.Intersection): PickingEntityRef | null {
+  const instanceId = hit.instanceId;
+  if (instanceId == null) return null;
+  const data = hit.object.userData as Record<PropertyKey, unknown> | undefined;
+  const resolver = data?.[GALEON_INSTANCE_ENTITIES_KEY] as
+    | InstancedEntityResolver
+    | undefined;
+  const entity = resolver?.entityAt(instanceId);
+  if (entity == null) return null;
+  return entity;
 }
 
 /**
