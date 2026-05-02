@@ -251,22 +251,34 @@ function pickRect(
   const frustum = frustumFromRect(ndcStart, ndcEnd, camera);
   const aabb = new THREE.Box3();
   const out: PickingEntityRef[] = [];
-  scene.traverse((object) => {
+  // Manual walker — `scene.traverse` always recurses, but a hidden subtree must
+  // be skipped wholesale to keep marquee semantics consistent with click picking.
+  function visit(object: THREE.Object3D): void {
+    if (!object.visible) return;
     const entity = readEntity(object);
-    if (entity == null) return;
-    if (filter && !filter(object, entity)) return;
-    if (worldAabb(object, aabb) === null) return;
-    if (frustum.intersectsBox(aabb)) {
-      out.push(entity);
+    if (entity != null && (filter == null || filter(object, entity))) {
+      if (worldAabb(object, aabb) !== null && frustum.intersectsBox(aabb)) {
+        out.push(entity);
+      }
     }
-  });
+    for (const child of object.children) visit(child);
+  }
+  for (const child of scene.children) visit(child);
   return out;
 }
 
 /**
- * Compute a world-space AABB for an object. Falls back to a tight AABB around
- * the object's world-space origin if it has no geometry (lights, groups), so
- * lights inside the rect still pick.
+ * Compute a world-space AABB for an object.
+ *
+ * For a `Mesh` / `LineSegments`, transforms its geometry box to world space.
+ * For a `Group` (or any non-geometry object stamped as a managed entity),
+ * unions every visible descendant geometry into a world-space AABB so that
+ * grouped entities with offset child meshes marquee-select by their bounds,
+ * not by the group origin alone.
+ *
+ * Falls back to a zero-size box at the object's world origin when no
+ * descendant geometry exists (lights, empty groups), so they still pick when
+ * the rect covers their position.
  */
 function worldAabb(object: THREE.Object3D, out: THREE.Box3): THREE.Box3 | null {
   if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments) {
@@ -279,7 +291,27 @@ function worldAabb(object: THREE.Object3D, out: THREE.Box3): THREE.Box3 | null {
     out.copy(geom.boundingBox).applyMatrix4(object.matrixWorld);
     return out;
   }
-  // Non-mesh managed objects (lights, groups): use a zero-size box at world origin.
+
+  out.makeEmpty();
+  const tmp = new THREE.Box3();
+  let hasGeometry = false;
+  object.traverse((descendant) => {
+    if (descendant === object) return;
+    if (!descendant.visible) return;
+    if (descendant instanceof THREE.Mesh || descendant instanceof THREE.LineSegments) {
+      const geom = descendant.geometry;
+      if (geom == null) return;
+      if (geom.boundingBox === null) {
+        geom.computeBoundingBox();
+      }
+      if (geom.boundingBox === null) return;
+      tmp.copy(geom.boundingBox).applyMatrix4(descendant.matrixWorld);
+      out.union(tmp);
+      hasGeometry = true;
+    }
+  });
+  if (hasGeometry) return out;
+
   const pos = new THREE.Vector3();
   object.getWorldPosition(pos);
   out.set(pos, pos);

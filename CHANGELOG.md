@@ -36,6 +36,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Galeon crate dependencies on the current major.minor line, such as
   `galeon-engine = "0.4"`, so generated projects can pick up patch releases
   without waiting for a new CLI patch release.
+- **Marquee selection respects hierarchy and visibility (#214)** —
+  `@galeon/picking` `pick-rect` now (a) computes a stamped `THREE.Group`'s
+  AABB from the union of its visible descendant geometry instead of a
+  zero-size box at the group origin, so grouped entities with offset child
+  meshes marquee-select correctly, and (b) skips invisible objects and
+  descendants of invisible parents, matching the click path's behaviour.
 
 ## [0.4.0]
 

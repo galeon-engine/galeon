@@ -38,6 +38,15 @@ A new framework-neutral package owns the input + raycasting logic.
   All managed entities whose world-space AABB intersects a six-plane sub-frustum
   derived from the rect are reported.
 
+Both paths force `scene.updateMatrixWorld(true)` first so input handled before
+the next render frame still sees current world transforms, and both skip
+hidden entities — the click path filters intersections via the visible
+ancestor chain, and the marquee path walks the scene tree manually so an
+invisible parent prunes its entire subtree. A stamped `THREE.Group`'s AABB is
+computed by unioning the world-space boxes of its visible descendant geometry,
+so grouped entities with offset child meshes marquee-select by their actual
+bounds rather than by the group origin alone.
+
 The marquee frustum is the canonical `SelectionBox.js` algorithm from three.js
 examples (unproject the four NDC corners through the camera at near/far,
 build planes via `Plane.setFromCoplanarPoints`), with one safety addition: each

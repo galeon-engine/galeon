@@ -155,6 +155,91 @@ describe("attachPicking drag-rectangle marquee", () => {
     expect(ids).toEqual([1]);
   });
 
+  test("selects a stamped Group by its child-mesh bounds, not its origin", () => {
+    const scene = new THREE.Scene();
+    // Group origin sits at the canvas centre but is NDC (0,0); the child mesh
+    // sits in the upper-right of the canvas. Marquee covering only the
+    // upper-right must still select the grouped entity.
+    const group = new THREE.Group();
+    group.position.set(0, 0, 0);
+    (group.userData as Record<PropertyKey, unknown>)[GALEON_ENTITY_KEY] = {
+      entityId: 99,
+      generation: 1,
+    };
+    const child = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+    child.position.set(1, 1, 0);
+    group.add(child);
+    scene.add(group);
+
+    const canvas = new FakeCanvas();
+    const events: PickingEvent[] = [];
+    attachPicking(canvas, scene, makeOrthoCamera(), {
+      onPick: (e) => events.push(e),
+      dragThreshold: 4,
+    });
+
+    // Upper-right rect — covers child mesh, not the group origin.
+    canvas.fire("mousedown", { clientX: 500, clientY: 100 });
+    canvas.fire("mousemove", { clientX: 700, clientY: 200 });
+    canvas.fire("mouseup", { clientX: 700, clientY: 200 });
+
+    expect(events).toHaveLength(1);
+    const event = events[0]!;
+    if (event.kind !== "pick-rect") throw new Error("unreachable");
+    const ids = event.entities.map((e) => e.entityId).sort();
+    expect(ids).toEqual([99]);
+  });
+
+  test("excludes invisible entities from marquee results", () => {
+    const scene = new THREE.Scene();
+    const visible = makeMeshAt(1, 1, 1, 0);
+    const hidden = makeMeshAt(2, 0.5, 0.5, 0);
+    hidden.visible = false;
+    scene.add(visible, hidden);
+
+    const canvas = new FakeCanvas();
+    const events: PickingEvent[] = [];
+    attachPicking(canvas, scene, makeOrthoCamera(), {
+      onPick: (e) => events.push(e),
+      dragThreshold: 2,
+    });
+
+    canvas.fire("mousedown", { clientX: 0, clientY: 0 });
+    canvas.fire("mousemove", { clientX: 800, clientY: 600 });
+    canvas.fire("mouseup", { clientX: 800, clientY: 600 });
+
+    expect(events).toHaveLength(1);
+    const event = events[0]!;
+    if (event.kind !== "pick-rect") throw new Error("unreachable");
+    const ids = event.entities.map((e) => e.entityId).sort();
+    expect(ids).toEqual([1]);
+  });
+
+  test("excludes entities whose ancestor is invisible", () => {
+    const scene = new THREE.Scene();
+    const hiddenParent = new THREE.Group();
+    hiddenParent.visible = false;
+    const childEntity = makeMeshAt(7, 0, 0, 0);
+    hiddenParent.add(childEntity);
+    scene.add(hiddenParent);
+
+    const canvas = new FakeCanvas();
+    const events: PickingEvent[] = [];
+    attachPicking(canvas, scene, makeOrthoCamera(), {
+      onPick: (e) => events.push(e),
+      dragThreshold: 2,
+    });
+
+    canvas.fire("mousedown", { clientX: 0, clientY: 0 });
+    canvas.fire("mousemove", { clientX: 800, clientY: 600 });
+    canvas.fire("mouseup", { clientX: 800, clientY: 600 });
+
+    expect(events).toHaveLength(1);
+    const event = events[0]!;
+    if (event.kind !== "pick-rect") throw new Error("unreachable");
+    expect(event.entities).toEqual([]);
+  });
+
   test("mouseleave defuses an in-progress drag without emitting", () => {
     const scene = new THREE.Scene();
     const canvas = new FakeCanvas();
