@@ -58,6 +58,24 @@ the `THREE.Raycaster` intersection's `instanceId` before falling back to the
 normal ancestor-stamp path. Marquee selection still uses object AABBs; large
 per-instance marquee acceleration remains a follow-up under #224.
 
+## TypeScript: `attachMarqueeOverlay`
+
+```ts
+import { attachMarqueeOverlay } from "@galeon/picking";
+
+const disposeOverlay = attachMarqueeOverlay(canvas);
+
+// On unmount:
+disposeOverlay();
+```
+
+`attachMarqueeOverlay` is a visual-only HUD primitive. It appends a transient
+fixed-position `<div>` to the canvas document while the left mouse button is
+held, updates the rectangle as the cursor moves, and removes it on mouse-up,
+mouseleave, or disposal. It does not emit picking events or modify
+`Selection`; pair it with `attachPicking` when a project wants both selection
+behavior and the standard drag rectangle.
+
 ## Rust: `Selection` resource
 
 ```rust
@@ -95,7 +113,7 @@ reports the modifiers; the `Selection` resource decides what they mean.
 
 ## Out Of Scope
 
-- **Selection HUD rendering** — the application draws highlight rings,
+- **Selection ring rendering** — the application still draws highlight rings,
   health bars, formation indicators.
 - **Touch / gamepad input** — desktop mouse only.
 - **Multi-rect / lasso selection** — single rectangle only.

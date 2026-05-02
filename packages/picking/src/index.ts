@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
 export {
+  attachMarqueeOverlay,
+  type MarqueeOverlayOptions,
+  type MarqueeOverlayTarget,
+} from "./marquee-overlay.js";
+
+export {
   attachPicking,
   type PickingEntityRef,
   type PickingEvent,

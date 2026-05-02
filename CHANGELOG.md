@@ -9,6 +9,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Marquee overlay HUD primitive (#226 / T1)** — `@galeon/picking` now exports
+  `attachMarqueeOverlay(canvas)`, a framework-neutral visual helper that renders
+  a transient CSS drag rectangle during left-button marquee gestures and cleans
+  it up on mouse-up, mouseleave, or disposal. The primitive is visual-only and
+  pairs with `attachPicking` without changing Rust-side `Selection` semantics.
+
 - **Heightmap terrain engine primitive (#213)** — New
   `galeon-engine-terrain` crate provides a Rust-owned `Terrain` resource with
   bilinear `height_at(x, z)` sampling, central-difference `normal_at(x, z)`
