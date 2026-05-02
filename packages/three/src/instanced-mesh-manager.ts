@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 
+import { InstancedMesh2, type BVHParams } from "@three.ez/instanced-mesh";
 import * as THREE from "three";
 import { TRANSFORM_STRIDE } from "@galeon/render-core";
 
-/** Symbol key for resolving `THREE.InstancedMesh` hit `instanceId`s to Galeon entities. */
+/** Symbol key for resolving instanced hit `instanceId`s to Galeon entities. */
 export const GALEON_INSTANCE_ENTITIES_KEY: unique symbol = Symbol.for(
   "galeon.instanceEntities",
 );
@@ -17,9 +18,21 @@ export interface InstancedEntityResolver {
   entityAt(instanceId: number): InstancedEntityRef | undefined;
 }
 
+export type GaleonInstancedMesh = InstancedMesh2<unknown, THREE.BufferGeometry, THREE.Material>;
+
 export interface InstancedEntityPlacement {
-  readonly mesh: THREE.InstancedMesh;
+  readonly mesh: GaleonInstancedMesh;
   readonly instanceId: number;
+}
+
+export interface InstancedMeshManagerOptions {
+  /**
+   * Optional renderer passed to `InstancedMesh2` so GPU buffers can initialize
+   * before the first render. Headless tests and tools may omit it.
+   */
+  readonly renderer?: THREE.WebGLRenderer;
+  /** BVH construction options for Galeon's instanced batches. */
+  readonly bvh?: BVHParams;
 }
 
 /** Stable key that identifies one instanced batch. */
@@ -27,33 +40,13 @@ export type InstanceBatchKey = number | bigint;
 
 /** Initial slot capacity allocated when a new instance batch is created. */
 const INITIAL_CAPACITY = 16;
-/** Minimum capacity floor — keeps tiny batches from thrashing the grow path. */
-const MIN_CAPACITY = 4;
 
-/**
- * Per-group `THREE.InstancedMesh` lifecycle:
- *
- * - **Lazy creation** — a batch is allocated the first time an entity with that
- *   group key arrives.
- * - **Grow-by-2× capacity** — when a batch fills up, a new `InstancedMesh` of
- *   double size replaces the old one in the scene. Old matrices are copied over.
- * - **Swap-with-last on remove** — the freed slot is filled by the entity at
- *   `count-1`, keeping the active range contiguous and `mesh.count` rendering
- *   exactly the live instances.
- *
- * The manager does *not* read render-packet contracts directly — callers
- * pre-resolve `geometry` / `material` from the registries and pass them in.
- * This keeps registry logic in `RendererCache` and avoids duplicating fallback
- * rules (placeholder, missing-handle warnings, override-survival semantics).
- */
 interface Batch {
   readonly groupKey: InstanceBatchKey;
-  mesh: THREE.InstancedMesh;
-  capacity: number;
-  count: number;
-  /** `slot → entityId` (`-1` for empty slots, but only `[0, count)` is meaningful). */
+  mesh: GaleonInstancedMesh;
+  /** `slot -> entityId` (`-1` for empty / removed slots). */
   slotToEntity: Int32Array;
-  /** `slot → entity generation`, parallel to `slotToEntity`. */
+  /** `slot -> entity generation`, parallel to `slotToEntity`. */
   slotToGeneration: Uint32Array;
   /** Last registry-resolved geometry and material for this batch. */
   geometry: THREE.BufferGeometry;
@@ -64,20 +57,24 @@ const _scratchPos = new THREE.Vector3();
 const _scratchQuat = new THREE.Quaternion();
 const _scratchScale = new THREE.Vector3();
 const _scratchMatrix = new THREE.Matrix4();
-const _scratchHidden = new THREE.Vector3(0, 0, 0);
 const _scratchColor = new THREE.Color();
+const _white = new THREE.Color(1, 1, 1);
 
 export class InstancedMeshManager {
   private readonly scene: THREE.Scene;
+  private readonly renderer: THREE.WebGLRenderer | undefined;
+  private readonly bvhOptions: BVHParams;
   private readonly batches = new Map<InstanceBatchKey, Batch>();
-  /** `entityId → (groupKey, slot)` — single source of truth for placement. */
+  /** `entityId -> (groupKey, slot)`; single source of truth for placement. */
   private readonly entityToPlacement = new Map<
     number,
     { groupKey: InstanceBatchKey; slot: number }
   >();
 
-  constructor(scene: THREE.Scene) {
+  constructor(scene: THREE.Scene, options: InstancedMeshManagerOptions = {}) {
     this.scene = scene;
+    this.renderer = options.renderer;
+    this.bvhOptions = options.bvh ?? { margin: 0 };
   }
 
   // ---------------------------------------------------------------------------
@@ -85,14 +82,11 @@ export class InstancedMeshManager {
   // ---------------------------------------------------------------------------
 
   /**
-   * Insert or update an entity inside its instance batch.
+   * Insert or update an entity inside its BVH-backed instance batch.
    *
-   * Migrations (entity already placed in a different batch) are handled by
-   * removing from the old batch first; the matrix is then written into a
-   * fresh slot in the new batch.
-   *
-   * Returns the `(groupKey, slot)` placement so the caller can stamp identity
-   * back on the entity if needed.
+   * Migrations (entity already placed in a different batch) remove from the old
+   * batch first. Slots are stable while an entity remains in its batch; removed
+   * slots are returned to `InstancedMesh2`'s free list and may be reused later.
    */
   upsert(
     entityId: number,
@@ -111,37 +105,27 @@ export class InstancedMeshManager {
     }
 
     const batch = this.getOrCreateBatch(groupKey, geometry, material);
-
-    let slot: number;
-    const placement = this.entityToPlacement.get(entityId);
-    if (placement !== undefined) {
-      slot = placement.slot;
-    } else {
-      if (batch.count === batch.capacity) {
-        this.growBatch(batch);
-      }
-      slot = batch.count;
+    let placement = this.entityToPlacement.get(entityId);
+    if (placement === undefined) {
+      const slot = this.allocateSlot(batch);
       batch.slotToEntity[slot] = entityId;
       batch.slotToGeneration[slot] = generation;
-      batch.count += 1;
-      batch.mesh.count = batch.count;
-      this.entityToPlacement.set(entityId, { groupKey, slot });
+      placement = { groupKey, slot };
+      this.entityToPlacement.set(entityId, placement);
+    } else {
+      batch.slotToGeneration[placement.slot] = generation;
     }
-    batch.slotToGeneration[slot] = generation;
 
-    this.writeSlotMatrix(batch, slot, transforms, transformIndex, visible);
+    this.writeSlotMatrix(batch, placement.slot, transforms, transformIndex, visible);
     if (tints !== undefined) {
-      this.writeSlotTint(batch, slot, tints, transformIndex);
+      this.writeSlotTint(batch, placement.slot, tints, transformIndex);
     }
-    return { groupKey, slot };
+    return { groupKey, slot: placement.slot };
   }
 
   /**
-   * Remove an entity from its instance batch, if any. Returns whether
-   * the entity was actually placed.
-   *
-   * Uses swap-with-last to keep `[0, count)` contiguous without re-uploading
-   * unrelated slots.
+   * Remove an entity from its instance batch, if any. Returns whether the
+   * entity was actually placed.
    */
   remove(entityId: number): boolean {
     const placement = this.entityToPlacement.get(entityId);
@@ -153,35 +137,9 @@ export class InstancedMeshManager {
     }
 
     const { slot } = placement;
-    const lastSlot = batch.count - 1;
-
-    if (slot !== lastSlot) {
-      // Copy last entity's matrix and color into the freed slot, then
-      // update mappings.
-      batch.mesh.getMatrixAt(lastSlot, _scratchMatrix);
-      batch.mesh.setMatrixAt(slot, _scratchMatrix);
-      batch.mesh.getColorAt(lastSlot, _scratchColor);
-      batch.mesh.setColorAt(slot, _scratchColor);
-      const movedEntity = batch.slotToEntity[lastSlot]!;
-      const movedGeneration = batch.slotToGeneration[lastSlot]!;
-      batch.slotToEntity[slot] = movedEntity;
-      batch.slotToGeneration[slot] = movedGeneration;
-      this.entityToPlacement.set(movedEntity, {
-        groupKey: batch.groupKey,
-        slot,
-      });
-      batch.mesh.instanceMatrix.addUpdateRange(slot * 16, 16);
-      if (batch.mesh.instanceColor) {
-        batch.mesh.instanceColor.addUpdateRange(slot * 3, 3);
-      }
-    }
-
-    batch.slotToEntity[lastSlot] = -1;
-    batch.slotToGeneration[lastSlot] = 0;
-    batch.count = lastSlot;
-    batch.mesh.count = batch.count;
-    batch.mesh.instanceMatrix.needsUpdate = true;
-    if (batch.mesh.instanceColor) batch.mesh.instanceColor.needsUpdate = true;
+    batch.mesh.removeInstances(slot);
+    batch.slotToEntity[slot] = -1;
+    batch.slotToGeneration[slot] = 0;
     this.entityToPlacement.delete(entityId);
     return true;
   }
@@ -190,28 +148,28 @@ export class InstancedMeshManager {
   // Queries
   // ---------------------------------------------------------------------------
 
-  /** The `THREE.InstancedMesh` backing a group key, if one has been created. */
-  meshFor(groupKey: InstanceBatchKey): THREE.InstancedMesh | undefined {
+  /** The instanced mesh backing a group key, if one has been created. */
+  meshFor(groupKey: InstanceBatchKey): GaleonInstancedMesh | undefined {
     return this.batchForQuery(groupKey)?.mesh;
   }
 
-  /** Number of live instance slots in a group's batch (== `mesh.count`). */
+  /** Number of live instance slots in a group's batch. */
   slotsFor(groupKey: InstanceBatchKey): number {
     return this.batchesForQuery(groupKey).reduce(
-      (count, batch) => count + batch.count,
+      (count, batch) => count + batch.mesh.instancesCount,
       0,
     );
   }
 
-  /** Allocated capacity of a group's batch — distinct from the live `slotsFor` count. */
+  /** Allocated capacity of a group's batch; distinct from live slot count. */
   capacityFor(groupKey: InstanceBatchKey): number {
     return this.batchesForQuery(groupKey).reduce(
-      (capacity, batch) => capacity + batch.capacity,
+      (capacity, batch) => capacity + batch.mesh.capacity,
       0,
     );
   }
 
-  /** Number of distinct mesh-handle batches currently allocated. */
+  /** Number of distinct mesh/material batches currently allocated. */
   get batchCount(): number {
     return this.batches.size;
   }
@@ -231,18 +189,14 @@ export class InstancedMeshManager {
     const batch = this.batches.get(placement.groupKey);
     if (batch === undefined) return undefined;
     if (batch.slotToGeneration[placement.slot] !== generation) return undefined;
+    if (!batch.mesh.getActiveAt(placement.slot)) return undefined;
     return {
       mesh: batch.mesh,
       instanceId: placement.slot,
     };
   }
 
-  /**
-   * Iterate over every entity currently held in any batch.
-   *
-   * Callers iterating to remove entities must collect first and mutate after
-   * — this returns the live map's keys.
-   */
+  /** Iterate over every entity currently held in any batch. */
   entityIds(): IterableIterator<number> {
     return this.entityToPlacement.keys();
   }
@@ -261,7 +215,7 @@ export class InstancedMeshManager {
     this.entityToPlacement.clear();
   }
 
-  /** Alias for `clear()` — present so callers can mirror `RendererCache.dispose()`. */
+  /** Alias for `clear()` so callers can mirror `RendererCache.dispose()`. */
   dispose(): void {
     this.clear();
   }
@@ -280,6 +234,8 @@ export class InstancedMeshManager {
       if (batch.geometry !== geometry) {
         batch.mesh.geometry = geometry;
         batch.geometry = geometry;
+        batch.mesh.disposeBVH();
+        batch.mesh.computeBVH(this.bvhOptions);
       }
       if (batch.material !== material) {
         batch.mesh.material = material;
@@ -288,36 +244,38 @@ export class InstancedMeshManager {
       return batch;
     }
 
-    const capacity = INITIAL_CAPACITY;
-    const mesh = new THREE.InstancedMesh(geometry, material, capacity);
-    mesh.count = 0;
-    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    // Allocate `instanceColor` synchronously at creation, defaulting every
-    // slot to white. First-time `instanceColor` writes trigger a shader
-    // recompile in three.js (#21786), so doing it once at allocation —
-    // rather than lazily on the first tinted entity — keeps the runtime
-    // path stutter-free for tinted scenes. Untinted scenes pay only the
-    // memory cost (12 bytes / capacity-slot), no shader cost.
-    allocateInstanceColor(mesh, capacity);
-    // Frustum culling is all-or-nothing per InstancedMesh in three.js (#27170).
-    // Disable it so off-screen instances aren't suppressed at the mesh level.
-    // A future per-instance culling backend (BVH) is out of scope for v1.
+    const mesh = new InstancedMesh2(geometry, material, {
+      capacity: INITIAL_CAPACITY,
+      renderer: this.renderer,
+    }) as GaleonInstancedMesh;
     mesh.frustumCulled = false;
+    mesh.computeBVH(this.bvhOptions);
     this.scene.add(mesh);
 
     batch = {
       groupKey,
       mesh,
-      capacity,
-      count: 0,
-      slotToEntity: createSlotArray(capacity),
-      slotToGeneration: new Uint32Array(capacity),
+      slotToEntity: createSlotArray(mesh.capacity),
+      slotToGeneration: new Uint32Array(mesh.capacity),
       geometry,
       material,
     };
     attachResolver(mesh, batch);
     this.batches.set(groupKey, batch);
     return batch;
+  }
+
+  private allocateSlot(batch: Batch): number {
+    let slot = -1;
+    batch.mesh.addInstances(1, (_, index) => {
+      slot = index;
+    });
+    if (slot < 0) {
+      throw new Error("InstancedMesh2 failed to allocate an instance slot");
+    }
+    ensureSlotCapacity(batch, batch.mesh.capacity);
+    batch.mesh.setColorAt(slot, _white);
+    return slot;
   }
 
   private batchForQuery(groupKey: InstanceBatchKey): Batch | undefined {
@@ -344,45 +302,6 @@ export class InstancedMeshManager {
     return matches;
   }
 
-  private growBatch(batch: Batch): void {
-    const newCapacity = Math.max(batch.capacity * 2, MIN_CAPACITY);
-    const newMesh = new THREE.InstancedMesh(
-      batch.geometry,
-      batch.material,
-      newCapacity,
-    );
-    newMesh.count = batch.count;
-    newMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    allocateInstanceColor(newMesh, newCapacity);
-    newMesh.frustumCulled = false;
-
-    // Copy live matrices and colors from old to new.
-    for (let s = 0; s < batch.count; s++) {
-      batch.mesh.getMatrixAt(s, _scratchMatrix);
-      newMesh.setMatrixAt(s, _scratchMatrix);
-      batch.mesh.getColorAt(s, _scratchColor);
-      newMesh.setColorAt(s, _scratchColor);
-    }
-    newMesh.instanceMatrix.needsUpdate = true;
-    if (newMesh.instanceColor) newMesh.instanceColor.needsUpdate = true;
-
-    // Swap into the scene and dispose the old buffer.
-    batch.mesh.parent?.remove(batch.mesh);
-    batch.mesh.dispose();
-    this.scene.add(newMesh);
-
-    const newSlots = createSlotArray(newCapacity);
-    newSlots.set(batch.slotToEntity.subarray(0, batch.count));
-    const newGenerations = new Uint32Array(newCapacity);
-    newGenerations.set(batch.slotToGeneration.subarray(0, batch.count));
-
-    batch.mesh = newMesh;
-    batch.capacity = newCapacity;
-    batch.slotToEntity = newSlots;
-    batch.slotToGeneration = newGenerations;
-    attachResolver(newMesh, batch);
-  }
-
   private writeSlotTint(
     batch: Batch,
     slot: number,
@@ -392,10 +311,6 @@ export class InstancedMeshManager {
     const off = transformIndex * 3;
     _scratchColor.setRGB(tints[off]!, tints[off + 1]!, tints[off + 2]!);
     batch.mesh.setColorAt(slot, _scratchColor);
-    if (batch.mesh.instanceColor) {
-      batch.mesh.instanceColor.addUpdateRange(slot * 3, 3);
-      batch.mesh.instanceColor.needsUpdate = true;
-    }
   }
 
   private writeSlotMatrix(
@@ -417,23 +332,14 @@ export class InstancedMeshManager {
       transforms[off + 5]!,
       transforms[off + 6]!,
     );
-    if (visible) {
-      _scratchScale.set(
-        transforms[off + 7]!,
-        transforms[off + 8]!,
-        transforms[off + 9]!,
-      );
-    } else {
-      // Hidden instances render with zero scale — keeps their slot stable for
-      // a cheap re-show without disturbing surrounding entities. A future
-      // visibility-aware swap (agargaro-style) can replace this if measured
-      // perf calls for it.
-      _scratchScale.copy(_scratchHidden);
-    }
+    _scratchScale.set(
+      transforms[off + 7]!,
+      transforms[off + 8]!,
+      transforms[off + 9]!,
+    );
     _scratchMatrix.compose(_scratchPos, _scratchQuat, _scratchScale);
     batch.mesh.setMatrixAt(slot, _scratchMatrix);
-    batch.mesh.instanceMatrix.addUpdateRange(slot * 16, 16);
-    batch.mesh.instanceMatrix.needsUpdate = true;
+    batch.mesh.setVisibilityAt(slot, visible);
   }
 }
 
@@ -443,26 +349,22 @@ function createSlotArray(capacity: number): Int32Array {
   return a;
 }
 
-/**
- * Allocate the per-instance color attribute synchronously and prefill all
- * slots to white. Three.js triggers a shader recompile on the first non-null
- * `instanceColor` write (#21786) — doing this once at mesh creation moves
- * the cost out of the hot path.
- */
-function allocateInstanceColor(mesh: THREE.InstancedMesh, capacity: number): void {
-  const data = new Float32Array(capacity * 3);
-  data.fill(1);
-  const attr = new THREE.InstancedBufferAttribute(data, 3);
-  attr.setUsage(THREE.DynamicDrawUsage);
-  mesh.instanceColor = attr;
+function ensureSlotCapacity(batch: Batch, capacity: number): void {
+  if (batch.slotToEntity.length >= capacity) return;
+  const nextEntities = createSlotArray(capacity);
+  nextEntities.set(batch.slotToEntity);
+  const nextGenerations = new Uint32Array(capacity);
+  nextGenerations.set(batch.slotToGeneration);
+  batch.slotToEntity = nextEntities;
+  batch.slotToGeneration = nextGenerations;
 }
 
-function attachResolver(mesh: THREE.InstancedMesh, batch: Batch): void {
+function attachResolver(mesh: GaleonInstancedMesh, batch: Batch): void {
   const resolver: InstancedEntityResolver = {
     entityAt(instanceId: number): InstancedEntityRef | undefined {
-      if (!Number.isInteger(instanceId) || instanceId < 0 || instanceId >= batch.count) {
-        return undefined;
-      }
+      if (!Number.isInteger(instanceId) || instanceId < 0) return undefined;
+      if (instanceId >= batch.slotToEntity.length) return undefined;
+      if (!batch.mesh.getActiveAt(instanceId)) return undefined;
       const entityId = batch.slotToEntity[instanceId]!;
       if (entityId < 0) return undefined;
       return {

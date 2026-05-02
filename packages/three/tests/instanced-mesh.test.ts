@@ -14,6 +14,7 @@ import {
 } from "../../render-core/src/index.js";
 import { createBillboardFbmMaterial } from "../src/materials/billboard-fbm.js";
 import { RendererCache } from "../src/renderer-cache.js";
+import type { GaleonInstancedMesh } from "../src/instanced-mesh-manager.js";
 
 interface PacketOverrides extends Partial<FramePacketView> {
   entity_count: number;
@@ -56,6 +57,10 @@ function fillIdentityTransforms(packet: FramePacketView): void {
   }
 }
 
+function isGaleonInstancedMesh(obj: THREE.Object3D): obj is GaleonInstancedMesh {
+  return (obj as { readonly isInstancedMesh2?: unknown }).isInstancedMesh2 === true;
+}
+
 describe("RendererCache instanced-mesh path (#215 T2)", () => {
   test("1000 tagged entities produce 1 InstancedMesh with count >= 1000", () => {
     const scene = new THREE.Scene();
@@ -78,7 +83,8 @@ describe("RendererCache instanced-mesh path (#215 T2)", () => {
 
     const mesh = cache.instancing.meshFor(7);
     expect(mesh).toBeDefined();
-    expect(mesh!.count).toBeGreaterThanOrEqual(N);
+    expect(mesh!.instancesCount).toBe(N);
+    expect(mesh!.bvh).toBeDefined();
     expect(cache.instancing.batchCount).toBe(1);
     // Standalone path is untouched for tagged entities.
     expect(cache.objectCount).toBe(0);
@@ -151,7 +157,7 @@ describe("RendererCache instanced-mesh path (#215 T2)", () => {
     cache.applyFrame(next);
 
     expect(cache.instancing.slotsFor(5)).toBe(2);
-    expect(cache.instancing.meshFor(5)!.count).toBe(2);
+    expect(cache.instancing.meshFor(5)!.instancesCount).toBe(2);
   });
 
   test("CHANGED_INSTANCE_GROUP migrates entity from instanced to standalone", () => {
@@ -498,7 +504,7 @@ describe("RendererCache instanced-mesh path (#215 T2)", () => {
     expect(mesh.material).not.toBe(placeholderMaterial);
   });
 
-  test("hidden instance writes zero scale", () => {
+  test("hidden instance writes instance visibility", () => {
     const scene = new THREE.Scene();
     const cache = new RendererCache(scene);
     cache.registerGeometry(1, new THREE.BoxGeometry(1, 1, 1));
@@ -514,13 +520,7 @@ describe("RendererCache instanced-mesh path (#215 T2)", () => {
     cache.applyFrame(packet);
 
     const mesh = cache.instancing.meshFor(1)!;
-    const m = new THREE.Matrix4();
-    mesh.getMatrixAt(0, m);
-    const scale = new THREE.Vector3();
-    scale.setFromMatrixScale(m);
-    expect(scale.x).toBeCloseTo(0);
-    expect(scale.y).toBeCloseTo(0);
-    expect(scale.z).toBeCloseTo(0);
+    expect(mesh.getVisibilityAt(0)).toBe(false);
   });
 
   test("dispose() detaches batches from the scene", () => {
@@ -717,7 +717,8 @@ describe("RendererCache instanced tint channel (#215 T3)", () => {
     const color = new THREE.Color();
     // Both surviving entities have their tints intact regardless of slot.
     const observed: Array<[number, number, number]> = [];
-    for (let s = 0; s < mesh.count; s++) {
+    for (let s = 0; s < mesh.capacity; s++) {
+      if (!mesh.getActiveAt(s)) continue;
       mesh.getColorAt(s, color);
       observed.push([color.r, color.g, color.b]);
     }
@@ -748,11 +749,9 @@ describe("RendererCache billboard instancing follow-up (#217 T2)", () => {
 
     cache.applyFrame(packet);
 
-    const meshes = scene.children.filter(
-      (obj): obj is THREE.InstancedMesh => obj instanceof THREE.InstancedMesh,
-    );
+    const meshes = scene.children.filter(isGaleonInstancedMesh);
     expect(meshes).toHaveLength(1);
-    expect(meshes[0]!.count).toBeGreaterThanOrEqual(N);
+    expect(meshes[0]!.instancesCount).toBe(N);
     expect(meshes[0]!.geometry).toBe(quad);
     expect(meshes[0]!.material).toBe(billboardMaterial);
     expect(cache.instancing.batchCount).toBe(1);
@@ -781,12 +780,10 @@ describe("RendererCache billboard instancing follow-up (#217 T2)", () => {
 
     cache.applyFrame(packet);
 
-    const meshes = scene.children.filter(
-      (obj): obj is THREE.InstancedMesh => obj instanceof THREE.InstancedMesh,
-    );
+    const meshes = scene.children.filter(isGaleonInstancedMesh);
     expect(meshes).toHaveLength(2);
     expect(cache.instancing.batchCount).toBe(2);
-    expect(meshes.map((mesh) => mesh.count)).toEqual([1, 1]);
+    expect(meshes.map((mesh) => mesh.instancesCount)).toEqual([1, 1]);
     expect(meshes.map((mesh) => mesh.material)).toContain(matA);
     expect(meshes.map((mesh) => mesh.material)).toContain(matB);
   });
@@ -813,9 +810,7 @@ describe("RendererCache billboard instancing follow-up (#217 T2)", () => {
 
     cache.applyFrame(packet);
 
-    const meshes = scene.children.filter(
-      (obj): obj is THREE.InstancedMesh => obj instanceof THREE.InstancedMesh,
-    );
+    const meshes = scene.children.filter(isGaleonInstancedMesh);
     expect(meshes).toHaveLength(2);
     expect(cache.instancing.batchCount).toBe(2);
     expect(meshes.map((mesh) => mesh.material)).toContain(matA);
@@ -843,11 +838,9 @@ describe("RendererCache billboard instancing follow-up (#217 T2)", () => {
     cache.applyFrame(packet);
 
     expect(cache.instancing.batchCount).toBe(1);
-    const meshes = scene.children.filter(
-      (obj): obj is THREE.InstancedMesh => obj instanceof THREE.InstancedMesh,
-    );
+    const meshes = scene.children.filter(isGaleonInstancedMesh);
     expect(meshes).toHaveLength(1);
-    expect(meshes[0]!.count).toBe(2);
+    expect(meshes[0]!.instancesCount).toBe(2);
     expect(meshes[0]!.material).toBe(material);
   });
 });

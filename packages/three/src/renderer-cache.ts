@@ -17,6 +17,7 @@ import {
 import {
   InstancedMeshManager,
   type InstancedEntityPlacement,
+  type InstancedMeshManagerOptions,
   type InstanceBatchKey,
 } from "./instanced-mesh-manager.js";
 
@@ -45,6 +46,10 @@ export interface RendererEntityHandle {
   readonly entityId: number;
   generation: number;
   object: THREE.Object3D;
+}
+
+export interface RendererCacheOptions {
+  readonly instancing?: InstancedMeshManagerOptions;
 }
 
 export class RendererCache {
@@ -100,9 +105,9 @@ export class RendererCache {
    */
   onEntityRemoved?: (entityId: number, generation: number, obj: THREE.Object3D) => void;
 
-  constructor(scene: THREE.Scene) {
+  constructor(scene: THREE.Scene, options: RendererCacheOptions = {}) {
     this.scene = scene;
-    this.instancedMeshes = new InstancedMeshManager(scene);
+    this.instancedMeshes = new InstancedMeshManager(scene, options.instancing);
   }
 
   /**

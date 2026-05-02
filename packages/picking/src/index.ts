@@ -9,6 +9,7 @@ export {
 
 export {
   attachPicking,
+  createGaleonPickingBackend,
   createRaycasterPickingBackend,
   type PickAtRequest,
   type PickingEntityRef,

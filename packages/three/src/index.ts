@@ -3,15 +3,18 @@
 export {
   GALEON_ENTITY_KEY,
   RendererCache,
+  type RendererCacheOptions,
   type RendererEntityHandle,
 } from "./renderer-cache.js";
 
 export {
   GALEON_INSTANCE_ENTITIES_KEY,
   InstancedMeshManager,
+  type GaleonInstancedMesh,
   type InstancedEntityPlacement,
   type InstancedEntityRef,
   type InstancedEntityResolver,
+  type InstancedMeshManagerOptions,
 } from "./instanced-mesh-manager.js";
 
 export {

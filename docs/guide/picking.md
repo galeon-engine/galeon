@@ -51,20 +51,24 @@ dispose();
 resolves to the entity stamped on the group. NDC math uses
 `getBoundingClientRect()`, so the canvas does not need to be fullscreen.
 
-`attachPicking` also accepts a `pickingBackend` option. Omitting it, passing
-`"raycaster"`, or switching a backend provider back to `"raycaster"` uses the
-same default `THREE.Raycaster` click path and world-AABB marquee path described
-here. Custom backends receive `pickAt({ scene, camera, ndc })` and
+`attachPicking` also accepts a `pickingBackend` option. Omitting it or passing
+`"galeon"` uses Galeon's default backend: standalone objects still use
+`THREE.Raycaster`, while `@galeon/three` instanced batches use their
+`InstancedMesh2` BVH for click and marquee queries. Pass `"raycaster"` only when
+debugging the raw Three.js path. Custom backends receive
+`pickAt({ scene, camera, ndc })` and
 `pickRect({ scene, camera, ndcStart, ndcEnd, filter })` requests and must return
 the same `{ entityId, generation }` refs, so accelerated implementations can
 swap in without changing Rust-side `Selection` semantics.
 
 Instanced render batches also resolve to Galeon entity handles for click
-picking. `@galeon/three` stamps each `THREE.InstancedMesh` with an
-`instanceId -> { entityId, generation }` resolver, and `@galeon/picking` uses
-the `THREE.Raycaster` intersection's `instanceId` before falling back to the
-normal ancestor-stamp path. Marquee selection still uses object AABBs; large
-per-instance marquee acceleration remains a follow-up under #224.
+picking and drag rectangles. `@galeon/three` owns `InstancedMesh2` batches from
+`@three.ez/instanced-mesh`, computes a per-instance BVH, and stamps each batch
+with an `instanceId -> { entityId, generation }` resolver. `@galeon/picking`
+queries that BVH directly for instanced clicks and sub-frustum marquee
+selection, then uses the resolver to emit the same entity refs as standalone
+objects. This avoids the legacy `THREE.InstancedMesh.raycast` first-hit
+limitation instead of adding a GPU-readback fallback.
 
 ## TypeScript: `attachMarqueeRenderer`
 
@@ -165,6 +169,27 @@ geometry, and per-instance marquee selection as the threshold for a BVH or GPU
 backend. These numbers are a baseline for comparing backend work under #224,
 not a browser performance guarantee.
 
+Run the instanced BVH comparison with:
+
+```bash
+bun run --cwd packages/picking bench:instanced-bvh
+```
+
+That harness compares Galeon's BVH backend against a deliberately linear
+per-instance backend on the same 10,000-cube `InstancedMesh2` scene. Baseline
+captured on May 2, 2026 with Bun 1.3.8 on Windows x64:
+
+| Backend | Operation | Median ms | P95 ms | Result size |
+| --- | --- | ---: | ---: | ---: |
+| linear | click | 1.186 | 1.960 | 1 |
+| linear | marquee | 0.976 | 1.230 | 484 |
+| bvh | click | 0.010 | 0.019 | 1 |
+| bvh | marquee | 0.021 | 0.034 | 484 |
+
+The BVH path is roughly 120x faster for the measured instanced click and 45x
+faster for the measured instanced marquee. The result sizes match, so the
+acceleration preserves selection semantics for the benchmarked scene.
+
 ## Rust: `Selection` resource
 
 ```rust
@@ -207,11 +232,10 @@ reports the modifiers; the `Selection` resource decides what they mean.
   rings.
 - **Touch / gamepad input** — desktop mouse only.
 - **Multi-rect / lasso selection** — single rectangle only.
-- **GPU-accelerated picking** — when scenes scale past what raycasting can
-  handle, look at `@three.ez/instanced-mesh` (per-instance BVH) or
-  `three-mesh-bvh` (static geometry). The default click path already preserves
-  instanced entity identity through `Intersection.instanceId`; faster backends
-  must preserve the same `{ entityId, generation }` result shape.
+- **Static-geometry BVH picking** — instanced render batches use
+  `@three.ez/instanced-mesh` per-instance BVH today. Static terrain and other
+  non-instanced meshes still use the raycaster path; `three-mesh-bvh` remains a
+  future option for those meshes.
 
 ## Native Verification
 

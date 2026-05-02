@@ -18,10 +18,18 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Picking backend seam (#224 / T2)** — `attachPicking` now accepts a
   `pickingBackend` option and exports the backend request/result types plus
-  `createRaycasterPickingBackend()`. The default backend preserves the existing
-  `THREE.Raycaster` click path and world-AABB marquee behavior, while provider
-  functions can switch compatible backends at pick time without reattaching
-  DOM listeners.
+  `createRaycasterPickingBackend()`. Provider functions can switch compatible
+  backends at pick time without reattaching DOM listeners.
+
+- **BVH-backed instanced picking (#224 / T3/T4)** — `@galeon/three` now uses
+  `@three.ez/instanced-mesh` for renderer-owned instanced batches and computes
+  a per-instance BVH. `@galeon/picking` defaults to `createGaleonPickingBackend`,
+  which keeps raycasting for standalone objects but queries the instanced BVH
+  for clicks and drag rectangles. Overlapping instanced clicks resolve to the
+  closer entity through BVH + exact geometry tests, so the old
+  `THREE.InstancedMesh.raycast` first-hit limitation is avoided without adding
+  a GPU-readback fallback. `bun run --cwd packages/picking bench:instanced-bvh`
+  records the 10k-cube linear-vs-BVH comparison.
 
 - **Marquee renderer HUD primitive (#226 / T1)** — `@galeon/picking` now
   exports `attachMarqueeRenderer(camera)`, a framework-neutral visual helper
