@@ -7,6 +7,7 @@
     { "path": "packages/engine-ts" },
     { "path": "packages/r3f" },
     { "path": "packages/picking" },
-    { "path": "packages/shell" }
+    { "path": "packages/shell" },
+    { "path": "examples/instanced-cubes" }
   ]
 }

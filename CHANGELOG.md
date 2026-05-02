@@ -25,6 +25,66 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `WasmEngine` (filtering despawned entries before forwarding to JS), and a
   native `cargo run --example picking_demo` walks the data flow against a
   50-cube scene.
+- **`InstanceOf(MeshHandle)` ECS component and `FramePacket.instance_groups`
+  channel (#215, T1)** — New marker component that opts an entity into a
+  shared GPU instance batch keyed by its wrapped `MeshHandle`. Render
+  extraction now produces a parallel `instance_groups: Vec<u32>` array with
+  one entry per entity: the wrapped mesh-handle id when the entity is tagged,
+  or the new `INSTANCE_GROUP_NONE` sentinel (`u32::MAX`) when it is not.
+  Incremental extraction sets the new `CHANGED_INSTANCE_GROUP` change-flag
+  bit (`1 << 6`) when `InstanceOf` is added, removed, or mutated, so
+  consumers can move entities between the standalone-`Object3D` and
+  `InstancedMesh` paths without comparing the full list each frame. Exposed
+  to the WASM bridge via `WasmFramePacket.instance_groups`. Lays the data
+  foundation for the per-`MeshHandle` `THREE.InstancedMesh` manager
+  (#215, T2).
+- **`@galeon/three` instanced-mesh manager (#215, T2)** — `RendererCache`
+  now routes entities tagged with `InstanceOf` into a shared
+  `THREE.InstancedMesh` instead of allocating a standalone `Object3D` per
+  entity. The new `InstancedMeshManager` lazily creates one `InstancedMesh`
+  per `MeshHandle`, grows allocated capacity by 2× when batches fill up,
+  and reuses freed slots via a swap-with-last scheme — keeping the
+  `[0, count)` range contiguous and `mesh.count` rendering exactly the
+  live instances. `CHANGED_INSTANCE_GROUP` drives in/out and cross-batch
+  migrations cheaply on incremental packets. Hidden instances render with
+  zero scale to keep their slot stable across visibility flips. Frustum
+  culling is disabled per-mesh to avoid the all-or-nothing per-`InstancedMesh`
+  behavior in three.js (a per-instance backend is out of scope for v1).
+  `@galeon/render-core` mirrors the Rust constants: `INSTANCE_GROUP_NONE`,
+  `CHANGED_INSTANCE_GROUP`, and an optional `instance_groups: Uint32Array`
+  field on `FramePacketView`, all validated by `assertFramePacketContract`.
+- **`examples/instanced-cubes` benchmark + instancing guide (#215, T4)** —
+  New runnable example under `examples/instanced-cubes` drives 5000 cubes
+  through a sine field, with `?mode=instanced` (default) vs.
+  `?mode=standalone` URL toggle to compare the GPU-instanced render path
+  against the per-entity `Object3D` path on identical workloads. Every
+  entity is marked `CHANGED_TRANSFORM` each frame so the renderer never
+  short-circuits on unchanged data — the FPS readout reflects worst-case
+  (full-update) cost. The new `docs/guide/instancing.md` documents when to
+  use `InstanceOf`, the render-snapshot surface (`instance_groups`, `tints`,
+  `CHANGED_INSTANCE_GROUP`, `CHANGED_TINT`), and a measurement methodology
+  with a fill-in-your-own-numbers template — issue #215's verification
+  ("Manual perf comparison") is intentionally machine-specific, so the
+  guide does not pre-quote any reading. Workspace gains the
+  `examples/*` entry; root `tsconfig.json` references the new project.
+- **`Tint([f32; 3])` per-instance color channel (#215, T3)** — New ECS
+  component that writes a per-instance color to
+  `THREE.InstancedMesh.instanceColor`. Default `[1.0, 1.0, 1.0]` (white) is
+  the no-op identity; `Tint` is only meaningful for entities also carrying
+  `InstanceOf` (the standalone-`Object3D` path ignores it). Render
+  extraction now emits a parallel `tints: Vec<f32>` channel (length
+  `entity_count * 3`), populated from each entity's `Tint` or the white
+  default. Incremental extraction sets the new `CHANGED_TINT` change-flag
+  bit (`1 << 7`) when `Tint` is added, removed, or mutated. Exposed to the
+  WASM bridge via `WasmFramePacket.tints`. The TS-side
+  `InstancedMeshManager` now allocates `instanceColor` synchronously at
+  every batch creation (defaulting all slots to white) — moving the
+  three.js shader recompile cost (#21786) out of the hot path. `growBatch`
+  carries `instanceColor` through 2× growth and `remove` swaps the color
+  row alongside the matrix row in its swap-with-last scheme.
+  `@galeon/render-core` mirrors `CHANGED_TINT` and adds an optional
+  `tints: Float32Array` field on `FramePacketView`, validated by
+  `assertFramePacketContract`.
 
 ### Changed
 
