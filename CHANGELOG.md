@@ -7,6 +7,18 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Particle emitter primitive (#217 / T1)** — New `galeon_engine::particle`
+  module ships an `Emitter` component (`rate`, `lifetime`, `velocity`, `size`,
+  `color`, `max`), a `Particle` component, a `Billboard` tag, three
+  distribution shapes (`FloatDist`, `Vec3Dist`, `ColorDist`), a deterministic
+  per-emitter xorshift64 RNG (`ParticleRng`), and the
+  `emitter_spawn_expire_system` that consumes `FixedTimestep::step` to spawn /
+  expire particles each tick. Per-emitter `max` caps independently; spawn debt
+  drops to zero at the cap to prevent post-cap bursts. Rendering wiring (T2)
+  and the reference billboard shader (T3) land in follow-up commits.
+
 ### Changed
 
 - **React 19 support for `@galeon/r3f` (#211)** — Verified the R3F
