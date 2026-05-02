@@ -178,13 +178,21 @@ void main() {
   float alpha = radial * mix(1.0, density, clamp(uDensityFalloff, 0.0, 1.0));
   alpha = clamp(alpha * (1.0 - clamp(uLifetimeProgress, 0.0, 1.0)), 0.0, 1.0);
 
-  // Soft-particle fade against scene depth.
+  // Soft-particle fade against scene depth. Use a signed gap
+  // (sceneDepth - vEyeDepth): positive when the particle is in front of
+  // the opaque scene (full alpha far away, fade in as it approaches the
+  // intersection), zero or negative when the particle would be behind
+  // the scene (clamped to zero by smoothstep so the sprite is fully
+  // transparent on the back side). This matches the canonical Unity /
+  // soft-particle formulation; an abs(...) form is symmetric front/back
+  // and looks wrong if a caller disables depthTest for "draw on top"
+  // particles.
   if (uHasDepthFade > 0.5) {
     vec2 screenUv = gl_FragCoord.xy / uResolution;
     float depthSample = texture2D(uDepthTexture, screenUv).r;
     float sceneDepth = linearizeDepth(depthSample, uCameraNear, uCameraFar);
-    float diff = abs(sceneDepth - vEyeDepth);
-    float fade = smoothstep(0.0, max(uSoftEdgeDistance, 1e-4), diff);
+    float gap = sceneDepth - vEyeDepth;
+    float fade = smoothstep(0.0, max(uSoftEdgeDistance, 1e-4), gap);
     alpha *= fade;
   }
 
