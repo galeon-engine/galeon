@@ -63,6 +63,30 @@ pub struct MaterialHandle {
     pub id: u32,
 }
 
+/// Marks an entity as a member of a GPU-instanced mesh batch.
+///
+/// When present, the renderer routes the entity's transform into a shared
+/// `THREE.InstancedMesh` keyed by the wrapped [`MeshHandle`], instead of
+/// creating a standalone `Object3D` per entity. Used for crowd-scale
+/// rendering (1000+ entities sharing one geometry).
+///
+/// The wrapped `MeshHandle` is the instance-group identifier — entities that
+/// share the same `InstanceOf(handle)` share the same `InstancedMesh`.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct InstanceOf(pub MeshHandle);
+
+/// Per-instance color tint, written to `THREE.InstancedMesh.instanceColor`.
+///
+/// `[r, g, b]` in linear sRGB, each component in `[0.0, 1.0]`. The renderer
+/// multiplies the base material color by this value, so `[1.0, 1.0, 1.0]`
+/// (white) is the no-op identity. Entities without this component render at
+/// the batch's default white tint.
+///
+/// Only meaningful for entities also tagged with [`InstanceOf`] — the
+/// standalone-`Object3D` render path ignores it.
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct Tint(pub [f32; 3]);
+
 /// Parent entity for scene-graph hierarchy.
 ///
 /// Attaching this component to an entity makes it a child of the referenced
@@ -127,6 +151,40 @@ mod tests {
     #[test]
     fn object_type_default_is_mesh() {
         assert_eq!(ObjectType::default(), ObjectType::Mesh);
+    }
+
+    #[test]
+    fn instance_of_wraps_mesh_handle() {
+        let handle = MeshHandle { id: 42 };
+        let tag = InstanceOf(handle);
+        assert_eq!(tag.0, handle);
+        assert_eq!(tag.0.id, 42);
+    }
+
+    #[test]
+    fn instance_of_equality_is_by_mesh_handle() {
+        assert_eq!(
+            InstanceOf(MeshHandle { id: 7 }),
+            InstanceOf(MeshHandle { id: 7 })
+        );
+        assert_ne!(
+            InstanceOf(MeshHandle { id: 7 }),
+            InstanceOf(MeshHandle { id: 8 })
+        );
+    }
+
+    #[test]
+    fn tint_stores_rgb_triple() {
+        let t = Tint([0.25, 0.5, 1.0]);
+        assert_eq!(t.0[0], 0.25);
+        assert_eq!(t.0[1], 0.5);
+        assert_eq!(t.0[2], 1.0);
+    }
+
+    #[test]
+    fn tint_equality() {
+        assert_eq!(Tint([1.0, 0.0, 0.0]), Tint([1.0, 0.0, 0.0]));
+        assert_ne!(Tint([1.0, 0.0, 0.0]), Tint([0.0, 1.0, 0.0]));
     }
 
     #[test]
