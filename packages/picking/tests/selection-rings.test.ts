@@ -129,4 +129,30 @@ describe("attachSelectionRings", () => {
     expect(geometryDisposed).toBe(false);
     expect(materialDisposed).toBe(false);
   });
+
+  test("updates scene matrices once before resolving selected object bounds", () => {
+    const scene = new THREE.Scene();
+    const resolver = new FakeResolver();
+    let sceneUpdates = 0;
+    const originalSceneUpdate = scene.updateMatrixWorld.bind(scene);
+    scene.updateMatrixWorld = (force?: boolean) => {
+      sceneUpdates += 1;
+      originalSceneUpdate(force);
+    };
+    const object = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+    let objectWorldUpdates = 0;
+    const originalObjectUpdate = object.updateWorldMatrix.bind(object);
+    object.updateWorldMatrix = (updateParents: boolean, updateChildren: boolean) => {
+      if (updateParents && updateChildren) objectWorldUpdates += 1;
+      originalObjectUpdate(updateParents, updateChildren);
+    };
+    scene.add(object);
+    resolver.set(1, 0, object);
+
+    const rings = attachSelectionRings(scene, resolver);
+    rings.update([{ entityId: 1, generation: 0 }]);
+
+    expect(sceneUpdates).toBe(1);
+    expect(objectWorldUpdates).toBe(0);
+  });
 });

@@ -14,7 +14,7 @@ describe("attachMarqueeRenderer", () => {
   });
 
   test("updates rectangle geometry from NDC endpoints", () => {
-    const camera = new THREE.PerspectiveCamera();
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
     const marquee = attachMarqueeRenderer(camera);
 
     marquee.update({
@@ -28,6 +28,19 @@ describe("attachMarqueeRenderer", () => {
     expect([positions.getX(1), positions.getY(1)]).toEqual([0.5, -0.25]);
     expect([positions.getX(2), positions.getY(2)]).toEqual([0.5, 0.75]);
     expect([positions.getX(3), positions.getY(3)]).toEqual([-0.5, 0.75]);
+  });
+
+  test("places perspective marquee beyond the near plane by default", () => {
+    const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+    const marquee = attachMarqueeRenderer(camera);
+
+    marquee.update({
+      start: { x: -1, y: -1 },
+      end: { x: 1, y: 1 },
+    });
+
+    const positions = marquee.line.geometry.getAttribute("position");
+    expect(positions.getZ(0)).toBeLessThan(-camera.near);
   });
 
   test("hides on null update and disposes the camera child", () => {

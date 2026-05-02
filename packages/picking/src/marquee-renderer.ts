@@ -11,6 +11,7 @@ export interface MarqueeRendererOptions {
   readonly color?: THREE.ColorRepresentation;
   readonly opacity?: number;
   readonly renderOrder?: number;
+  /** Camera-local negative Z plane. Defaults to just beyond `camera.near`. */
   readonly zOffset?: number;
   readonly material?: THREE.LineBasicMaterial;
 }
@@ -24,7 +25,6 @@ export interface MarqueeRendererController {
 const DEFAULT_COLOR = 0x50a0ff;
 const DEFAULT_OPACITY = 0.95;
 const DEFAULT_RENDER_ORDER = 10_001;
-const DEFAULT_Z_OFFSET = -0.02;
 
 /**
  * Render a drag rectangle as camera-attached Three.js geometry.
@@ -62,7 +62,7 @@ export function attachMarqueeRenderer(
         line.visible = false;
         return;
       }
-      writeRectGeometry(geometry, rect, options.zOffset ?? DEFAULT_Z_OFFSET);
+      writeRectGeometry(geometry, camera, rect, resolveZOffset(camera, options.zOffset));
       line.visible = true;
     },
     dispose(): void {
@@ -82,6 +82,7 @@ function createRectGeometry(): THREE.BufferGeometry {
 
 function writeRectGeometry(
   geometry: THREE.BufferGeometry,
+  camera: THREE.Camera,
   rect: MarqueeRect,
   z: number,
 ): void {
@@ -89,11 +90,43 @@ function writeRectGeometry(
   const x1 = Math.max(rect.start.x, rect.end.x);
   const y0 = Math.min(rect.start.y, rect.end.y);
   const y1 = Math.max(rect.start.y, rect.end.y);
+  const p0 = ndcToCameraLocal(camera, x0, y0, z);
+  const p1 = ndcToCameraLocal(camera, x1, y0, z);
+  const p2 = ndcToCameraLocal(camera, x1, y1, z);
+  const p3 = ndcToCameraLocal(camera, x0, y1, z);
   const attr = geometry.getAttribute("position") as THREE.BufferAttribute;
-  attr.setXYZ(0, x0, y0, z);
-  attr.setXYZ(1, x1, y0, z);
-  attr.setXYZ(2, x1, y1, z);
-  attr.setXYZ(3, x0, y1, z);
+  attr.setXYZ(0, p0.x, p0.y, p0.z);
+  attr.setXYZ(1, p1.x, p1.y, p1.z);
+  attr.setXYZ(2, p2.x, p2.y, p2.z);
+  attr.setXYZ(3, p3.x, p3.y, p3.z);
   attr.needsUpdate = true;
   geometry.computeBoundingSphere();
+}
+
+function resolveZOffset(camera: THREE.Camera, zOffset: number | undefined): number {
+  if (zOffset !== undefined) return zOffset;
+  const near = "near" in camera && typeof camera.near === "number" ? camera.near : 0.1;
+  return -Math.max(near * 2, near + 0.01);
+}
+
+function ndcToCameraLocal(
+  camera: THREE.Camera,
+  x: number,
+  y: number,
+  z: number,
+): THREE.Vector3 {
+  if (camera instanceof THREE.PerspectiveCamera) {
+    const depth = Math.abs(z);
+    const halfHeight = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * depth;
+    const halfWidth = halfHeight * camera.aspect;
+    return new THREE.Vector3(x * halfWidth, y * halfHeight, z);
+  }
+  if (camera instanceof THREE.OrthographicCamera) {
+    const halfWidth = (camera.right - camera.left) / (2 * camera.zoom);
+    const halfHeight = (camera.top - camera.bottom) / (2 * camera.zoom);
+    const centerX = (camera.left + camera.right) / (2 * camera.zoom);
+    const centerY = (camera.top + camera.bottom) / (2 * camera.zoom);
+    return new THREE.Vector3(centerX + x * halfWidth, centerY + y * halfHeight, z);
+  }
+  return new THREE.Vector3(x, y, z);
 }

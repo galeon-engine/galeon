@@ -74,6 +74,7 @@ export function attachSelectionRings(
     group,
     update(selection: readonly PickingEntityRef[]): void {
       const active = new Set<string>();
+      scene.updateMatrixWorld(true);
       for (const entity of selection) {
         const object = target.getObject(entity.entityId, entity.generation);
         if (object === undefined || !visibleObjectChain(object)) {
@@ -121,7 +122,6 @@ function updateRingMatrix(
   object: THREE.Object3D,
   options: SelectionRingsOptions,
 ): void {
-  object.updateWorldMatrix(true, true);
   _box.setFromObject(object);
   const minRadius = options.minRadius ?? DEFAULT_MIN_RADIUS;
   if (_box.isEmpty()) {
