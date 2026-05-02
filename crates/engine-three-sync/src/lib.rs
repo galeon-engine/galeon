@@ -244,7 +244,7 @@ impl WasmEngine {
         point_z: f32,
         modifier_flags: u32,
     ) {
-        let entity = if entity_present {
+        let raw_entity = if entity_present {
             Some(Entity::from_raw(entity_index, entity_generation))
         } else {
             None
@@ -260,6 +260,7 @@ impl WasmEngine {
         };
         let modifiers = PickModifiers(modifier_flags);
         let world = self.engine.world_mut();
+        let entity = raw_entity.filter(|entity| world.is_alive(*entity));
         if world.try_resource::<Selection>().is_none() {
             world.insert_resource(Selection::new());
         }
@@ -275,12 +276,13 @@ impl WasmEngine {
     /// are ignored.
     #[wasm_bindgen(js_name = applyPickRect)]
     pub fn apply_pick_rect(&mut self, entities_flat: &[u32], modifier_flags: u32) {
+        let modifiers = PickModifiers(modifier_flags);
+        let world = self.engine.world_mut();
         let entities: Vec<Entity> = entities_flat
             .chunks_exact(2)
             .map(|pair| Entity::from_raw(pair[0], pair[1]))
+            .filter(|entity| world.is_alive(*entity))
             .collect();
-        let modifiers = PickModifiers(modifier_flags);
-        let world = self.engine.world_mut();
         if world.try_resource::<Selection>().is_none() {
             world.insert_resource(Selection::new());
         }
