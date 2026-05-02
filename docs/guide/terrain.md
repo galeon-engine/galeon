@@ -25,9 +25,17 @@ let mut engine = Engine::new();
 engine.add_plugin(HeightmapPlugin::new(terrain));
 ```
 
+`Terrain` height samples are row-major in local X/Z space. Sample columns move
+in world +X, sample rows move in world +Z, and sample `(0, 0)` is located at
+`origin`. The `size` argument spans from sample `(0, 0)` to
+`(width - 1, height - 1)`, so adjacent sample spacing is
+`size / (sample_count - 1)` per axis.
+
 `height_at(x, z)` bilinearly samples the source grid and returns `None` outside
 the terrain bounds. `normal_at(x, z)` estimates a normal from central
-differences over the same source grid.
+differences over the same source grid using the same world X/Z convention. This
+query normal is for gameplay and sampling; render mesh normals belong to the
+future mesh builder.
 
 ## PNG16 Loading
 
@@ -38,3 +46,11 @@ range while keeping `height_min` fixed.
 DEM, GeoTIFF, tile streaming, and LOD are intentionally out of scope for this
 engine primitive. Downstream applications can convert those sources into
 authored PNG16 heightmaps before handing data to Galeon.
+
+## Mesh Export Convention
+
+When terrain mesh export is added, it must preserve the same sample mapping:
+world +X maps to source columns and world +Z maps to row-major source rows. The
+mesh contract must document vertex order, winding, and normal direction, and
+must keep generated render normals separate from `normal_at` source-query
+normals.
