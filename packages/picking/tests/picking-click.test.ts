@@ -132,6 +132,55 @@ describe("attachPicking single-click", () => {
     expect(event.entity).toEqual({ entityId: 42, generation: 3 });
   });
 
+  test("refreshes scene matrices before raycasting dynamic objects", () => {
+    const scene = new THREE.Scene();
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+    mesh.position.set(10, 0, 0);
+    stampEntity(mesh, 5, 1);
+    scene.add(mesh);
+    scene.updateMatrixWorld(true);
+
+    mesh.position.set(0, 0, 0);
+
+    const canvas = new FakeCanvas();
+    const events: PickingEvent[] = [];
+    attachPicking(canvas, scene, makeOrthoCamera(), { onPick: (e) => events.push(e) });
+
+    canvas.fire("mousedown", { clientX: 400, clientY: 300 });
+    canvas.fire("mouseup", { clientX: 400, clientY: 300 });
+
+    expect(events).toHaveLength(1);
+    const event = events[0]!;
+    if (event.kind !== "pick") throw new Error("unreachable");
+    expect(event.entity).toEqual({ entityId: 5, generation: 1 });
+  });
+
+  test("skips invisible click hits and resolves the next visible entity", () => {
+    const scene = new THREE.Scene();
+    const hidden = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+    hidden.visible = false;
+    stampEntity(hidden, 1, 1);
+    scene.add(hidden);
+
+    const visible = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
+    visible.position.set(0, 0, -2);
+    stampEntity(visible, 2, 1);
+    scene.add(visible);
+    scene.updateMatrixWorld(true);
+
+    const canvas = new FakeCanvas();
+    const events: PickingEvent[] = [];
+    attachPicking(canvas, scene, makeOrthoCamera(), { onPick: (e) => events.push(e) });
+
+    canvas.fire("mousedown", { clientX: 400, clientY: 300 });
+    canvas.fire("mouseup", { clientX: 400, clientY: 300 });
+
+    expect(events).toHaveLength(1);
+    const event = events[0]!;
+    if (event.kind !== "pick") throw new Error("unreachable");
+    expect(event.entity).toEqual({ entityId: 2, generation: 1 });
+  });
+
   test("captures modifier-key state on the originating mouse-up", () => {
     const scene = new THREE.Scene();
     const canvas = new FakeCanvas();

@@ -219,10 +219,11 @@ function pickPoint(
   ndc: THREE.Vector2,
   raycaster: THREE.Raycaster,
 ): PickPointResult | null {
+  scene.updateMatrixWorld(true);
   raycaster.setFromCamera(ndc, camera);
   const intersections = raycaster.intersectObjects(scene.children, true);
   for (const hit of intersections) {
-    const entity = ancestorEntity(hit.object);
+    const entity = visibleAncestorEntity(hit.object);
     if (entity != null) {
       const p = hit.point;
       return { entity, point: { x: p.x, y: p.y, z: p.z } };
@@ -296,9 +297,10 @@ function readEntity(object: THREE.Object3D): PickingEntityRef | null {
   return { entityId: stamped.entityId, generation: stamped.generation };
 }
 
-function ancestorEntity(object: THREE.Object3D): PickingEntityRef | null {
+function visibleAncestorEntity(object: THREE.Object3D): PickingEntityRef | null {
   let current: THREE.Object3D | null = object;
   while (current != null) {
+    if (!current.visible) return null;
     const entity = readEntity(current);
     if (entity != null) return entity;
     current = current.parent;
