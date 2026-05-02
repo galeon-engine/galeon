@@ -270,17 +270,18 @@ function pickRect(
   // be skipped wholesale to keep marquee semantics consistent with click picking.
   // Visibility is inherited in Three.js, so an invisible parent prunes the whole
   // subtree. Layers are NOT inherited — each object's own `layers.test(camera)`
-  // governs whether it is rendered, so layer-mismatched ancestors must not hide
-  // their visible children. Only the per-node candidate test gates on layer.
+  // governs whether it is rendered. A stamped parent on a non-camera layer can
+  // still own visible-and-rendered children (which click would resolve back to
+  // the parent), so the layer test does not gate candidacy here. Instead,
+  // `worldAabb` returns `null` for a stamped Mesh whose own layer mismatches
+  // and skips layer-mismatched contributions when walking descendants — that
+  // is what filters out unrenderable entities.
   function visit(object: THREE.Object3D): void {
     if (!object.visible) return;
     const entity = readEntity(object);
-    if (
-      entity != null &&
-      object.layers.test(camera.layers) &&
-      (filter == null || filter(object, entity))
-    ) {
-      if (worldAabb(object, aabb, camera) !== null && frustum.intersectsBox(aabb)) {
+    if (entity != null && (filter == null || filter(object, entity))) {
+      const bounds = worldAabb(object, aabb, camera);
+      if (bounds !== null && frustum.intersectsBox(bounds)) {
         out.push(entity);
       }
     }
@@ -313,6 +314,11 @@ function worldAabb(
   camera: THREE.Camera,
 ): THREE.Box3 | null {
   if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments) {
+    // A stamped Mesh whose own layer mask does not overlap the camera is not
+    // rendered, so it is also not selectable — return null so the candidate
+    // walker drops it. Click picking already drops it via the raycaster's
+    // synced layer mask; this keeps marquee aligned.
+    if (!object.layers.test(camera.layers)) return null;
     const geom = object.geometry;
     if (geom == null) return null;
     if (geom.boundingBox === null) {

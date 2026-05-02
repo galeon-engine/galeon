@@ -425,6 +425,45 @@ describe("attachPicking drag-rectangle marquee", () => {
     expect(ids).toEqual([42]);
   });
 
+  test("stamped parent on non-rendered layer is still selected via its visible children", () => {
+    // Click picking already resolves a hit on a layer-visible child up to its
+    // stamped ancestor regardless of the ancestor's own layer mask. Marquee
+    // selection has to match: a stamped Group on a non-camera layer with a
+    // child mesh on a camera-visible layer must still be reachable via drag-
+    // rectangle. Otherwise drag-rect silently misses entities click can hit.
+    const scene = new THREE.Scene();
+    const parent = new THREE.Group();
+    parent.layers.set(2);
+    parent.position.set(0, 0, 0);
+    (parent.userData as Record<PropertyKey, unknown>)[GALEON_ENTITY_KEY] = {
+      entityId: 99,
+      generation: 0,
+    };
+    // Child mesh sits at the parent's origin and is unstamped, on the
+    // camera-visible default layer.
+    const child = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshBasicMaterial());
+    parent.add(child);
+    scene.add(parent);
+
+    const canvas = new FakeCanvas();
+    const events: PickingEvent[] = [];
+    attachPicking(canvas, scene, makeOrthoCamera(), {
+      onPick: (e) => events.push(e),
+      dragThreshold: 2,
+    });
+
+    // Centred marquee covers the origin.
+    canvas.fire("mousedown", { clientX: 380, clientY: 280 });
+    canvas.fire("mousemove", { clientX: 420, clientY: 320 });
+    canvas.fire("mouseup", { clientX: 420, clientY: 320 });
+
+    expect(events).toHaveLength(1);
+    const event = events[0]!;
+    if (event.kind !== "pick-rect") throw new Error("unreachable");
+    const ids = event.entities.map((e) => e.entityId).sort();
+    expect(ids).toEqual([99]);
+  });
+
   test("nested stamped entity does not inflate its parent's AABB", () => {
     // Stamped parent Group at the origin with a stamped child mesh at (5,5).
     // Click picking resolves the deeper stamped ancestor, so marquee bounds
