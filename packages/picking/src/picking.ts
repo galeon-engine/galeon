@@ -55,7 +55,20 @@ export interface PickingPointHit {
   readonly point: { readonly x: number; readonly y: number; readonly z: number };
 }
 
-export type PickingFilter = (object: THREE.Object3D, entity: PickingEntityRef) => boolean;
+/**
+ * Candidate surfaced to marquee filters before a pick is accepted.
+ *
+ * For standalone managed objects, `object` is the stamped Three.js object and
+ * `instanceId` is `null`. For instanced objects, `object` is the backing batch
+ * mesh and `instanceId` identifies the concrete instance within that mesh.
+ */
+export interface PickingCandidate {
+  readonly object: THREE.Object3D;
+  readonly entity: PickingEntityRef;
+  readonly instanceId: number | null;
+}
+
+export type PickingFilter = (candidate: PickingCandidate) => boolean;
 
 export interface PickAtRequest {
   readonly scene: THREE.Scene;
@@ -113,9 +126,9 @@ export interface PickingOptions {
    */
   readonly pickingBackend?: PickingBackendOption;
   /**
-   * Optional filter for marquee candidates. Receives every managed object
-   * with a `GALEON_ENTITY_KEY` stamp; return `false` to exclude it (e.g.,
-   * disable picking on UI gizmos).
+   * Optional filter for marquee candidates. Return `false` to exclude a
+   * candidate before it is emitted. Instanced candidates carry the backing mesh
+   * plus an `instanceId`; non-instanced candidates carry `instanceId: null`.
    */
   readonly filter?: PickingFilter;
 }
@@ -404,7 +417,10 @@ function pickRect(
     if (!object.visible) return;
     if (skipObject?.(object)) return;
     const entity = readEntity(object);
-    if (entity != null && (filter == null || filter(object, entity))) {
+    if (
+      entity != null &&
+      (filter == null || filter({ object, entity, instanceId: null }))
+    ) {
       const bounds = worldAabb(object, aabb, camera);
       if (bounds !== null && frustum.intersectsBox(bounds)) {
         out.push(entity);
@@ -497,7 +513,7 @@ function pickInstancedBvhRect(
       if (!mesh.getActiveAndVisibilityAt(instanceId)) return;
       const entity = resolver.entityAt(instanceId);
       if (entity == null) return;
-      if (filter != null && !filter(mesh, entity)) return;
+      if (filter != null && !filter({ object: mesh, entity, instanceId })) return;
       out.push(entity);
     });
   });

@@ -395,6 +395,7 @@ mod template_dep_tests {
         let domain = templates::domain_cargo_toml("testgame");
         let server = templates::server_cargo_toml("testgame");
         let local_first_pkg = templates::local_first_package_json("testgame");
+        let local_first_tsconfig = templates::local_first_client_tsconfig_json();
         let local_first_client = templates::local_first_client_cargo_toml("testgame");
         let galeon_version = templates::galeon_release_version();
         let galeon_minor = templates::galeon_minor_version();
@@ -433,6 +434,10 @@ mod template_dep_tests {
         assert!(
             !local_first_pkg.contains("@galeon/engine-ts"),
             "local-first package.json should not depend on the retired @galeon/engine-ts package"
+        );
+        assert!(
+            local_first_tsconfig.contains(r#""skipLibCheck": true"#),
+            "local-first tsconfig should not type-check dependency declaration internals"
         );
         assert!(
             templates::galeon_toml("testgame", "local-first")

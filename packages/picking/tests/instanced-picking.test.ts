@@ -10,7 +10,7 @@ import {
   TRANSFORM_STRIDE,
   type FramePacketView,
 } from "@galeon/three";
-import { attachPicking, type PickingEvent } from "../src/picking.js";
+import { attachPicking, type PickingCandidate, type PickingEvent } from "../src/picking.js";
 
 interface PacketOverrides extends Partial<FramePacketView> {
   entity_count: number;
@@ -220,6 +220,56 @@ describe("@galeon/picking instanced mesh identity (#224)", () => {
     expect(events[0]!.kind).toBe("pick-rect");
     if (events[0]!.kind !== "pick-rect") throw new Error("expected pick-rect event");
     expect(events[0]!.entities.map((entity) => entity.entityId).sort()).toEqual([20, 21]);
+  });
+
+  test("drag-rectangle filter receives instanced candidates with instance identity", () => {
+    const scene = new THREE.Scene();
+    const camera = new THREE.OrthographicCamera(-4, 4, 4, -4, 0.1, 100);
+    camera.position.set(0, 0, 5);
+    camera.lookAt(0, 0, 0);
+    camera.updateMatrixWorld();
+
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(7, new THREE.BoxGeometry(1, 1, 1));
+    cache.registerMaterial(0, new THREE.MeshBasicMaterial());
+
+    const packet = makePacket({ entity_count: 3 });
+    fillIdentityTransforms(packet);
+    for (let i = 0; i < 3; i++) {
+      packet.entity_ids[i] = 20 + i;
+      packet.entity_generations[i] = 1;
+      packet.mesh_handles[i] = 7;
+    }
+    packet.transforms[0] = -2;
+    packet.transforms[TRANSFORM_STRIDE] = 2;
+    packet.transforms[TRANSFORM_STRIDE * 2] = 6;
+    packet.instance_groups = new Uint32Array([7, 7, 7]);
+    cache.applyFrame(packet);
+
+    const canvas = new CanvasStub();
+    const candidates: PickingCandidate[] = [];
+    const events: PickingEvent[] = [];
+    const dispose = attachPicking(canvas, scene, camera, {
+      dragThreshold: 2,
+      filter: (candidate) => {
+        candidates.push(candidate);
+        return candidate.entity.entityId !== 21;
+      },
+      onPick: (event) => events.push(event),
+    });
+
+    canvas.dispatch("mousedown", mouse("mousedown", 0, 0));
+    canvas.dispatch("mousemove", mouse("mousemove", 75, 100));
+    canvas.dispatch("mouseup", mouse("mouseup", 75, 100));
+    dispose();
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.kind).toBe("pick-rect");
+    if (events[0]!.kind !== "pick-rect") throw new Error("expected pick-rect event");
+    expect(events[0]!.entities.map((entity) => entity.entityId).sort()).toEqual([20]);
+    expect(candidates.map((candidate) => candidate.entity.entityId).sort()).toEqual([20, 21]);
+    expect(candidates.every((candidate) => candidate.instanceId !== null)).toBe(true);
+    expect(new Set(candidates.map((candidate) => candidate.object)).size).toBe(1);
   });
 
   test("click pick ignores hidden InstancedMesh hits", () => {

@@ -208,6 +208,13 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Picking filter candidates (#224)** — `@galeon/picking` marquee filters now
+  receive a `PickingCandidate` object with `{ object, entity, instanceId }`
+  instead of positional `(object, entity)` arguments. Standalone picks use
+  `instanceId: null`; instanced picks expose the concrete batch slot so
+  filters can make entity-first decisions without relying on nonexistent
+  per-instance `Object3D` stamps.
+
 - **Shared height storage for terrain resources (#233)** — `Terrain` now keeps
   height samples in immutable shared storage, so cloning a terrain resource or
   installing it through `HeightmapPlugin` no longer copies the full height
@@ -219,6 +226,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   React 19 + R3F 9 as its supported peer combinations.
 
 ### Fixed
+
+- **Local-first starter smoke (#224)** — Generated local-first starters now set
+  `skipLibCheck: true` in `client/tsconfig.json`, matching the Galeon workspace
+  policy and preventing starter CI from failing on linked dependency
+  declaration internals.
 
 - **Instanced click picking preserves entity identity (#224)** —
   `@galeon/three` now stamps each managed `THREE.InstancedMesh` batch with an

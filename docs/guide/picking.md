@@ -61,6 +61,13 @@ debugging the raw Three.js path. Custom backends receive
 the same `{ entityId, generation }` refs, so accelerated implementations can
 swap in without changing Rust-side `Selection` semantics.
 
+`filter` receives a single `PickingCandidate` object. `candidate.entity` is
+always the Galeon `{ entityId, generation }`; `candidate.object` is the
+Three.js render object that produced the candidate; and `candidate.instanceId`
+is `null` for standalone managed objects or the concrete batch slot for
+instanced picks. This keeps filters entity-first instead of relying on
+per-instance `Object3D` stamps that do not exist in the renderer.
+
 Instanced render batches also resolve to Galeon entity handles for click
 picking and drag rectangles. `@galeon/three` owns `InstancedMesh2` batches from
 `@three.ez/instanced-mesh`, computes a per-instance BVH, and stamps each batch

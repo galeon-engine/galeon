@@ -146,7 +146,7 @@ describe("attachPicking drag-rectangle marquee", () => {
     attachPicking(canvas, scene, makeOrthoCamera(), {
       onPick: (e) => events.push(e),
       dragThreshold: 2,
-      filter: (_, entity) => entity.entityId !== 2,
+      filter: ({ entity }) => entity.entityId !== 2,
     });
 
     canvas.fire("mousedown", { clientX: 0, clientY: 0 });
