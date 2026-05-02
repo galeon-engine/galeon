@@ -59,10 +59,35 @@ const raycaster = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
 const countEl = document.getElementById("count");
 
+// A confirmed click is pointerdown + pointerup on the same primary button
+// without a drag in between. Binding spawn to pointerdown would also fire
+// at the start of every OrbitControls left-drag gesture.
+const CLICK_DRAG_THRESHOLD_PX = 5;
+let pointerDownAt: { x: number; y: number; pointerId: number } | null = null;
+
 renderer.domElement.addEventListener("pointerdown", (event) => {
-  // Only spawn on primary button, and only if the OrbitControls drag did
-  // not consume the gesture (controls handle right/middle drag).
   if (event.button !== 0) {
+    return;
+  }
+  pointerDownAt = {
+    x: event.clientX,
+    y: event.clientY,
+    pointerId: event.pointerId,
+  };
+});
+
+renderer.domElement.addEventListener("pointerup", (event) => {
+  const start = pointerDownAt;
+  pointerDownAt = null;
+  if (start === null || event.pointerId !== start.pointerId) {
+    return;
+  }
+  if (event.button !== 0) {
+    return;
+  }
+  const dx = event.clientX - start.x;
+  const dy = event.clientY - start.y;
+  if (dx * dx + dy * dy > CLICK_DRAG_THRESHOLD_PX * CLICK_DRAG_THRESHOLD_PX) {
     return;
   }
   const rect = renderer.domElement.getBoundingClientRect();
@@ -80,6 +105,10 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
     scene,
   });
   particles.push(...fresh);
+});
+
+renderer.domElement.addEventListener("pointercancel", () => {
+  pointerDownAt = null;
 });
 
 window.addEventListener("resize", () => {

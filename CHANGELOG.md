@@ -49,6 +49,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Confirmed-click spawn in `examples/billboards` (#217)** — Burst spawning
+  now triggers on `pointerup` only when the pointer has not moved beyond a
+  drag threshold since `pointerdown`, instead of firing on `pointerdown`.
+  Without this, every left-button OrbitControls drag start would spawn a
+  burst at the drag origin before the user committed to a click.
+
 - **CLI scaffold dependency pin (#219)** — `galeon new` Rust templates now emit
   Galeon crate dependencies on the current major.minor line, such as
   `galeon-engine = "0.4"`, so generated projects can pick up patch releases
