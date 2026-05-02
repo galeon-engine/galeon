@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use galeon_engine::render::{
     InstanceOf, MaterialHandle, MeshHandle, ObjectType, ParentEntity, Tint, Transform, Visibility,
 };
-use galeon_engine::{Entity, RenderChannelRegistry, RenderEventRegistry, World};
+use galeon_engine::{Billboard, Entity, RenderChannelRegistry, RenderEventRegistry, World};
 
 use crate::frame_packet::{
     CHANGED_INSTANCE_GROUP, CHANGED_MATERIAL, CHANGED_MESH, CHANGED_OBJECT_TYPE, CHANGED_PARENT,
@@ -57,18 +57,27 @@ fn resolved_tint(world: &World, entity: Entity) -> [f32; 3] {
 type Renderable = (Entity, [f32; 3], [f32; 4], [f32; 3], u32, u8);
 
 fn resolved_instance_group(world: &World, entity: Entity) -> u32 {
-    world
-        .get::<InstanceOf>(entity)
-        .map(|i| {
-            let mesh_id = i.0.id;
-            assert_ne!(
-                mesh_id, INSTANCE_GROUP_NONE,
-                "InstanceOf(MeshHandle {{ id: {mesh_id} }}) collides with \
-                 INSTANCE_GROUP_NONE ({INSTANCE_GROUP_NONE}); id is reserved"
-            );
-            mesh_id
-        })
-        .unwrap_or(INSTANCE_GROUP_NONE)
+    if let Some(instance_of) = world.get::<InstanceOf>(entity) {
+        return checked_instance_group_id(instance_of.0.id, "InstanceOf");
+    }
+
+    if world.get::<Billboard>(entity).is_some() {
+        return world
+            .get::<MeshHandle>(entity)
+            .map(|mesh| checked_instance_group_id(mesh.id, "Billboard MeshHandle"))
+            .unwrap_or(INSTANCE_GROUP_NONE);
+    }
+
+    INSTANCE_GROUP_NONE
+}
+
+fn checked_instance_group_id(mesh_id: u32, source: &str) -> u32 {
+    assert_ne!(
+        mesh_id, INSTANCE_GROUP_NONE,
+        "{source}(MeshHandle {{ id: {mesh_id} }}) collides with \
+         INSTANCE_GROUP_NONE ({INSTANCE_GROUP_NONE}); id is reserved"
+    );
+    mesh_id
 }
 
 fn resolved_parent(world: &World, entity: Entity) -> Option<Entity> {
@@ -210,6 +219,7 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
     let mut object_type_removed: HashSet<Entity> = HashSet::new();
     let mut parent_removed: HashSet<Entity> = HashSet::new();
     let mut instance_group_removed: HashSet<Entity> = HashSet::new();
+    let mut billboard_removed: HashSet<Entity> = HashSet::new();
     let mut tint_removed: HashSet<Entity> = HashSet::new();
     let mut parents_with_new_transform: HashSet<Entity> = HashSet::new();
     let mut renderables: Vec<Renderable> = Vec::new();
@@ -369,6 +379,51 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
         seen.insert(entity);
     }
 
+    for (entity, _) in world.query_changed::<Billboard>(since_tick) {
+        if seen.contains(&entity) {
+            continue;
+        }
+        let Some(transform) = world.get::<Transform>(entity) else {
+            continue;
+        };
+        let object_type = world
+            .get::<ObjectType>(entity)
+            .map(|o| *o as u8)
+            .unwrap_or(0);
+        renderables.push((
+            entity,
+            transform.position,
+            transform.rotation,
+            transform.scale,
+            resolved_parent_id(world, entity),
+            object_type,
+        ));
+        seen.insert(entity);
+    }
+
+    for entity in world.component_removals_since::<Billboard>(since_tick) {
+        billboard_removed.insert(entity);
+        if seen.contains(&entity) {
+            continue;
+        }
+        let Some(transform) = world.get::<Transform>(entity) else {
+            continue;
+        };
+        let object_type = world
+            .get::<ObjectType>(entity)
+            .map(|o| *o as u8)
+            .unwrap_or(0);
+        renderables.push((
+            entity,
+            transform.position,
+            transform.rotation,
+            transform.scale,
+            resolved_parent_id(world, entity),
+            object_type,
+        ));
+        seen.insert(entity);
+    }
+
     for (entity, _) in world.query_changed::<Tint>(since_tick) {
         if seen.contains(&entity) {
             continue;
@@ -502,8 +557,12 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
                 flags |= CHANGED_PARENT;
             }
             if instance_group_removed.contains(entity)
+                || billboard_removed.contains(entity)
                 || arch
                     .column::<InstanceOf>()
+                    .is_some_and(|column| column.changed_tick(row) > since_tick)
+                || arch
+                    .column::<Billboard>()
                     .is_some_and(|column| column.changed_tick(row) > since_tick)
             {
                 flags |= CHANGED_INSTANCE_GROUP;
@@ -1420,6 +1479,75 @@ mod tests {
         let flags = packet.change_flags[0];
         assert!(flags & CHANGED_TRANSFORM != 0);
         assert!(flags & CHANGED_INSTANCE_GROUP == 0);
+    }
+
+    #[test]
+    fn extract_billboard_uses_mesh_handle_as_instance_group() {
+        let mut world = World::new();
+        world.spawn((Transform::identity(), MeshHandle { id: 17 }, Billboard));
+
+        let packet = extract_frame(&world);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.mesh_handles[0], 17);
+        assert_eq!(packet.instance_groups[0], 17);
+    }
+
+    #[test]
+    fn extract_billboard_without_mesh_handle_stays_standalone() {
+        use crate::frame_packet::INSTANCE_GROUP_NONE;
+
+        let mut world = World::new();
+        world.spawn((Transform::identity(), Billboard));
+
+        let packet = extract_frame(&world);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.instance_groups[0], INSTANCE_GROUP_NONE);
+    }
+
+    #[test]
+    fn incremental_extract_flags_billboard_added() {
+        use crate::frame_packet::CHANGED_INSTANCE_GROUP;
+
+        let mut world = World::new();
+        let entity = world.spawn((Transform::identity(), MeshHandle { id: 17 }));
+        let since = world.change_tick();
+        world.advance_tick();
+
+        world.insert(entity, Billboard);
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.entity_ids[0], entity.index());
+        assert_eq!(packet.instance_groups[0], 17);
+        let flags = packet.change_flags[0];
+        assert!(
+            flags & CHANGED_INSTANCE_GROUP != 0,
+            "expected CHANGED_INSTANCE_GROUP, got {flags:#b}"
+        );
+        assert!(flags & CHANGED_TRANSFORM == 0);
+    }
+
+    #[test]
+    fn incremental_extract_flags_billboard_removed() {
+        use crate::frame_packet::{CHANGED_INSTANCE_GROUP, INSTANCE_GROUP_NONE};
+
+        let mut world = World::new();
+        let entity = world.spawn((Transform::identity(), MeshHandle { id: 17 }, Billboard));
+        let since = world.change_tick();
+        world.advance_tick();
+
+        world.remove::<Billboard>(entity);
+
+        let packet = extract_frame_incremental(&world, since);
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.entity_ids[0], entity.index());
+        assert_eq!(packet.instance_groups[0], INSTANCE_GROUP_NONE);
+        let flags = packet.change_flags[0];
+        assert!(
+            flags & CHANGED_INSTANCE_GROUP != 0,
+            "expected CHANGED_INSTANCE_GROUP, got {flags:#b}"
+        );
+        assert!(flags & CHANGED_TRANSFORM == 0);
     }
 
     #[test]

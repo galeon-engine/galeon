@@ -40,6 +40,16 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   exercised by 13 headless `bun:test` cases without requiring a WebGL
   context. Root `package.json` workspaces now extends to `examples/*`.
 
+- **Billboard instancing path wired through `RendererCache` (#217 / T2)** —
+  Billboard materials created by `createBillboardFbmMaterial` now flow through
+  the merged #215 instanced renderer path with screen-aligned vertex behavior
+  in both standalone and `InstancedMesh` modes. The Rust extractor routes
+  renderable entities carrying `Billboard` and `MeshHandle` into the instanced
+  path, and `@galeon/three` then splits those billboard instances into
+  per-`(instance_group, material_handle)` batches, so texture/material variants
+  split cleanly while 1000 billboards sharing one quad + material still
+  collapse to one `THREE.InstancedMesh` batch.
+
 - **Mouse picking and drag-rectangle selection helper (#214)** — New
   `@galeon/picking` package wraps `THREE.Raycaster` to emit typed `pick` and
   `pick-rect` events that resolve back to the entity refs `@galeon/three`

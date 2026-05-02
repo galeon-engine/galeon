@@ -2,12 +2,16 @@
 
 import { describe, expect, test } from "bun:test";
 import * as THREE from "three";
-import { createBillboardFbmMaterial } from "../src/materials/billboard-fbm.js";
+import {
+  createBillboardFbmMaterial,
+  isBillboardFbmMaterial,
+} from "../src/materials/billboard-fbm.js";
 
 describe("createBillboardFbmMaterial — defaults", () => {
   test("returns a ShaderMaterial", () => {
     const m = createBillboardFbmMaterial();
     expect(m).toBeInstanceOf(THREE.ShaderMaterial);
+    expect(isBillboardFbmMaterial(m)).toBe(true);
   });
 
   test("warm off-white default color (0.95, 0.92, 0.85)", () => {
@@ -143,6 +147,8 @@ describe("createBillboardFbmMaterial — shader source", () => {
     expect(m.vertexShader).toContain("modelViewMatrix");
     expect(m.vertexShader).toContain("uSize");
     expect(m.vertexShader).toContain("vEyeDepth");
+    expect(m.vertexShader).toContain("USE_INSTANCING");
+    expect(m.vertexShader).toContain("instanceMatrix");
   });
 
   test("fragment shader contains FBM, lifetime fade, and depth-fade branch", () => {

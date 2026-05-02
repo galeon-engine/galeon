@@ -95,7 +95,40 @@ function update(progress: number) {
 
 The mesh wearing this material **must** use a unit `THREE.PlaneGeometry(1, 1)`
 (positions in `[-0.5, 0.5]^2`). The vertex shader treats `position.xy` as the
-quad-local offset and expects `uv` in `[0, 1]`.
+quad-local offset and expects `uv` in `[0, 1]`. In the instanced path, the
+same shader reads per-instance scale from `instanceMatrix` and keeps the quad
+screen-aligned.
+
+### Instanced billboard routing (T2)
+
+The Rust extractor treats a renderable entity carrying `Billboard` as an
+instanced billboard when it also has a `MeshHandle`. The mesh handle identifies
+the shared unit-quad geometry. `RendererCache` then routes that row through
+`InstancedMeshManager`. For materials created by `createBillboardFbmMaterial`,
+batches are keyed by:
+
+- `instance_groups[i]` (quad mesh group / `InstanceOf(MeshHandle)`)
+- `material_handles[i]` (material/texture variant)
+
+So 1000 billboards sharing one quad mesh handle and one material handle produce
+one `THREE.InstancedMesh` batch; changing material handle splits batches without
+thrashing a shared mesh material.
+
+```rust
+use galeon_engine::{Billboard, MaterialHandle, MeshHandle, Tint, Transform};
+
+world.spawn((
+    Transform::from_position(x, y, z),
+    MeshHandle { id: 17 },                  // quad geometry
+    MaterialHandle { id: 101 },             // billboard material/texture
+    Billboard,                              // opt into billboard instancing
+    Tint([1.0, 1.0, 1.0]),                  // optional per-instance tint
+));
+```
+
+Use `InstanceOf(MeshHandle { id })` directly for non-billboard instancing. For
+billboards, `Billboard` is the semantic marker; `MeshHandle` provides the batch
+geometry key and `MaterialHandle` provides the material/texture split.
 
 ### Uniform reference
 
