@@ -64,6 +64,7 @@ the engine itself is shell-agnostic.
 - Dynamic entity spawn/despawn from JS with `JsSpawned` lifecycle guard
 - `@galeon/render-core` defines the framework-neutral render snapshot contract
 - `@galeon/three` syncs `FramePacket` to an imperative Three.js scene graph
+- `@galeon/picking` provides mouse picking, marquee selection, and selection HUD primitives
 - `@galeon/r3f` provides React Three Fiber provider/entities/hooks
 - Generational entity safety prevents stale object references
 - Fallback geometry for missing assets
@@ -152,6 +153,7 @@ packages/
   runtime/             @galeon/runtime — JS/WASM glue (workspace + npm package)
   render-core/         @galeon/render-core — render packet contract (workspace + npm package)
   three/               @galeon/three — imperative Three.js adapter (workspace + npm package)
+  picking/             @galeon/picking — picking and selection HUD helpers (workspace + npm package)
   r3f/                 @galeon/r3f — React Three Fiber adapter (workspace + npm package)
   shell/               @galeon/shell — editor UI package (workspace + npm package, experimental)
 ```
@@ -195,14 +197,14 @@ bun run check    # Type-check all packages (tsc --build)
 
 The Bun workspace in this repository is the checked-in `packages/*` tree:
 `packages/runtime`, `packages/render-core`, `packages/three`,
-`packages/r3f`, and `packages/shell`. These are the same
+`packages/picking`, `packages/r3f`, and `packages/shell`. These are the same
 packages that publish to npm under the `@galeon/*` scope; they are not a separate
 publish-only surface outside this checkout.
 
 ## Public Packages
 
-Galeon publishes **four Rust packages** to [crates.io](https://crates.io) and
-**five TypeScript packages** to [npm](https://www.npmjs.com).
+Galeon publishes **five crates.io packages** (four libraries plus the CLI) and
+**six TypeScript packages** to [npm](https://www.npmjs.com).
 
 The TypeScript packages listed here are also checked into this repository under
 `packages/*` and are the packages targeted by the root Bun workspace commands.
@@ -213,6 +215,7 @@ The TypeScript packages listed here are also checked into this repository under
 |-------|-----------|-------------|
 | `galeon-engine-macros` | [![crates.io](https://img.shields.io/crates/v/galeon-engine-macros)](https://crates.io/crates/galeon-engine-macros) | Proc macros (`#[derive(Component)]`, `#[command]`, etc.) |
 | `galeon-engine` | [![crates.io](https://img.shields.io/crates/v/galeon-engine)](https://crates.io/crates/galeon-engine) | Core ECS, scheduler, protocol, data loading |
+| `galeon-engine-terrain` | [![crates.io](https://img.shields.io/crates/v/galeon-engine-terrain)](https://crates.io/crates/galeon-engine-terrain) | Heightmap terrain resource and loaders |
 | `galeon-engine-three-sync` | [![crates.io](https://img.shields.io/crates/v/galeon-engine-three-sync)](https://crates.io/crates/galeon-engine-three-sync) | WASM bridge (ECS snapshots &rarr; Three.js) |
 
 ### CLI binary
@@ -228,6 +231,7 @@ The TypeScript packages listed here are also checked into this repository under
 | `@galeon/runtime` | [![npm](https://img.shields.io/npm/v/@galeon/runtime)](https://www.npmjs.com/package/@galeon/runtime) | JS &harr; WASM glue |
 | `@galeon/render-core` | [![npm](https://img.shields.io/npm/v/@galeon/render-core)](https://www.npmjs.com/package/@galeon/render-core) | Framework-neutral render snapshot contract |
 | `@galeon/three` | [![npm](https://img.shields.io/npm/v/@galeon/three)](https://www.npmjs.com/package/@galeon/three) | Imperative Three.js adapter |
+| `@galeon/picking` | [![npm](https://img.shields.io/npm/v/@galeon/picking)](https://www.npmjs.com/package/@galeon/picking) | Mouse picking, marquee selection, and selection HUD primitives |
 | `@galeon/r3f` | [![npm](https://img.shields.io/npm/v/@galeon/r3f)](https://www.npmjs.com/package/@galeon/r3f) | React Three Fiber adapter |
 | `@galeon/shell` | [![npm](https://img.shields.io/npm/v/@galeon/shell)](https://www.npmjs.com/package/@galeon/shell) | Editor UI package (experimental) |
 
@@ -239,8 +243,8 @@ The following workspace members are internal and not published to any registry:
 
 ## Versioning
 
-All four Rust packages and six TypeScript packages move in **lockstep**
-&mdash; every release bumps all ten published artifacts to the same version
+All five crates.io packages and six TypeScript packages move in **lockstep**
+&mdash; every release bumps all eleven published artifacts to the same version
 number.
 
 ### Pre-1.0 policy
@@ -249,22 +253,22 @@ Galeon follows [Semantic Versioning 2.0.0](https://semver.org/). During the
 pre-1.0 phase:
 
 - **Minor bumps** (`0.3 &rarr; 0.4`) may contain breaking API changes.
-- **Patch bumps** (`0.4.0 &rarr; 0.4.1`) are backward-compatible bug fixes and
+- **Patch bumps** (`0.5.0 &rarr; 0.5.1`) are backward-compatible bug fixes and
   additions.
-- **Prerelease tags** (`0.4.0-alpha.1`, `0.4.0-beta.1`, `0.4.0-rc.1`) are
+- **Prerelease tags** (`0.5.0-alpha.1`, `0.5.0-beta.1`, `0.5.0-rc.1`) are
   published to crates.io and npm under the `alpha` dist-tag. Use these
   preview upcoming releases.
 
 ### How to depend on Galeon
 
 ```toml
-# In your Cargo.toml — matches any 0.4.x release
-galeon-engine = "0.4"
+# In your Cargo.toml — matches any 0.5.x release
+galeon-engine = "0.5"
 ```
 
 ```json
-// In your package.json — matches any 0.4.x release
-"@galeon/three": "^0.4.0"
+// In your package.json — matches any 0.5.x release
+"@galeon/three": "^0.5.0"
 ```
 
 ```bash
@@ -286,7 +290,8 @@ means for adopters:
 - `galeon-cli` is published and supported for project scaffolding, protocol
   artifact generation, and route inspection.
 - The framework-neutral render contract and both Three.js host adapters are
-  published as `@galeon/render-core`, `@galeon/three`, and `@galeon/r3f`.
+  published as `@galeon/render-core`, `@galeon/three`, `@galeon/picking`, and
+  `@galeon/r3f`.
 - The ECS, scheduler, protocol layer, and WASM bridge are functional and
   cover real use cases.
 - Lockstep versioning means all packages stay in sync &mdash; no version matrix to
@@ -298,7 +303,7 @@ means for adopters:
 - CLI commands and codegen output formats are still evolving.
 
 **How to upgrade safely:**
-- Pin to a specific minor range (e.g., `"0.4"` in Cargo, `"^0.4.0"` in npm).
+- Pin to a specific minor range (e.g., `"0.5"` in Cargo, `"^0.5.0"` in npm).
 - Read the [changelog](CHANGELOG.md) before upgrading &mdash; breaking changes are
   always documented.
 - Prerelease tags (`alpha`, `beta`, `rc`) let you test upcoming versions before

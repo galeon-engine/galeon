@@ -4,8 +4,9 @@
 > to install and what stability to expect. This guide covers the release
 > procedure for maintainers.
 
-Galeon publishes **five Rust packages** to crates.io and **five TypeScript
-packages** to npm. Everything else in the workspace is internal.
+Galeon publishes **five crates.io packages** (four libraries plus the CLI) and
+**six TypeScript packages** to npm. Everything else in the workspace is
+internal.
 
 The npm packages in this guide are the checked-in workspace packages under
 `packages/*`. They are not a separate external-only package surface.
@@ -34,8 +35,9 @@ The npm packages in this guide are the checked-in workspace packages under
 | Runtime | `@galeon/runtime` | 1 — publish first |
 | Render core | `@galeon/render-core` | 2 — framework-neutral render contract |
 | Three adapter | `@galeon/three` | 3 — depends on render-core |
-| R3F adapter | `@galeon/r3f` | 4 — depends on render-core/three |
-| Shell | `@galeon/shell` | 5 — no deps, last by convention |
+| Picking | `@galeon/picking` | 4 — depends on three |
+| R3F adapter | `@galeon/r3f` | 5 — depends on render-core/three/picking |
+| Shell | `@galeon/shell` | 6 — no deps, last by convention |
 
 ### Not published
 
@@ -43,9 +45,9 @@ The npm packages in this guide are the checked-in workspace packages under
 
 ## Versioning
 
-All five Rust packages and all TypeScript packages move in **lockstep**. The Rust
-workspace version lives in `Cargo.toml` → `[workspace.package] version` and is
-inherited by publishable crates via `version.workspace = true`, including
+All five crates.io packages and six TypeScript packages move in **lockstep**.
+The Rust workspace version lives in `Cargo.toml` → `[workspace.package] version`
+and is inherited by publishable crates via `version.workspace = true`, including
 `galeon-cli`. npm package versions are kept in sync manually. Internal
 dependencies use exact pins (`=X.Y.Z`) to enforce lockstep.
 
@@ -57,35 +59,37 @@ Run the bump script from the repo root:
 bash scripts/bump-version.sh A.B.C
 ```
 
-This updates Galeon's shared version sources (12 edits across 9 files) after
+This updates Galeon's shared version sources (19 edits across 11 files) after
 verifying the current versions are consistent, and rolls back if verification
 fails. `galeon-cli` inherits the workspace version automatically, so it does not
 need a separate version edit.
 The script supports prerelease and build metadata tags
-(`0.4.0-alpha.1`, `0.4.0-alpha-1+build-7`).
+(`0.5.0-alpha.1`, `0.5.0-alpha-1+build-7`).
 
 The script edits these locations:
 
 1. `Cargo.toml` → `[workspace.package] version = "A.B.C"`
 2. `crates/engine/Cargo.toml` → `galeon-engine-macros = { …, version = "=A.B.C" }`
-3. `crates/engine-terrain/Cargo.toml` → `galeon-engine = { …, version = "=A.B.C" }`
+3. `crates/engine-terrain/Cargo.toml` → `galeon-engine = { …, version = "=A.B.C" }` and its `galeon-engine-three-sync` dev-dependency pin
 4. `crates/engine-three-sync/Cargo.toml` → `galeon-engine = { …, version = "=A.B.C" }`
 5. `packages/runtime/package.json` → `"version": "A.B.C"`
 6. `packages/render-core/package.json` → `"version": "A.B.C"`
 7. `packages/three/package.json` → `"version": "A.B.C"` **and** `"@galeon/render-core": "=A.B.C"`
-8. `packages/r3f/package.json` → `"version": "A.B.C"` **and** exact `@galeon/*` pins
-9. `packages/shell/package.json` → `"version": "A.B.C"`
+8. `packages/picking/package.json` → `"version": "A.B.C"` **and** `"@galeon/three": "=A.B.C"`
+9. `packages/r3f/package.json` → `"version": "A.B.C"` **and** exact `@galeon/*` pins
+10. `packages/shell/package.json` → `"version": "A.B.C"`
+11. `examples/instanced-cubes/package.json` → package version and exact `@galeon/*` pins used by the checked-in example
 
 After running, manually update the changelog:
 
-10. `CHANGELOG.md` → move `## Unreleased` items under `## [A.B.C]`
+12. `CHANGELOG.md` → move `## Unreleased` items under `## [A.B.C]`
 
 ## Path dependencies and versions (Rust)
 
 Workspace crates use **path + pinned version**:
 
 ```toml
-galeon-engine-macros = { path = "../engine-macros", version = "=0.4.0" }
+galeon-engine-macros = { path = "../engine-macros", version = "=0.5.0" }
 ```
 
 Cargo strips `path` for published tarballs.
@@ -116,6 +120,7 @@ bunx tsc --build                           # Build JS + declarations
 npm pack --dry-run --workspace=packages/runtime
 npm pack --dry-run --workspace=packages/render-core
 npm pack --dry-run --workspace=packages/three
+npm pack --dry-run --workspace=packages/picking
 npm pack --dry-run --workspace=packages/r3f
 npm pack --dry-run --workspace=packages/shell
 ```
@@ -163,6 +168,7 @@ npm login
 cd packages/runtime    && npm publish --access public && cd ../..
 cd packages/render-core && npm publish --access public && cd ../..
 cd packages/three      && npm publish --access public && cd ../..
+cd packages/picking    && npm publish --access public && cd ../..
 cd packages/r3f        && npm publish --access public && cd ../..
 cd packages/shell      && npm publish --access public && cd ../..
 ```
@@ -194,14 +200,15 @@ OIDC provenance from GitHub Actions — no token needed.
 
 ## Consumer guidance
 
-Galeon is pre-1.0. All ten published artifacts move in lockstep &mdash; pick a
+Galeon is pre-1.0. All eleven published artifacts move in lockstep &mdash; pick a
 minor version and pin to it. Read the [changelog](../../CHANGELOG.md) on each
 upgrade.
 
 - Core engine crates are published and intended for evaluation and early use.
 - `galeon-cli` is the supported install surface for scaffolding and codegen.
-- `@galeon/render-core`, `@galeon/three`, and `@galeon/r3f` are the supported
-  render adapter packages. The legacy `@galeon/engine-ts` compatibility
+- `@galeon/render-core`, `@galeon/three`, `@galeon/picking`, and `@galeon/r3f`
+  are the supported render and picking adapter packages. The legacy
+  `@galeon/engine-ts` compatibility
   re-export package was retired in `0.5.0` (see issue #209); previously
   published versions remain installable on npm but no further releases will
   be cut from this repo.
