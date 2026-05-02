@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test";
 import * as THREE from "three";
 import {
   CHANGED_INSTANCE_GROUP,
+  CHANGED_PARENT,
   CHANGED_TRANSFORM,
   INSTANCE_GROUP_NONE,
   RENDER_CONTRACT_VERSION,
@@ -287,6 +288,101 @@ describe("RendererCache instanced-mesh path (#215 T2)", () => {
     expect(childAfter).toBeDefined();
     expect(cache.instancing.has(100)).toBe(false);
     expect(childAfter!.parent).toBe(parentAfter!);
+  });
+
+  test("parent exiting instancing reattaches children spawned while parent was instanced", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(2, new THREE.BoxGeometry(1, 1, 1));
+    cache.registerMaterial(0, new THREE.MeshBasicMaterial());
+
+    // Frame 1: parent starts in an instanced batch, so no standalone parent
+    // Object3D exists for later children to attach to.
+    const f1 = makePacket({ entity_count: 1 });
+    fillIdentityTransforms(f1);
+    f1.entity_ids[0] = 100;
+    f1.mesh_handles[0] = 2;
+    (f1 as { instance_groups?: Uint32Array }).instance_groups =
+      new Uint32Array([2]);
+    cache.applyFrame(f1);
+
+    expect(cache.instancing.has(100)).toBe(true);
+    expect(cache.getObject(100, 0)).toBeUndefined();
+
+    // Frame 2 (incremental): child spawns with parent_id=100 while the parent
+    // is still instanced. RendererCache records the declared parent but keeps
+    // the child at scene root because the parent object is absent.
+    const f2 = makePacket({ entity_count: 1 });
+    fillIdentityTransforms(f2);
+    f2.entity_ids[0] = 200;
+    f2.mesh_handles[0] = 2;
+    f2.parent_ids[0] = 100;
+    (f2 as { instance_groups?: Uint32Array }).instance_groups =
+      new Uint32Array([INSTANCE_GROUP_NONE]);
+    (f2 as { change_flags?: Uint8Array }).change_flags = new Uint8Array([
+      CHANGED_PARENT | CHANGED_TRANSFORM,
+    ]);
+    cache.applyFrame(f2);
+
+    const childWhileParentInstanced = cache.getObject(200, 0);
+    expect(childWhileParentInstanced).toBeDefined();
+    expect(childWhileParentInstanced!.parent).toBe(scene);
+
+    // Frame 3 (incremental): parent exits instancing; child row is unchanged
+    // and therefore omitted.
+    const f3 = makePacket({ entity_count: 1 });
+    fillIdentityTransforms(f3);
+    f3.entity_ids[0] = 100;
+    f3.mesh_handles[0] = 2;
+    (f3 as { instance_groups?: Uint32Array }).instance_groups =
+      new Uint32Array([INSTANCE_GROUP_NONE]);
+    (f3 as { change_flags?: Uint8Array }).change_flags = new Uint8Array([
+      CHANGED_INSTANCE_GROUP | CHANGED_TRANSFORM,
+    ]);
+    cache.applyFrame(f3);
+
+    const parentAfter = cache.getObject(100, 0);
+    const childAfter = cache.getObject(200, 0);
+    expect(parentAfter).toBeDefined();
+    expect(childAfter).toBeDefined();
+    expect(cache.instancing.has(100)).toBe(false);
+    expect(childAfter!.parent).toBe(parentAfter!);
+  });
+
+  test("full-packet instanced eviction clears missing-handle warning state", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    const originalWarn = console.warn;
+    const warnings: unknown[][] = [];
+    console.warn = (...args: unknown[]): void => {
+      warnings.push(args);
+    };
+
+    try {
+      const f1 = makePacket({ entity_count: 1 });
+      fillIdentityTransforms(f1);
+      f1.entity_ids[0] = 42;
+      f1.mesh_handles[0] = 77;
+      f1.material_handles[0] = 88;
+      (f1 as { instance_groups?: Uint32Array }).instance_groups =
+        new Uint32Array([77]);
+      cache.applyFrame(f1);
+      expect(warnings).toHaveLength(2);
+
+      cache.applyFrame(makePacket({ entity_count: 0 }));
+
+      const f2 = makePacket({ entity_count: 1 });
+      fillIdentityTransforms(f2);
+      f2.entity_ids[0] = 42;
+      f2.mesh_handles[0] = 77;
+      f2.material_handles[0] = 88;
+      (f2 as { instance_groups?: Uint32Array }).instance_groups =
+        new Uint32Array([77]);
+      cache.applyFrame(f2);
+      expect(warnings).toHaveLength(4);
+    } finally {
+      console.warn = originalWarn;
+    }
   });
 
   test("CHANGED_INSTANCE_GROUP migrates entity between batches", () => {

@@ -384,6 +384,8 @@ export class RendererCache {
       for (const id of instancedToRemove) {
         this.instancedMeshes.remove(id);
         this.generations.delete(id);
+        this.warnedMeshes.delete(id);
+        this.warnedMaterials.delete(id);
         this.clearDetachedChildrenHintsForParent(id);
       }
     }
@@ -488,18 +490,24 @@ export class RendererCache {
    * Notifies `onEntityRemoved` so the consumer can dispose resources it owns.
    */
   private restoreDetachedChildren(parentId: number, parentObj: THREE.Object3D): void {
-    const childIdsToRestore: number[] = [];
+    const childIdsToRestore = new Set<number>();
     for (const [childId, hintedParentId] of this.detachedChildrenParentHint) {
-      if (hintedParentId === parentId) childIdsToRestore.push(childId);
+      if (hintedParentId === parentId) childIdsToRestore.add(childId);
     }
-    if (childIdsToRestore.length === 0) return;
+    for (const [childId, currentParentId] of this.parentOf) {
+      if (currentParentId === parentId) childIdsToRestore.add(childId);
+    }
+    if (childIdsToRestore.size === 0) return;
 
     for (const childId of childIdsToRestore) {
       const childObj = this.objects.get(childId);
       if (!childObj) continue;
-      if (this.parentOf.get(childId) !== SCENE_ROOT) continue;
-      childObj.parent?.remove(childObj);
-      parentObj.add(childObj);
+      const currentParentId = this.parentOf.get(childId);
+      if (currentParentId !== SCENE_ROOT && currentParentId !== parentId) continue;
+      if (childObj.parent !== parentObj) {
+        childObj.parent?.remove(childObj);
+        parentObj.add(childObj);
+      }
       this.parentOf.set(childId, parentId);
     }
     for (const childId of childIdsToRestore) {
