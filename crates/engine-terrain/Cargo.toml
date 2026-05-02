@@ -11,3 +11,6 @@ categories = ["game-development"]
 [dependencies]
 galeon-engine = { path = "../engine", version = "=0.4.0" }
 png = { workspace = true }
+
+[dev-dependencies]
+galeon-engine-three-sync = { path = "../engine-three-sync", version = "=0.4.0" }

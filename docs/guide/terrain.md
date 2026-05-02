@@ -34,8 +34,9 @@ in world +X, sample rows move in world +Z, and sample `(0, 0)` is located at
 `height_at(x, z)` bilinearly samples the source grid and returns `None` outside
 the terrain bounds. `normal_at(x, z)` estimates a normal from central
 differences over the same source grid using the same world X/Z convention. This
-query normal is for gameplay and sampling; render mesh normals belong to the
-future mesh builder.
+query normal is for gameplay and sampling. The generated render mesh uses the
+same first-pass finite-difference convention today, but the `TerrainMesh` buffer
+is a render adapter rather than the authoritative data source.
 
 Cloning a `Terrain` shares immutable height storage. `HeightmapPlugin` still
 installs a normal `Terrain` resource, so systems can read `Res<Terrain>` without
@@ -51,10 +52,24 @@ DEM, GeoTIFF, tile streaming, and LOD are intentionally out of scope for this
 engine primitive. Downstream applications can convert those sources into
 authored PNG16 heightmaps before handing data to Galeon.
 
-## Mesh Export Convention
+## Mesh Export
 
-When terrain mesh export is added, it must preserve the same sample mapping:
-world +X maps to source columns and world +Z maps to row-major source rows. The
-mesh contract must document vertex order, winding, and normal direction, and
-must keep generated render normals separate from `normal_at` source-query
-normals.
+`TerrainMesh::from_terrain(&terrain)` generates a CPU-side triangle-list mesh
+from the source samples:
+
+- `positions()`: flat `[x, y, z]` triples, local to the terrain origin.
+- `normals()`: flat `[x, y, z]` triples, pointing toward +Y for flat terrain.
+- `indices()`: `u32` triangle indices with upward-facing winding.
+
+The vertex grid preserves the same sample mapping: world +X maps to source
+columns and world +Z maps to row-major source rows. A terrain with `width *
+height` samples produces `width * height` vertices, or `(quad_count_x + 1) *
+(quad_count_z + 1)`.
+
+`HeightmapPlugin::with_render_mesh(mesh_handle, material_handle)` installs the
+`TerrainMesh` resource and spawns one renderable terrain entity through the
+existing `Transform` + `MeshHandle` + `MaterialHandle` extraction path. The
+spawned entity is positioned at the terrain's X/Z origin. TypeScript consumers
+still own converting `TerrainMesh` data into a Three.js `BufferGeometry` and
+registering it against the chosen mesh handle; the `FramePacket` contract stays
+unchanged.
