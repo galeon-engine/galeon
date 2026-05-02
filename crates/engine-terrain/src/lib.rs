@@ -5,7 +5,9 @@ use std::fmt;
 use std::io::{BufRead, Seek};
 use std::sync::Arc;
 
-use galeon_engine::{Engine, Plugin};
+use galeon_engine::{
+    Engine, MaterialHandle, MeshHandle, ObjectType, Plugin, Transform, Visibility,
+};
 
 /// Heightfield sampled over the X/Z plane.
 ///
@@ -249,6 +251,90 @@ impl Terrain {
     }
 }
 
+/// CPU-side terrain mesh generated from a [`Terrain`] height grid.
+///
+/// Positions and normals are flat `[x, y, z]` arrays. Positions are local to
+/// the terrain origin: X/Z start at `0.0`, while Y stores the sampled height.
+/// The render entity spawned by [`HeightmapPlugin::with_render_mesh`] carries a
+/// transform at the terrain's world X/Z origin.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TerrainMesh {
+    positions: Vec<f32>,
+    normals: Vec<f32>,
+    indices: Vec<u32>,
+}
+
+impl TerrainMesh {
+    /// Generate a triangle mesh from every source height sample.
+    pub fn from_terrain(terrain: &Terrain) -> Self {
+        let [width, height] = terrain.sample_count();
+        let [stride_x, stride_z] = terrain.pixel_stride();
+        let vertex_count = width as usize * height as usize;
+        let quad_count = (width - 1) as usize * (height - 1) as usize;
+        let mut positions = Vec::with_capacity(vertex_count * 3);
+        let mut normals = Vec::with_capacity(vertex_count * 3);
+        let mut indices = Vec::with_capacity(quad_count * 6);
+
+        for z in 0..height {
+            for x in 0..width {
+                let local_x = x as f32 * stride_x;
+                let local_z = z as f32 * stride_z;
+                positions.extend_from_slice(&[local_x, terrain.sample_at(x, z), local_z]);
+
+                let world_x = terrain.origin[0] + local_x;
+                let world_z = terrain.origin[1] + local_z;
+                let normal = terrain
+                    .normal_at(world_x, world_z)
+                    .unwrap_or([0.0, 1.0, 0.0]);
+                normals.extend_from_slice(&normal);
+            }
+        }
+
+        for z in 0..(height - 1) {
+            for x in 0..(width - 1) {
+                let top_left = z * width + x;
+                let top_right = top_left + 1;
+                let bottom_left = top_left + width;
+                let bottom_right = bottom_left + 1;
+                indices.extend_from_slice(&[
+                    top_left,
+                    bottom_left,
+                    top_right,
+                    top_right,
+                    bottom_left,
+                    bottom_right,
+                ]);
+            }
+        }
+
+        Self {
+            positions,
+            normals,
+            indices,
+        }
+    }
+
+    /// Number of generated vertices.
+    pub fn vertex_count(&self) -> usize {
+        self.positions.len() / 3
+    }
+
+    /// Flat `[x, y, z]` vertex positions, local to the terrain origin.
+    pub fn positions(&self) -> &[f32] {
+        &self.positions
+    }
+
+    /// Flat `[x, y, z]` vertex normals.
+    pub fn normals(&self) -> &[f32] {
+        &self.normals
+    }
+
+    /// Triangle index buffer. Winding faces up toward +Y.
+    pub fn indices(&self) -> &[u32] {
+        &self.indices
+    }
+}
+
 /// PNG16 heightmap import options.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Png16HeightmapOptions {
@@ -271,20 +357,66 @@ impl Default for Png16HeightmapOptions {
     }
 }
 
+/// Optional render entity settings for [`HeightmapPlugin`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TerrainRenderSettings {
+    pub mesh_handle: MeshHandle,
+    pub material_handle: MaterialHandle,
+}
+
+impl TerrainRenderSettings {
+    pub fn new(mesh_handle: MeshHandle, material_handle: MaterialHandle) -> Self {
+        Self {
+            mesh_handle,
+            material_handle,
+        }
+    }
+}
+
 /// Plugin that installs a loaded [`Terrain`] resource.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HeightmapPlugin {
     terrain: Terrain,
+    render: Option<TerrainRenderSettings>,
 }
 
 impl HeightmapPlugin {
     pub fn new(terrain: Terrain) -> Self {
-        Self { terrain }
+        Self {
+            terrain,
+            render: None,
+        }
+    }
+
+    /// Also generate a [`TerrainMesh`] resource and spawn one renderable entity.
+    ///
+    /// The spawned entity uses the provided mesh/material handles and a
+    /// transform positioned at the terrain's X/Z origin. Consumers still own
+    /// mapping `mesh_handle` to a Three.js `BufferGeometry`; this method keeps
+    /// the frame packet on the existing renderable-entity channel.
+    pub fn with_render_mesh(
+        mut self,
+        mesh_handle: MeshHandle,
+        material_handle: MaterialHandle,
+    ) -> Self {
+        self.render = Some(TerrainRenderSettings::new(mesh_handle, material_handle));
+        self
     }
 }
 
 impl Plugin for HeightmapPlugin {
     fn build(&self, engine: &mut Engine) {
+        if let Some(render) = self.render {
+            engine.insert_resource(TerrainMesh::from_terrain(&self.terrain));
+            let origin = self.terrain.origin();
+            engine.world_mut().spawn((
+                Transform::from_position(origin[0], 0.0, origin[1]),
+                Visibility { visible: true },
+                render.mesh_handle,
+                render.material_handle,
+                ObjectType::Mesh,
+            ));
+        }
         engine.insert_resource(self.terrain.clone());
     }
 }
@@ -472,6 +604,63 @@ mod tests {
             engine.world().resource::<Terrain>().heights().as_ptr(),
             height_storage
         );
+    }
+
+    #[test]
+    fn terrain_mesh_generates_vertices_normals_and_indices() {
+        let terrain = Terrain::new(
+            [0.0, 0.0],
+            [2.0, 2.0],
+            3,
+            3,
+            vec![
+                0.0, 1.0, 2.0, //
+                1.0, 2.0, 3.0, //
+                2.0, 3.0, 4.0,
+            ],
+        )
+        .unwrap();
+
+        let mesh = TerrainMesh::from_terrain(&terrain);
+
+        assert_eq!(mesh.vertex_count(), (2 + 1) * (2 + 1));
+        assert_eq!(mesh.positions().len(), 9 * 3);
+        assert_eq!(mesh.normals().len(), 9 * 3);
+        assert_eq!(mesh.indices().len(), 2 * 2 * 6);
+        assert_eq!(&mesh.positions()[0..3], &[0.0, 0.0, 0.0]);
+        assert_eq!(&mesh.positions()[24..27], &[2.0, 4.0, 2.0]);
+
+        let expected = [
+            -1.0 / 3.0_f32.sqrt(),
+            1.0 / 3.0_f32.sqrt(),
+            -1.0 / 3.0_f32.sqrt(),
+        ];
+        let center_normal = &mesh.normals()[12..15];
+        for i in 0..3 {
+            assert!((center_normal[i] - expected[i]).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn heightmap_plugin_emits_terrain_render_entity_through_frame_packet() {
+        let terrain = synthetic_4x4();
+        let mut engine = Engine::new();
+
+        engine.add_plugin(
+            HeightmapPlugin::new(terrain)
+                .with_render_mesh(MeshHandle { id: 77 }, MaterialHandle { id: 9 }),
+        );
+
+        let mesh = engine.world().resource::<TerrainMesh>();
+        assert_eq!(mesh.vertex_count(), (4 - 1 + 1) * (4 - 1 + 1));
+
+        let packet = galeon_engine_three_sync::extract_frame(engine.world());
+        assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.mesh_handles[0], 77);
+        assert_eq!(packet.material_handles[0], 9);
+        assert_eq!(packet.transforms[0], 10.0);
+        assert_eq!(packet.transforms[1], 0.0);
+        assert_eq!(packet.transforms[2], 20.0);
     }
 
     #[test]
