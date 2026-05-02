@@ -33,10 +33,15 @@ Package ownership is split by concern:
 - `@galeon/render-core` owns TypeScript contract types, constants, and
   validation guardrails.
 - `@galeon/three` owns the imperative Three.js scene-cache adapter.
-- `@galeon/engine-ts` remains as a compatibility re-export for existing
-  consumers during the transition.
 - `@galeon/r3f` owns the React Three Fiber host adapter. React and R3F stay as
   host-level peer dependencies, not core dependencies.
+
+The original split also kept `@galeon/engine-ts` as a one-minor compatibility
+re-export of the symbols that moved into `@galeon/render-core` and
+`@galeon/three`. That deprecation window closed in `0.5.0` (issue #209) and
+the package is no longer published from this repository — see the
+"Migrating from `@galeon/engine-ts`" section of `docs/guide/three-sync.md`
+for the per-symbol new homes.
 
 The R3F adapter uses React for provider setup, structural entity lifecycle, and
 optional hooks over the current entity set. Hot frame updates are applied by

@@ -99,7 +99,6 @@ INSTALL_ROOT_TOOL="$(normalize_path_for_tool "$INSTALL_ROOT" "$CARGO_BIN")"
 CLI_SOURCE_PATH="$(normalize_path_for_tool "$REPO_ROOT/crates/galeon-cli" "$CARGO_BIN")"
 ENGINE_CRATE_DEP_PATH="$(normalize_file_dep_path "$REPO_ROOT/crates/engine" "$CARGO_BIN")"
 THREE_SYNC_CRATE_DEP_PATH="$(normalize_file_dep_path "$REPO_ROOT/crates/engine-three-sync" "$CARGO_BIN")"
-ENGINE_TS_PACKAGE_DEP_PATH="$(normalize_file_dep_path "$REPO_ROOT/packages/engine-ts" "$BUN_BIN")"
 RUNTIME_PACKAGE_DEP_PATH="$(normalize_file_dep_path "$REPO_ROOT/packages/runtime" "$BUN_BIN")"
 RENDER_CORE_PACKAGE_DEP_PATH="$(normalize_file_dep_path "$REPO_ROOT/packages/render-core" "$BUN_BIN")"
 THREE_PACKAGE_DEP_PATH="$(normalize_file_dep_path "$REPO_ROOT/packages/three" "$BUN_BIN")"
@@ -191,9 +190,12 @@ configure_source_mode_scaffold() {
 
   # Source-installed CLI validation should exercise current repo code, not
   # unreleased registry versions that only exist after a publish step.
+  # Build packages/three (which transitively builds render-core via project
+  # references) so the scaffold's `file:` overrides resolve to real `dist/`
+  # artifacts rather than empty directories.
   pushd "$REPO_ROOT" >/dev/null
   "$BUN_BIN" install
-  "$BUN_BIN" x tsc --build packages/engine-ts/tsconfig.json
+  "$BUN_BIN" x tsc --build packages/three/tsconfig.json
   popd >/dev/null
 
   replace_line_in_file \
@@ -214,22 +216,20 @@ configure_source_mode_scaffold() {
     "galeon-engine-three-sync = { path = \"$THREE_SYNC_CRATE_DEP_PATH\" }"
 
   PACKAGE_JSON="$PROJECT_DIR/package.json" \
-  ENGINE_TS_FILE_DEP="file:$ENGINE_TS_PACKAGE_DEP_PATH" \
   RUNTIME_FILE_DEP="file:$RUNTIME_PACKAGE_DEP_PATH" \
   RENDER_CORE_FILE_DEP="file:$RENDER_CORE_PACKAGE_DEP_PATH" \
   THREE_FILE_DEP="file:$THREE_PACKAGE_DEP_PATH" \
   "$BUN_BIN" -e '
 const fs = require("node:fs");
 const file = process.env.PACKAGE_JSON;
-const engineTs = process.env.ENGINE_TS_FILE_DEP;
 const runtime = process.env.RUNTIME_FILE_DEP;
 const renderCore = process.env.RENDER_CORE_FILE_DEP;
 const three = process.env.THREE_FILE_DEP;
 const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
-pkg.dependencies["@galeon/engine-ts"] = engineTs;
-pkg.dependencies["@galeon/runtime"] = runtime;
-// Bun still resolves exact @galeon/* subdependencies from engine-ts via
-// registry unless the generated starter overrides them locally in source mode.
+pkg.dependencies["@galeon/render-core"] = renderCore;
+pkg.dependencies["@galeon/three"] = three;
+// Pin transitive @galeon/* dependencies so bun resolves them to the local
+// `file:` checkouts rather than the published registry versions.
 pkg.overrides ??= {};
 pkg.overrides["@galeon/runtime"] = runtime;
 pkg.overrides["@galeon/render-core"] = renderCore;
@@ -239,8 +239,6 @@ fs.writeFileSync(file, `${JSON.stringify(pkg, null, 2)}\n`);
 
   assert_file_contains "$PROJECT_DIR/crates/protocol/Cargo.toml" 'galeon-engine = { path = "'
   assert_file_contains "$PROJECT_DIR/crates/client/Cargo.toml" 'galeon-engine-three-sync = { path = "'
-  assert_file_contains "$PROJECT_DIR/package.json" '"@galeon/engine-ts": "file:'
-  assert_file_contains "$PROJECT_DIR/package.json" '"@galeon/runtime": "file:'
   assert_file_contains "$PROJECT_DIR/package.json" '"@galeon/render-core": "file:'
   assert_file_contains "$PROJECT_DIR/package.json" '"@galeon/three": "file:'
   assert_file_contains "$PROJECT_DIR/package.json" '"overrides": {'

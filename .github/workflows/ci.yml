@@ -42,7 +42,9 @@ jobs:
       - run: bun run check
       # Validate npm tarballs for publishable packages.
       - run: npm pack --dry-run --workspace=packages/runtime
-      - run: npm pack --dry-run --workspace=packages/engine-ts
+      - run: npm pack --dry-run --workspace=packages/render-core
+      - run: npm pack --dry-run --workspace=packages/three
+      - run: npm pack --dry-run --workspace=packages/r3f
       - run: npm pack --dry-run --workspace=packages/shell
 
   starter-smoke:
