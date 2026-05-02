@@ -187,23 +187,20 @@ impl Terrain {
     /// taps at the terrain edge.
     pub fn normal_at(&self, x: f32, z: f32) -> Option<[f32; 3]> {
         let [u, v] = self.world_to_grid(x, z)?;
-        let left = self.sample_bilinear((u - 1.0).max(0.0), v);
-        let right = self.sample_bilinear((u + 1.0).min((self.sample_count[0] - 1) as f32), v);
-        let down = self.sample_bilinear(u, (v - 1.0).max(0.0));
-        let up = self.sample_bilinear(u, (v + 1.0).min((self.sample_count[1] - 1) as f32));
+        let max_u = (self.sample_count[0] - 1) as f32;
+        let max_v = (self.sample_count[1] - 1) as f32;
+        let left_u = (u - 1.0).max(0.0);
+        let right_u = (u + 1.0).min(max_u);
+        let down_v = (v - 1.0).max(0.0);
+        let up_v = (v + 1.0).min(max_v);
 
-        let dx = self.pixel_stride[0]
-            * if u <= 0.0 || u >= (self.sample_count[0] - 1) as f32 {
-                1.0
-            } else {
-                2.0
-            };
-        let dz = self.pixel_stride[1]
-            * if v <= 0.0 || v >= (self.sample_count[1] - 1) as f32 {
-                1.0
-            } else {
-                2.0
-            };
+        let left = self.sample_bilinear(left_u, v);
+        let right = self.sample_bilinear(right_u, v);
+        let down = self.sample_bilinear(u, down_v);
+        let up = self.sample_bilinear(u, up_v);
+
+        let dx = (right_u - left_u) * self.pixel_stride[0];
+        let dz = (up_v - down_v) * self.pixel_stride[1];
         let dhdx = (right - left) / dx;
         let dhdz = (up - down) / dz;
         normalize([-dhdx, 1.0, -dhdz])
@@ -436,6 +433,20 @@ mod tests {
         assert!((normal[0] - expected[0]).abs() < 1e-6);
         assert!((normal[1] - expected[1]).abs() < 1e-6);
         assert!((normal[2] - expected[2]).abs() < 1e-6);
+    }
+
+    #[test]
+    fn normal_at_preserves_planar_gradient_near_edges() {
+        let terrain = synthetic_4x4();
+        let interior = terrain.normal_at(11.0, 21.0).unwrap();
+        let near_max_edge = terrain.normal_at(12.9, 22.9).unwrap();
+
+        for i in 0..3 {
+            assert!(
+                (near_max_edge[i] - interior[i]).abs() < 1e-6,
+                "component {i}: expected {interior:?}, got {near_max_edge:?}",
+            );
+        }
     }
 
     #[test]
