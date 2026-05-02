@@ -93,6 +93,34 @@ normalize_file_dep_path() {
   printf '%s\n' "$path"
 }
 
+escape_pwsh_single_quoted() {
+  printf '%s' "$1" | sed "s/'/''/g"
+}
+
+run_galeon_in_project() {
+  if uses_windows_paths "$GALEON_BIN"; then
+    local project_dir_tool
+    local galeon_bin_tool
+    local command
+    local arg
+    local encoded_command
+
+    project_dir_tool="$(normalize_path_for_tool "$PROJECT_DIR" "$GALEON_BIN")"
+    galeon_bin_tool="$(normalize_path_for_tool "$GALEON_BIN" "$GALEON_BIN")"
+    command="\$ProgressPreference = 'SilentlyContinue'; Set-Location -LiteralPath '$(escape_pwsh_single_quoted "$project_dir_tool")'; & '$(escape_pwsh_single_quoted "$galeon_bin_tool")'"
+
+    for arg in "$@"; do
+      command="$command '$(escape_pwsh_single_quoted "$arg")'"
+    done
+
+    encoded_command="$(printf '%s' "$command" | iconv -f UTF-8 -t UTF-16LE | base64 | tr -d '\n')"
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand "$encoded_command"
+    return
+  fi
+
+  (cd "$PROJECT_DIR" && "$GALEON_BIN" "$@")
+}
+
 CARGO_BIN="$(find_tool cargo)"
 BUN_BIN="$(find_tool bun)"
 INSTALL_ROOT_TOOL="$(normalize_path_for_tool "$INSTALL_ROOT" "$CARGO_BIN")"
@@ -145,12 +173,13 @@ replace_line_in_file() {
   local file="$1"
   local prefix="$2"
   local replacement="$3"
+  local file_tool
 
-  FILE="$file" PREFIX="$prefix" REPLACEMENT="$replacement" "$BUN_BIN" -e '
+  file_tool="$(normalize_path_for_tool "$file" "$BUN_BIN")"
+
+  "$BUN_BIN" -e '
 const fs = require("node:fs");
-const file = process.env.FILE;
-const prefix = process.env.PREFIX;
-const replacement = process.env.REPLACEMENT;
+const [file, prefix, replacement] = process.argv.slice(1);
 const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
 let found = false;
 const updated = lines.map((line) => {
@@ -165,22 +194,24 @@ if (!found) {
   process.exit(1);
 }
 fs.writeFileSync(file, `${updated.join("\n").replace(/\n*$/, "\n")}`);
-'
+' "$file_tool" "$prefix" "$replacement"
 }
 
 assert_file_contains() {
   local file="$1"
   local snippet="$2"
+  local file_tool
 
-  FILE="$file" SNIPPET="$snippet" "$BUN_BIN" -e '
+  file_tool="$(normalize_path_for_tool "$file" "$BUN_BIN")"
+
+  "$BUN_BIN" -e '
 const fs = require("node:fs");
-const file = process.env.FILE;
-const snippet = process.env.SNIPPET;
+const [file, snippet] = process.argv.slice(1);
 if (!fs.readFileSync(file, "utf8").includes(snippet)) {
   console.error(`expected ${file} to contain ${snippet}`);
   process.exit(1);
 }
-'
+' "$file_tool" "$snippet"
 }
 
 configure_source_mode_scaffold() {
@@ -215,16 +246,9 @@ configure_source_mode_scaffold() {
     "galeon-engine-three-sync = " \
     "galeon-engine-three-sync = { path = \"$THREE_SYNC_CRATE_DEP_PATH\" }"
 
-  PACKAGE_JSON="$PROJECT_DIR/package.json" \
-  RUNTIME_FILE_DEP="file:$RUNTIME_PACKAGE_DEP_PATH" \
-  RENDER_CORE_FILE_DEP="file:$RENDER_CORE_PACKAGE_DEP_PATH" \
-  THREE_FILE_DEP="file:$THREE_PACKAGE_DEP_PATH" \
   "$BUN_BIN" -e '
 const fs = require("node:fs");
-const file = process.env.PACKAGE_JSON;
-const runtime = process.env.RUNTIME_FILE_DEP;
-const renderCore = process.env.RENDER_CORE_FILE_DEP;
-const three = process.env.THREE_FILE_DEP;
+const [file, runtime, renderCore, three] = process.argv.slice(1);
 const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
 pkg.dependencies["@galeon/render-core"] = renderCore;
 pkg.dependencies["@galeon/three"] = three;
@@ -235,7 +259,11 @@ pkg.overrides["@galeon/runtime"] = runtime;
 pkg.overrides["@galeon/render-core"] = renderCore;
 pkg.overrides["@galeon/three"] = three;
 fs.writeFileSync(file, `${JSON.stringify(pkg, null, 2)}\n`);
-'
+' \
+    "$(normalize_path_for_tool "$PROJECT_DIR/package.json" "$BUN_BIN")" \
+    "file:$RUNTIME_PACKAGE_DEP_PATH" \
+    "file:$RENDER_CORE_PACKAGE_DEP_PATH" \
+    "file:$THREE_PACKAGE_DEP_PATH"
 
   assert_file_contains "$PROJECT_DIR/crates/protocol/Cargo.toml" 'galeon-engine = { path = "'
   assert_file_contains "$PROJECT_DIR/crates/client/Cargo.toml" 'galeon-engine-three-sync = { path = "'
@@ -261,8 +289,9 @@ popd >/dev/null
 
 configure_source_mode_scaffold
 
+run_galeon_in_project generate manifest >/dev/null
+
 pushd "$PROJECT_DIR" >/dev/null
-"$GALEON_BIN" generate manifest >/dev/null
 test -f generated/manifest.json
 "$BUN_BIN" install
 "$BUN_BIN" run check

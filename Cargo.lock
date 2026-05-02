@@ -189,7 +189,7 @@ checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 
 [[package]]
 name = "galeon-cli"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "clap",
  "serde",
@@ -200,7 +200,7 @@ dependencies = [
 
 [[package]]
 name = "galeon-engine"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "galeon-engine-macros",
  "inventory",
@@ -213,7 +213,7 @@ dependencies = [
 
 [[package]]
 name = "galeon-engine-macros"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -223,7 +223,7 @@ dependencies = [
 
 [[package]]
 name = "galeon-engine-terrain"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "galeon-engine",
  "galeon-engine-three-sync",
@@ -232,7 +232,7 @@ dependencies = [
 
 [[package]]
 name = "galeon-engine-three-sync"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "galeon-engine",
  "serde",

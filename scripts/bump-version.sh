@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only OR Commercial
 #
-# bump-version.sh — Update the shared version sources for Galeon's 10 lockstep published artifacts.
+# bump-version.sh — Update the shared version sources for Galeon's 11 lockstep published artifacts.
 #
 # Usage: scripts/bump-version.sh X.Y.Z
 #
 # Validates semver format, checks current versions are consistent,
-# then updates all versioned locations across 9 files. `galeon-cli`
+# then updates all versioned locations across 11 files. `galeon-cli`
 # inherits the workspace version, so it needs no separate bump file.
 # Fails fast on any inconsistency or missing file.
 
@@ -56,7 +56,7 @@ NEW_VERSION="${1:-}"
 if [[ -z "$NEW_VERSION" ]]; then
   echo "Usage: scripts/bump-version.sh X.Y.Z"
   echo ""
-  echo "Updates Galeon's shared version sources (12 edits across 9 files)."
+  echo "Updates Galeon's shared version sources (19 edits across 11 files)."
   exit 1
 fi
 
@@ -79,8 +79,10 @@ THREE_SYNC_CARGO="crates/engine-three-sync/Cargo.toml"
 RUNTIME_PKG="packages/runtime/package.json"
 RENDER_CORE_PKG="packages/render-core/package.json"
 THREE_PKG="packages/three/package.json"
+PICKING_PKG="packages/picking/package.json"
 R3F_PKG="packages/r3f/package.json"
 SHELL_PKG="packages/shell/package.json"
+INSTANCED_CUBES_PKG="examples/instanced-cubes/package.json"
 
 ALL_FILES=(
   "$WORKSPACE_CARGO"
@@ -90,8 +92,10 @@ ALL_FILES=(
   "$RUNTIME_PKG"
   "$RENDER_CORE_PKG"
   "$THREE_PKG"
+  "$PICKING_PKG"
   "$R3F_PKG"
   "$SHELL_PKG"
+  "$INSTANCED_CUBES_PKG"
 )
 
 # ── Check all files exist ───────────────────────────────────────────
@@ -112,17 +116,27 @@ CURRENT=$(sed -n '/\[workspace\.package\]/,/^\[/{s/^version *= *"\(.*\)"/\1/p}' 
 ok "$WORKSPACE_CARGO  workspace.package.version = $CURRENT"
 
 # 2. engine dep on macros
-V_ENGINE_MACROS=$(sed -n 's/^galeon-engine-macros.*version *= *"=\([^"]*\)".*/\1/p' "$ENGINE_CARGO" | strip_cr)
+read_cargo_dep_pin() {
+  local file="$1"
+  local dep="$2"
+  sed -n "s/^${dep}[[:space:]]*=.*version *= *\"=\\([^\"]*\\)\".*/\\1/p" "$file" | strip_cr
+}
+
+V_ENGINE_MACROS=$(read_cargo_dep_pin "$ENGINE_CARGO" "galeon-engine-macros")
 [[ -n "$V_ENGINE_MACROS" ]] || die "Cannot read galeon-engine-macros pin from $ENGINE_CARGO"
 ok "$ENGINE_CARGO  galeon-engine-macros = =$V_ENGINE_MACROS"
 
 # 3. terrain dep on engine
-V_TERRAIN_ENGINE=$(sed -n 's/^galeon-engine.*version *= *"=\([^"]*\)".*/\1/p' "$TERRAIN_CARGO" | strip_cr)
+V_TERRAIN_ENGINE=$(read_cargo_dep_pin "$TERRAIN_CARGO" "galeon-engine")
 [[ -n "$V_TERRAIN_ENGINE" ]] || die "Cannot read galeon-engine pin from $TERRAIN_CARGO"
 ok "$TERRAIN_CARGO  galeon-engine = =$V_TERRAIN_ENGINE"
 
+V_TERRAIN_THREE_SYNC=$(read_cargo_dep_pin "$TERRAIN_CARGO" "galeon-engine-three-sync")
+[[ -n "$V_TERRAIN_THREE_SYNC" ]] || die "Cannot read galeon-engine-three-sync pin from $TERRAIN_CARGO"
+ok "$TERRAIN_CARGO  galeon-engine-three-sync = =$V_TERRAIN_THREE_SYNC"
+
 # 4. three-sync dep on engine
-V_THREE_ENGINE=$(sed -n 's/^galeon-engine.*version *= *"=\([^"]*\)".*/\1/p' "$THREE_SYNC_CARGO" | strip_cr)
+V_THREE_ENGINE=$(read_cargo_dep_pin "$THREE_SYNC_CARGO" "galeon-engine")
 [[ -n "$V_THREE_ENGINE" ]] || die "Cannot read galeon-engine pin from $THREE_SYNC_CARGO"
 ok "$THREE_SYNC_CARGO  galeon-engine = =$V_THREE_ENGINE"
 
@@ -153,9 +167,21 @@ V_THREE_RENDER_CORE=$(read_pkg_dep_pin "$THREE_PKG" "@galeon/render-core")
 [[ -n "$V_THREE_RENDER_CORE" ]] || die "Cannot read @galeon/render-core pin from $THREE_PKG"
 ok "$THREE_PKG  @galeon/render-core = =$V_THREE_RENDER_CORE"
 
+V_PICKING=$(read_pkg_version "$PICKING_PKG")
+[[ -n "$V_PICKING" ]] || die "Cannot read version from $PICKING_PKG"
+ok "$PICKING_PKG  version = $V_PICKING"
+
+V_PICKING_THREE=$(read_pkg_dep_pin "$PICKING_PKG" "@galeon/three")
+[[ -n "$V_PICKING_THREE" ]] || die "Cannot read @galeon/three pin from $PICKING_PKG"
+ok "$PICKING_PKG  @galeon/three = =$V_PICKING_THREE"
+
 V_R3F=$(read_pkg_version "$R3F_PKG")
 [[ -n "$V_R3F" ]] || die "Cannot read version from $R3F_PKG"
 ok "$R3F_PKG  version = $V_R3F"
+
+V_R3F_PICKING=$(read_pkg_dep_pin "$R3F_PKG" "@galeon/picking")
+[[ -n "$V_R3F_PICKING" ]] || die "Cannot read @galeon/picking pin from $R3F_PKG"
+ok "$R3F_PKG  @galeon/picking = =$V_R3F_PICKING"
 
 V_R3F_RENDER_CORE=$(read_pkg_dep_pin "$R3F_PKG" "@galeon/render-core")
 [[ -n "$V_R3F_RENDER_CORE" ]] || die "Cannot read @galeon/render-core pin from $R3F_PKG"
@@ -168,6 +194,18 @@ ok "$R3F_PKG  @galeon/three = =$V_R3F_THREE"
 V_SHELL=$(read_pkg_version "$SHELL_PKG")
 [[ -n "$V_SHELL" ]] || die "Cannot read version from $SHELL_PKG"
 ok "$SHELL_PKG  version = $V_SHELL"
+
+V_INSTANCED_CUBES_RENDER_CORE=$(read_pkg_dep_pin "$INSTANCED_CUBES_PKG" "@galeon/render-core")
+[[ -n "$V_INSTANCED_CUBES_RENDER_CORE" ]] || die "Cannot read @galeon/render-core pin from $INSTANCED_CUBES_PKG"
+ok "$INSTANCED_CUBES_PKG  @galeon/render-core = =$V_INSTANCED_CUBES_RENDER_CORE"
+
+V_INSTANCED_CUBES=$(read_pkg_version "$INSTANCED_CUBES_PKG")
+[[ -n "$V_INSTANCED_CUBES" ]] || die "Cannot read version from $INSTANCED_CUBES_PKG"
+ok "$INSTANCED_CUBES_PKG  version = $V_INSTANCED_CUBES"
+
+V_INSTANCED_CUBES_THREE=$(read_pkg_dep_pin "$INSTANCED_CUBES_PKG" "@galeon/three")
+[[ -n "$V_INSTANCED_CUBES_THREE" ]] || die "Cannot read @galeon/three pin from $INSTANCED_CUBES_PKG"
+ok "$INSTANCED_CUBES_PKG  @galeon/three = =$V_INSTANCED_CUBES_THREE"
 echo ""
 
 # ── Consistency check ────────────────────────────────────────────────
@@ -177,15 +215,22 @@ ALL_VERSIONS=(
   "$CURRENT"
   "$V_ENGINE_MACROS"
   "$V_TERRAIN_ENGINE"
+  "$V_TERRAIN_THREE_SYNC"
   "$V_THREE_ENGINE"
   "$V_RUNTIME"
   "$V_RENDER_CORE"
   "$V_THREE"
   "$V_THREE_RENDER_CORE"
+  "$V_PICKING"
+  "$V_PICKING_THREE"
   "$V_R3F"
+  "$V_R3F_PICKING"
   "$V_R3F_RENDER_CORE"
   "$V_R3F_THREE"
   "$V_SHELL"
+  "$V_INSTANCED_CUBES"
+  "$V_INSTANCED_CUBES_RENDER_CORE"
+  "$V_INSTANCED_CUBES_THREE"
 )
 
 for v in "${ALL_VERSIONS[@]}"; do
@@ -193,7 +238,7 @@ for v in "${ALL_VERSIONS[@]}"; do
     die "Version mismatch! Expected all to be '$CURRENT' but found '$v'. Fix manually before bumping."
   fi
 done
-ok "All 12 locations currently at $CURRENT"
+ok "All 19 locations currently at $CURRENT"
 echo ""
 
 # ── No-op check ─────────────────────────────────────────────────────
@@ -246,15 +291,27 @@ sed -i "s/\"version\": \"$OLD_ESC\"/\"version\": \"$NEW_VERSION\"/" "$THREE_PKG"
 sed -i "s/\"@galeon\/render-core\": \"=$OLD_ESC\"/\"@galeon\/render-core\": \"=$NEW_VERSION\"/" "$THREE_PKG"
 ok "$THREE_PKG"
 
-# 8. r3f package.json (version + internal deps)
+# 8. picking package.json (version + three dep)
+sed -i "s/\"version\": \"$OLD_ESC\"/\"version\": \"$NEW_VERSION\"/" "$PICKING_PKG"
+sed -i "s/\"@galeon\/three\": \"=$OLD_ESC\"/\"@galeon\/three\": \"=$NEW_VERSION\"/" "$PICKING_PKG"
+ok "$PICKING_PKG"
+
+# 9. r3f package.json (version + internal deps)
 sed -i "s/\"version\": \"$OLD_ESC\"/\"version\": \"$NEW_VERSION\"/" "$R3F_PKG"
+sed -i "s/\"@galeon\/picking\": \"=$OLD_ESC\"/\"@galeon\/picking\": \"=$NEW_VERSION\"/" "$R3F_PKG"
 sed -i "s/\"@galeon\/render-core\": \"=$OLD_ESC\"/\"@galeon\/render-core\": \"=$NEW_VERSION\"/" "$R3F_PKG"
 sed -i "s/\"@galeon\/three\": \"=$OLD_ESC\"/\"@galeon\/three\": \"=$NEW_VERSION\"/" "$R3F_PKG"
 ok "$R3F_PKG"
 
-# 9. shell package.json
+# 10. shell package.json
 sed -i "s/\"version\": \"$OLD_ESC\"/\"version\": \"$NEW_VERSION\"/" "$SHELL_PKG"
 ok "$SHELL_PKG"
+
+# 11. example package.json internal deps
+sed -i "s/\"version\": \"$OLD_ESC\"/\"version\": \"$NEW_VERSION\"/" "$INSTANCED_CUBES_PKG"
+sed -i "s/\"@galeon\/render-core\": \"=$OLD_ESC\"/\"@galeon\/render-core\": \"=$NEW_VERSION\"/" "$INSTANCED_CUBES_PKG"
+sed -i "s/\"@galeon\/three\": \"=$OLD_ESC\"/\"@galeon\/three\": \"=$NEW_VERSION\"/" "$INSTANCED_CUBES_PKG"
+ok "$INSTANCED_CUBES_PKG"
 
 echo ""
 
@@ -276,15 +333,22 @@ verify() {
 verify "$WORKSPACE_CARGO"   "version = \"$NEW_VERSION\""            "workspace version"
 verify "$ENGINE_CARGO"       "version = \"=$NEW_VERSION\""           "macros pin"
 verify "$TERRAIN_CARGO"      "version = \"=$NEW_VERSION\""           "engine pin"
+verify "$TERRAIN_CARGO"      "galeon-engine-three-sync = { path = \"../engine-three-sync\", version = \"=$NEW_VERSION\" }" "three-sync pin"
 verify "$THREE_SYNC_CARGO"   "version = \"=$NEW_VERSION\""           "engine pin"
 verify "$RUNTIME_PKG"        "\"version\": \"$NEW_VERSION\""         "runtime version"
 verify "$RENDER_CORE_PKG"    "\"version\": \"$NEW_VERSION\""         "render-core version"
 verify "$THREE_PKG"          "\"version\": \"$NEW_VERSION\""         "three version"
 verify "$THREE_PKG"          "\"@galeon/render-core\": \"=$NEW_VERSION\"" "three render-core pin"
+verify "$PICKING_PKG"        "\"version\": \"$NEW_VERSION\""         "picking version"
+verify "$PICKING_PKG"        "\"@galeon/three\": \"=$NEW_VERSION\""  "picking three pin"
 verify "$R3F_PKG"            "\"version\": \"$NEW_VERSION\""         "r3f version"
+verify "$R3F_PKG"            "\"@galeon/picking\": \"=$NEW_VERSION\"" "r3f picking pin"
 verify "$R3F_PKG"            "\"@galeon/render-core\": \"=$NEW_VERSION\"" "r3f render-core pin"
 verify "$R3F_PKG"            "\"@galeon/three\": \"=$NEW_VERSION\""  "r3f three pin"
 verify "$SHELL_PKG"          "\"version\": \"$NEW_VERSION\""         "shell version"
+verify "$INSTANCED_CUBES_PKG" "\"version\": \"$NEW_VERSION\"" "instanced-cubes version"
+verify "$INSTANCED_CUBES_PKG" "\"@galeon/render-core\": \"=$NEW_VERSION\"" "instanced-cubes render-core pin"
+verify "$INSTANCED_CUBES_PKG" "\"@galeon/three\": \"=$NEW_VERSION\"" "instanced-cubes three pin"
 
 if [[ $ERRORS -gt 0 ]]; then
   die "$ERRORS verification(s) failed. Check the files manually."
@@ -293,7 +357,7 @@ fi
 ROLLBACK_NEEDED=0
 
 echo ""
-echo "Done. All 12 locations updated to $NEW_VERSION."
+echo "Done. All 19 locations updated to $NEW_VERSION."
 echo ""
 echo "Next steps:"
 echo "  1. Update CHANGELOG.md (move Unreleased items under ## [$NEW_VERSION])"

@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to verify (e.g. 0.4.0). Skips publish, runs verification only.'
+        description: 'Version to verify (e.g. 0.5.0). Skips publish, runs verification only.'
         required: true
 
 jobs:
@@ -210,6 +210,16 @@ jobs:
           cd packages/three
           npm publish --access public --tag "$NPM_DIST_TAG" --provenance
 
+      - name: Publish @galeon/picking
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if npm view "@galeon/picking@${version}" version >/dev/null 2>&1; then
+            echo "@galeon/picking@${version} already published; skipping."
+            exit 0
+          fi
+          cd packages/picking
+          npm publish --access public --tag "$NPM_DIST_TAG" --provenance
+
       - name: Publish @galeon/r3f
         run: |
           version="${GITHUB_REF_NAME#v}"
@@ -324,9 +334,10 @@ jobs:
             "@galeon/runtime@${VERSION}" \
             "@galeon/render-core@${VERSION}" \
             "@galeon/three@${VERSION}" \
+            "@galeon/picking@${VERSION}" \
             "@galeon/r3f@${VERSION}" \
             "@galeon/shell@${VERSION}"
-          node -e "Promise.all(['@galeon/runtime','@galeon/render-core','@galeon/three','@galeon/r3f','@galeon/shell'].map((pkg) => import(pkg))).then(() => console.log('@galeon npm packages OK'))"
+          node -e "Promise.all(['@galeon/runtime','@galeon/render-core','@galeon/three','@galeon/picking','@galeon/r3f','@galeon/shell'].map((pkg) => import(pkg))).then(() => console.log('@galeon npm packages OK'))"
 
       - name: Verify CLI — installed binary starter bootstrap
         run: |
