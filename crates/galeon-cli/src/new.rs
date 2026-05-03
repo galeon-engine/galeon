@@ -452,11 +452,28 @@ mod template_dep_tests {
     /// the workspace root) and asserts the build-script-generated constant
     /// agrees. Catches build-script bugs and any future accidental decoupling
     /// of the scaffold pin from the engine package.
+    ///
+    /// In published-tarball test contexts (downstream packagers / distros
+    /// running `cargo test` against the unpacked crate from crates.io) the
+    /// engine manifest is not present — `build.rs` falls back to
+    /// `CARGO_PKG_VERSION` there, and there is nothing for this test to
+    /// validate against. The test no-ops in that case so the published
+    /// `galeon-cli` tarball remains testable outside the monorepo.
     #[test]
     fn published_constant_matches_engine_package_manifest() {
         let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let engine_manifest = manifest_dir.join("..").join("engine").join("Cargo.toml");
         let workspace_manifest = manifest_dir.join("..").join("..").join("Cargo.toml");
+
+        if !engine_manifest.exists() {
+            eprintln!(
+                "skipping published_constant_matches_engine_package_manifest: {} \
+                 not present (published-tarball context); build.rs falls back to \
+                 CARGO_PKG_VERSION here",
+                engine_manifest.display()
+            );
+            return;
+        }
 
         let engine_text = std::fs::read_to_string(&engine_manifest)
             .unwrap_or_else(|e| panic!("read {} failed: {e}", engine_manifest.display()));
