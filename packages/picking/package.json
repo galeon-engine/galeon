@@ -1,6 +1,6 @@
 {
   "name": "@galeon/picking",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Mouse picking and drag-rectangle selection helper for Galeon scenes",
   "type": "module",
   "main": "dist/index.js",
@@ -25,7 +25,7 @@
     "prepublishOnly": "tsc --build"
   },
   "dependencies": {
-    "@galeon/three": "=0.5.0",
+    "@galeon/three": "=0.5.1",
     "three": "^0.183.2"
   },
   "devDependencies": {
