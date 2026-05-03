@@ -1,6 +1,6 @@
 {
   "name": "@galeon/example-instanced-cubes",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "description": "5000-cube benchmark exercising the GPU-instanced render path",
   "type": "module",
@@ -10,8 +10,8 @@
     "start": "bun build src/main.ts --outdir=dist --target=browser --format=esm --watch"
   },
   "dependencies": {
-    "@galeon/render-core": "=0.5.0",
-    "@galeon/three": "=0.5.0",
+    "@galeon/render-core": "=0.5.1",
+    "@galeon/three": "=0.5.1",
     "three": "^0.183.2"
   },
   "devDependencies": {
