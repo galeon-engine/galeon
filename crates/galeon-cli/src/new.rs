@@ -445,4 +445,79 @@ mod template_dep_tests {
             "galeon.toml should record the CLI major.minor engine line"
         );
     }
+
+    /// Defense-in-depth guard against the failure mode in #246: independently
+    /// re-derives the `galeon-engine` package's effective major.minor from
+    /// `crates/engine/Cargo.toml` (resolving `version.workspace = true` against
+    /// the workspace root) and asserts the build-script-generated constant
+    /// agrees. Catches build-script bugs and any future accidental decoupling
+    /// of the scaffold pin from the engine package.
+    #[test]
+    fn published_constant_matches_engine_package_manifest() {
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let engine_manifest = manifest_dir.join("..").join("engine").join("Cargo.toml");
+        let workspace_manifest = manifest_dir.join("..").join("..").join("Cargo.toml");
+
+        let engine_text = std::fs::read_to_string(&engine_manifest)
+            .unwrap_or_else(|e| panic!("read {} failed: {e}", engine_manifest.display()));
+        let engine_toml: toml::Value = toml::from_str(&engine_text)
+            .unwrap_or_else(|e| panic!("parse {} failed: {e}", engine_manifest.display()));
+        let version_field = engine_toml
+            .get("package")
+            .and_then(|p| p.get("version"))
+            .unwrap_or_else(|| {
+                panic!(
+                    "{} is missing `[package].version`",
+                    engine_manifest.display()
+                )
+            });
+
+        let resolved_version = if let Some(literal) = version_field.as_str() {
+            literal.to_owned()
+        } else {
+            let inherits_workspace = version_field
+                .as_table()
+                .and_then(|t| t.get("workspace"))
+                .and_then(|w| w.as_bool())
+                .unwrap_or(false);
+            assert!(
+                inherits_workspace,
+                "unsupported `[package].version` form in {}: expected a string literal \
+                 or `version.workspace = true`",
+                engine_manifest.display()
+            );
+            let workspace_text = std::fs::read_to_string(&workspace_manifest)
+                .unwrap_or_else(|e| panic!("read {} failed: {e}", workspace_manifest.display()));
+            let workspace_toml: toml::Value = toml::from_str(&workspace_text)
+                .unwrap_or_else(|e| panic!("parse {} failed: {e}", workspace_manifest.display()));
+            workspace_toml
+                .get("workspace")
+                .and_then(|w| w.get("package"))
+                .and_then(|p| p.get("version"))
+                .and_then(|v| v.as_str())
+                .map(str::to_owned)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "{} is missing `[workspace.package].version`",
+                        workspace_manifest.display()
+                    )
+                })
+        };
+
+        let mut parts = resolved_version.split('.');
+        let major = parts.next().expect("major component");
+        let minor = parts.next().expect("minor component");
+        let expected = format!("{major}.{minor}");
+
+        assert_eq!(
+            templates::PUBLISHED_GALEON_ENGINE_VERSION,
+            expected,
+            "PUBLISHED_GALEON_ENGINE_VERSION (build.rs output) is `{}`, but the \
+             `galeon-engine` package in {} resolves to `{expected}`. Inspect \
+             `crates/galeon-cli/build.rs` and confirm `cargo:rerun-if-changed` \
+             covers both manifests.",
+            templates::PUBLISHED_GALEON_ENGINE_VERSION,
+            engine_manifest.display(),
+        );
+    }
 }

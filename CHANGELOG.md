@@ -7,6 +7,19 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **CLI scaffold engine pin auto-tracks engine package (#246)** —
+  `crates/galeon-cli/build.rs` now derives `PUBLISHED_GALEON_ENGINE_VERSION`
+  from `crates/engine/Cargo.toml` at build time (resolving
+  `version.workspace = true` against the workspace root). The constant is the
+  single source of truth for the major.minor pin emitted into scaffolded
+  `Cargo.toml` files (`galeon-engine = "X.Y"`), so it can no longer drift from
+  the engine package the CLI ships alongside. A new `template_dep_tests`
+  guard re-derives the engine major.minor independently and asserts equality
+  with the build-script output, catching build-script bugs and any future
+  accidental decoupling.
+
 ## [0.5.0] - 2026-05-02
 
 ### Added
