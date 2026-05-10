@@ -8,7 +8,7 @@ import {
   type RendererHostClock,
 } from "../src/index.js";
 
-class ManualClock implements RendererHostClock {
+class ManualClock implements RendererHostClock<number> {
   private callbacks = new Map<number, (timeMs: number) => void>();
   private nextHandle = 1;
 
@@ -18,8 +18,8 @@ class ManualClock implements RendererHostClock {
     return handle;
   }
 
-  cancelFrame(handle: unknown): void {
-    this.callbacks.delete(handle as number);
+  cancelFrame(handle: number): void {
+    this.callbacks.delete(handle);
   }
 
   flush(timeMs: number): void {
@@ -29,12 +29,17 @@ class ManualClock implements RendererHostClock {
       callback(timeMs);
     }
   }
+
+  pendingCount(): number {
+    return this.callbacks.size;
+  }
 }
 
 function makeRenderer() {
   const calls = {
     render: 0,
     dispose: 0,
+    setSize: 0,
   };
   return {
     calls,
@@ -45,6 +50,9 @@ function makeRenderer() {
       },
       dispose: () => {
         calls.dispose += 1;
+      },
+      setSize: () => {
+        calls.setSize += 1;
       },
     },
   };
@@ -88,6 +96,155 @@ describe("RendererHost", () => {
     expect(host.isRunning).toBe(false);
     expect(host.frameCount).toBe(0);
     expect(calls.render).toBe(0);
+    expect(calls.dispose).toBe(1);
+  });
+
+  test("dispose during onFrame does not render or reschedule", () => {
+    const clock = new ManualClock();
+    const { calls, renderer } = makeRenderer();
+    let host!: RendererHost<typeof renderer, number>;
+    host = new RendererHost({
+      adapter: createThreeRendererHostAdapter("webgl", renderer),
+      clock,
+      onFrame: () => {
+        host.dispose();
+      },
+    });
+
+    host.start();
+    clock.flush(5);
+    clock.flush(10);
+
+    expect(host.isRunning).toBe(false);
+    expect(host.frameCount).toBe(1);
+    expect(clock.pendingCount()).toBe(0);
+    expect(calls.render).toBe(0);
+    expect(calls.dispose).toBe(1);
+  });
+
+  test("reports onFrame errors and keeps the loop running", () => {
+    const clock = new ManualClock();
+    const { calls, renderer } = makeRenderer();
+    const failure = new Error("frame failure");
+    const errors: Array<{
+      error: unknown;
+      phase: string;
+      frameCount: number;
+      backend: string;
+    }> = [];
+
+    const host = new RendererHost({
+      adapter: createThreeRendererHostAdapter("webgpu", renderer),
+      clock,
+      onFrame: () => {
+        throw failure;
+      },
+      onError: (error, context) => {
+        errors.push({
+          error,
+          phase: context.phase,
+          frameCount: context.frameCount,
+          backend: context.backend,
+        });
+      },
+    });
+
+    host.start();
+    clock.flush(0);
+    clock.flush(16);
+    host.stop();
+
+    expect(host.frameCount).toBe(2);
+    expect(calls.render).toBe(2);
+    expect(errors).toEqual([
+      { error: failure, phase: "onFrame", frameCount: 1, backend: "webgpu" },
+      { error: failure, phase: "onFrame", frameCount: 2, backend: "webgpu" },
+    ]);
+  });
+
+  test("reports render errors and keeps the loop running", () => {
+    const clock = new ManualClock();
+    const { renderer } = makeRenderer();
+    const failure = new Error("render failure");
+    renderer.render = () => {
+      throw failure;
+    };
+    const errors: Array<{
+      error: unknown;
+      phase: string;
+      frameCount: number;
+    }> = [];
+
+    const host = new RendererHost({
+      adapter: createThreeRendererHostAdapter("webgl", renderer),
+      clock,
+      onError: (error, context) => {
+        errors.push({
+          error,
+          phase: context.phase,
+          frameCount: context.frameCount,
+        });
+      },
+    });
+
+    host.start();
+    clock.flush(0);
+    clock.flush(16);
+
+    expect(host.isRunning).toBe(true);
+    expect(host.frameCount).toBe(2);
+    expect(errors).toEqual([
+      { error: failure, phase: "render", frameCount: 1 },
+      { error: failure, phase: "render", frameCount: 2 },
+    ]);
+
+    host.stop();
+  });
+
+  test("start wires setAnimationLoop callback and stop clears it", () => {
+    const clock = new ManualClock();
+    const { calls, renderer } = makeRenderer();
+    const callbacks: Array<((timeMs: number) => void) | null> = [];
+
+    const host = new RendererHost({
+      adapter: createThreeRendererHostAdapter("webgl", {
+        ...renderer,
+        setAnimationLoop: (callback) => {
+          callbacks.push(callback);
+        },
+      }),
+      clock,
+    });
+
+    host.start();
+    expect(callbacks).toHaveLength(1);
+    expect(typeof callbacks[0]).toBe("function");
+    callbacks[0]?.(0);
+
+    expect(host.frameCount).toBe(1);
+    expect(calls.render).toBe(1);
+
+    host.stop();
+    expect(callbacks).toHaveLength(2);
+    expect(callbacks[1]).toBeNull();
+  });
+
+  test("post-dispose APIs that require active lifecycle throw", () => {
+    const clock = new ManualClock();
+    const { calls, renderer } = makeRenderer();
+    const host = new RendererHost({
+      adapter: createThreeRendererHostAdapter("webgpu", renderer),
+      clock,
+    });
+
+    host.dispose();
+
+    expect(() => host.start()).toThrow("RendererHost has been disposed");
+    expect(() => host.render()).toThrow("RendererHost has been disposed");
+    expect(() => host.setSize(320, 200)).toThrow(
+      "RendererHost has been disposed",
+    );
+    expect(calls.setSize).toBe(0);
     expect(calls.dispose).toBe(1);
   });
 });

@@ -9,7 +9,7 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **Renderer runtime lifecycle primitives (#252 / T1-T2)** —
+- **Renderer runtime lifecycle primitives (issue #252, tasks T1-T2)** —
   `@galeon/three` now exports `RendererHost`, a backend-aware renderer/canvas
   lifecycle owner that keeps renderer identity stable across normal UI state
   changes. `@galeon/render-core` now exports `StateInterpolationBuffer` and

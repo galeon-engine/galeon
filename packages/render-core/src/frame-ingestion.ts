@@ -2,13 +2,16 @@
 
 import {
   CHANGED_TRANSFORM,
+  FramePacketContractError,
   TRANSFORM_STRIDE,
   assertFramePacketContract,
   hasIncrementalChangeFlags,
+  isIncrementalFramePacket,
   type FramePacketView,
 } from "./index.js";
 
-export type StableRenderId = string | number;
+/** String key used to correlate render samples over time. */
+export type StableRenderId = string;
 
 export interface TimedState<T> {
   readonly timeMs: number;
@@ -42,10 +45,20 @@ export class StateInterpolationBuffer<K extends StableRenderId, T> {
 
   push(key: K, timeMs: number, value: T): void {
     const history = this.states.get(key) ?? [];
-    history.push({ timeMs, value });
-    history.sort((a, b) => a.timeMs - b.timeMs);
-    this.pruneHistory(history, timeMs - this.maxHistoryMs);
+    const sample = { timeMs, value };
+    const last = history[history.length - 1];
+    if (last === undefined || timeMs >= last.timeMs) {
+      history.push(sample);
+    } else {
+      history.splice(this.findInsertionIndex(history, timeMs), 0, sample);
+    }
+    const latestTimeMs = history[history.length - 1]!.timeMs;
+    this.pruneHistory(history, latestTimeMs - this.maxHistoryMs);
     this.states.set(key, history);
+  }
+
+  has(key: K): boolean {
+    return this.states.has(key);
   }
 
   sample(key: K, timeMs: number): T | undefined {
@@ -101,9 +114,34 @@ export class StateInterpolationBuffer<K extends StableRenderId, T> {
     return this.states.keys();
   }
 
+  private findInsertionIndex(history: TimedState<T>[], timeMs: number): number {
+    let low = 0;
+    let high = history.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (history[middle]!.timeMs <= timeMs) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+    return low;
+  }
+
+  /**
+   * Keep at least two samples so interpolation remains stable while trimming
+   * entries older than the retention window.
+   */
   private pruneHistory(history: TimedState<T>[], minTimeMs: number): void {
-    while (history.length > 2 && history[1]!.timeMs < minTimeMs) {
-      history.shift();
+    let pruneCount = 0;
+    while (
+      history.length - pruneCount > 2 &&
+      history[pruneCount + 1]!.timeMs < minTimeMs
+    ) {
+      pruneCount++;
+    }
+    if (pruneCount > 0) {
+      history.splice(0, pruneCount);
     }
   }
 }
@@ -122,8 +160,11 @@ export interface TransformState {
 }
 
 export interface TransformFrameSample {
+  /** Canonical stable id, derived from `entityId:generation`. */
   readonly key: string;
+  /** Source entity id from the authoritative frame packet. */
   readonly entityId: number;
+  /** Generation paired with `entityId`; together they derive `key`. */
   readonly generation: number;
   readonly visible: boolean;
   readonly transform: TransformState;
@@ -184,45 +225,70 @@ export class TransformFrameIngestion {
   ingestFrame(packet: FramePacketView, receivedAtMs = this.now()): void {
     assertFramePacketContract(packet);
 
-    const isIncremental = hasIncrementalChangeFlags(packet);
+    const isIncremental = isIncrementalFramePacket(packet);
+    const hasRowFlags = hasIncrementalChangeFlags(packet);
+    const flags = packet.change_flags;
     const activeKeys = new Set<string>();
+    const nextEntities = new Map<string, TrackedEntity>();
+    for (const [key, entity] of this.entities) {
+      nextEntities.set(key, { ...entity });
+    }
+
+    const stagedTransforms: Array<{
+      readonly key: string;
+      readonly transform: TransformState;
+    }> = [];
+    const stagedTransformKeys = new Set<string>();
+
     for (let i = 0; i < packet.entity_count; i++) {
       const entityId = packet.entity_ids[i]!;
       const generation = packet.entity_generations[i]!;
       const key = frameEntityKey(entityId, generation);
       activeKeys.add(key);
 
-      const tracked = this.entities.get(key) ?? {
+      const tracked = nextEntities.get(key) ?? {
         entityId,
         generation,
         visible: true,
       };
       tracked.visible = packet.visibility[i]! === 1;
-      this.entities.set(key, tracked);
+      nextEntities.set(key, tracked);
 
-      const flags = packet.change_flags;
+      const rowFlags = flags?.[i] ?? 0;
       const changedTransform =
         !isIncremental ||
-        flags === undefined ||
-        (flags[i]! & CHANGED_TRANSFORM) !== 0 ||
-        this.transforms.sample(key, receivedAtMs) === undefined;
+        (hasRowFlags && (rowFlags & CHANGED_TRANSFORM) !== 0) ||
+        stagedTransformKeys.has(key) ||
+        !this.transforms.has(key);
       if (changedTransform) {
-        this.transforms.push(
+        stagedTransforms.push({
           key,
-          receivedAtMs,
-          transformStateFromPacket(packet, i),
-        );
+          transform: transformStateFromPacket(packet, i),
+        });
+        stagedTransformKeys.add(key);
       }
     }
 
+    const removedKeys: string[] = [];
     if (!isIncremental) {
-      for (const key of Array.from(this.entities.keys())) {
+      for (const key of nextEntities.keys()) {
         if (activeKeys.has(key)) {
           continue;
         }
-        this.entities.delete(key);
-        this.transforms.delete(key);
+        removedKeys.push(key);
+        nextEntities.delete(key);
       }
+    }
+
+    this.entities.clear();
+    for (const [key, entity] of nextEntities) {
+      this.entities.set(key, entity);
+    }
+    for (const key of removedKeys) {
+      this.transforms.delete(key);
+    }
+    for (const update of stagedTransforms) {
+      this.transforms.push(update.key, receivedAtMs, update.transform);
     }
   }
 
@@ -266,7 +332,7 @@ export function transformStateFromPacket(
   index: number,
 ): TransformState {
   const offset = index * TRANSFORM_STRIDE;
-  return {
+  const transform: TransformState = {
     x: packet.transforms[offset]!,
     y: packet.transforms[offset + 1]!,
     z: packet.transforms[offset + 2]!,
@@ -278,6 +344,8 @@ export function transformStateFromPacket(
     sy: packet.transforms[offset + 8]!,
     sz: packet.transforms[offset + 9]!,
   };
+  assertFiniteTransform(transform, index);
+  return transform;
 }
 
 function lerp(from: number, to: number, alpha: number): number {
@@ -298,6 +366,8 @@ function lerpQuaternion(
     from.qy * to.qy +
     from.qz * to.qz +
     from.qw * to.qw;
+  // Quaternion q and -q encode the same rotation. Flip sign on negative dot
+  // so interpolation follows the shortest arc and avoids visible inversion.
   const sign = dot < 0 ? -1 : 1;
   return {
     qx: lerp(from.qx, to.qx * sign, alpha),
@@ -305,6 +375,16 @@ function lerpQuaternion(
     qz: lerp(from.qz, to.qz * sign, alpha),
     qw: lerp(from.qw, to.qw * sign, alpha),
   };
+}
+
+function assertFiniteTransform(transform: TransformState, index: number): void {
+  for (const [field, value] of Object.entries(transform)) {
+    if (!Number.isFinite(value)) {
+      throw new FramePacketContractError(
+        `transforms[${index}] has non-finite ${field}: ${value}`,
+      );
+    }
+  }
 }
 
 function normalizeQuaternion(

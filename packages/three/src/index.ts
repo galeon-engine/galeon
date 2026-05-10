@@ -13,8 +13,12 @@ export {
   type RendererHostAdapter,
   type RendererHostBackend,
   type RendererHostClock,
+  type RendererHostErrorContext,
+  type RendererHostErrorHandler,
+  type RendererHostErrorPhase,
   type RendererHostFrame,
   type RendererHostOptions,
+  type RendererHostRenderer,
 } from "./renderer-host.js";
 
 export {

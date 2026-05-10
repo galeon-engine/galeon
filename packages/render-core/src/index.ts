@@ -62,7 +62,12 @@ export interface FramePacketView {
   readonly material_handles: Uint32Array;
   /** Parent entity indices. `SCENE_ROOT` (0xFFFFFFFF) = child of scene root. */
   readonly parent_ids: Uint32Array;
-  /** Set for incremental extraction; omit or empty for full frames (all fields apply). */
+  /**
+   * Set by incremental extraction. May be empty when an incremental tick has
+   * no changed entities.
+   *
+   * Full-frame extraction omits this field.
+   */
   readonly change_flags?: Uint8Array;
   /** Object type per entity (0=Mesh, 1=PointLight, 2=DirectionalLight, 3=LineSegments, 4=Group). */
   readonly object_types?: Uint8Array;
@@ -157,7 +162,12 @@ function assertLength(
 const EMPTY_U32 = new Uint32Array(0);
 const EMPTY_F32 = new Float32Array(0);
 
-/** True when this packet is incremental and carries per-row change flags. */
+/** True when this packet came from incremental extraction (including empty packets). */
+export function isIncrementalFramePacket(packet: FramePacketView): boolean {
+  return packet.change_flags !== undefined;
+}
+
+/** True when an incremental packet also carries per-row change flags. */
 export function hasIncrementalChangeFlags(packet: FramePacketView): boolean {
   return packet.change_flags !== undefined && packet.change_flags.length > 0;
 }
@@ -223,8 +233,16 @@ export function assertFramePacketContract(
     assertLength("tints", packet.tints.length, entityCount * 3);
   }
 
-  if (packet.change_flags !== undefined && packet.change_flags.length > 0) {
-    assertLength("change_flags", packet.change_flags.length, entityCount);
+  if (packet.change_flags !== undefined) {
+    if (packet.change_flags.length === 0) {
+      if (entityCount > 0) {
+        throw new FramePacketContractError(
+          "change_flags must have one flag per entity when entity_count > 0",
+        );
+      }
+    } else {
+      assertLength("change_flags", packet.change_flags.length, entityCount);
+    }
   }
 
   const eventCount = packet.event_count ?? 0;
