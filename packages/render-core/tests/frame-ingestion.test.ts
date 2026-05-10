@@ -10,6 +10,7 @@ import {
   StateInterpolationBuffer,
   TRANSFORM_STRIDE,
   TransformFrameIngestion,
+  assertFramePacketContract,
   frameEntityKey,
   type FramePacketView,
 } from "../src/index.js";
@@ -151,7 +152,7 @@ describe("TransformFrameIngestion", () => {
     });
     incremental.entity_ids[0] = 2;
     setTransform(incremental, 0, 4);
-    ingestion.ingestFrame(incremental, 16);
+    ingestion.ingestIncrementalFrame(incremental, 16);
 
     expect(ingestion.sampleEntity(1, 0, 16)?.x).toBe(3);
 
@@ -176,12 +177,37 @@ describe("TransformFrameIngestion", () => {
       entity_count: 0,
       change_flags: new Uint8Array(0),
     });
-    ingestion.ingestFrame(emptyIncremental, 16);
+    ingestion.ingestIncrementalFrame(emptyIncremental, 16);
 
     expect(ingestion.sampleEntity(3, 0, 16)?.x).toBe(9);
   });
 
-  test("packets with entities require per-row change flags when marked incremental", () => {
+  test("full mode accepts empty change_flags with entities and evicts stale rows", () => {
+    const ingestion = new TransformFrameIngestion({
+      now: () => 0,
+      interpolationDelayMs: 0,
+    });
+
+    const baseline = makePacket({ entity_count: 2 });
+    baseline.entity_ids[0] = 41;
+    baseline.entity_ids[1] = 42;
+    setTransform(baseline, 0, 1);
+    setTransform(baseline, 1, 2);
+    ingestion.ingestFrame(baseline, 0);
+
+    const fullWithEmptyFlags = makePacket({
+      entity_count: 1,
+      change_flags: new Uint8Array(0),
+    });
+    fullWithEmptyFlags.entity_ids[0] = 42;
+    setTransform(fullWithEmptyFlags, 0, 20);
+    ingestion.ingestFrame(fullWithEmptyFlags, 16);
+
+    expect(ingestion.sampleEntity(41, 0, 16)).toBeUndefined();
+    expect(ingestion.sampleEntity(42, 0, 16)?.x).toBe(20);
+  });
+
+  test("incremental mode with entities requires per-row change flags", () => {
     const ingestion = new TransformFrameIngestion({
       now: () => 0,
       interpolationDelayMs: 0,
@@ -194,7 +220,10 @@ describe("TransformFrameIngestion", () => {
     malformed.entity_ids[0] = 8;
     setTransform(malformed, 0, 1);
 
-    expect(() => ingestion.ingestFrame(malformed, 0)).toThrow(
+    expect(() => assertFramePacketContract(malformed)).not.toThrow();
+    expect(
+      () => ingestion.ingestFrame(malformed, 0, { mode: "incremental" }),
+    ).toThrow(
       /change_flags/i,
     );
   });
@@ -215,7 +244,7 @@ describe("TransformFrameIngestion", () => {
     });
     incremental.entity_ids[0] = 9;
     setTransform(incremental, 0, 20);
-    ingestion.ingestFrame(incremental, 100);
+    ingestion.ingestIncrementalFrame(incremental, 100);
 
     expect(ingestion.sampleEntity(9, 0, 25)?.x).toBe(5);
   });
@@ -238,7 +267,7 @@ describe("TransformFrameIngestion", () => {
     incremental.entity_ids[0] = 4;
     incremental.visibility[0] = 0;
     setTransform(incremental, 0, 1);
-    ingestion.ingestFrame(incremental, 50);
+    ingestion.ingestIncrementalFrame(incremental, 50);
 
     expect(ingestion.sampleFrame(50)[0]?.visible).toBe(false);
   });

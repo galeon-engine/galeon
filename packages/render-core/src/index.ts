@@ -63,10 +63,12 @@ export interface FramePacketView {
   /** Parent entity indices. `SCENE_ROOT` (0xFFFFFFFF) = child of scene root. */
   readonly parent_ids: Uint32Array;
   /**
-   * Set by incremental extraction. May be empty when an incremental tick has
-   * no changed entities.
+   * Per-row change bitmasks when present.
    *
-   * Full-frame extraction omits this field.
+   * Optional for non-WASM/test/legacy packet shapes. Real `WasmFramePacket`
+   * getters currently always expose a `Uint8Array`. An empty array does not
+   * identify packet mode by itself: full `extract_frame` and no-change
+   * incremental snapshots can both expose empty flags.
    */
   readonly change_flags?: Uint8Array;
   /** Object type per entity (0=Mesh, 1=PointLight, 2=DirectionalLight, 3=LineSegments, 4=Group). */
@@ -162,12 +164,7 @@ function assertLength(
 const EMPTY_U32 = new Uint32Array(0);
 const EMPTY_F32 = new Float32Array(0);
 
-/** True when this packet came from incremental extraction (including empty packets). */
-export function isIncrementalFramePacket(packet: FramePacketView): boolean {
-  return packet.change_flags !== undefined;
-}
-
-/** True when an incremental packet also carries per-row change flags. */
+/** True when a packet carries non-empty per-row change flags. */
 export function hasIncrementalChangeFlags(packet: FramePacketView): boolean {
   return packet.change_flags !== undefined && packet.change_flags.length > 0;
 }
@@ -233,16 +230,8 @@ export function assertFramePacketContract(
     assertLength("tints", packet.tints.length, entityCount * 3);
   }
 
-  if (packet.change_flags !== undefined) {
-    if (packet.change_flags.length === 0) {
-      if (entityCount > 0) {
-        throw new FramePacketContractError(
-          "change_flags must have one flag per entity when entity_count > 0",
-        );
-      }
-    } else {
-      assertLength("change_flags", packet.change_flags.length, entityCount);
-    }
+  if (packet.change_flags !== undefined && packet.change_flags.length > 0) {
+    assertLength("change_flags", packet.change_flags.length, entityCount);
   }
 
   const eventCount = packet.event_count ?? 0;
@@ -307,6 +296,8 @@ export {
   type StateInterpolator,
   type TimedState,
   type TransformFrameIngestionOptions,
+  type TransformFrameIngestOptions,
+  type TransformFrameIngestionMode,
   type TransformFrameSample,
   type TransformState,
 } from "./frame-ingestion.js";

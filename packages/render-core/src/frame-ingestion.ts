@@ -5,8 +5,6 @@ import {
   FramePacketContractError,
   TRANSFORM_STRIDE,
   assertFramePacketContract,
-  hasIncrementalChangeFlags,
-  isIncrementalFramePacket,
   type FramePacketView,
 } from "./index.js";
 
@@ -176,6 +174,12 @@ export interface TransformFrameIngestionOptions {
   readonly maxHistoryMs?: number;
 }
 
+export type TransformFrameIngestionMode = "full" | "incremental";
+
+export interface TransformFrameIngestOptions {
+  readonly mode?: TransformFrameIngestionMode;
+}
+
 interface TrackedEntity {
   readonly entityId: number;
   readonly generation: number;
@@ -222,11 +226,28 @@ export class TransformFrameIngestion {
     });
   }
 
-  ingestFrame(packet: FramePacketView, receivedAtMs = this.now()): void {
+  /**
+   * Ingest an authoritative frame snapshot. Full mode is the default.
+   * Use `mode: "incremental"` (or `ingestIncrementalFrame`) for delta packets.
+   */
+  ingestFrame(
+    packet: FramePacketView,
+    receivedAtMs = this.now(),
+    options: TransformFrameIngestOptions = {},
+  ): void {
+    const mode = options.mode ?? "full";
+    const isIncremental = mode === "incremental";
+    if (isIncremental && packet.entity_count > 0) {
+      const flagCount = packet.change_flags?.length ?? 0;
+      if (flagCount !== packet.entity_count) {
+        throw new FramePacketContractError(
+          `incremental ingestion requires change_flags length ${packet.entity_count}, got ${flagCount}`,
+        );
+      }
+    }
+
     assertFramePacketContract(packet);
 
-    const isIncremental = isIncrementalFramePacket(packet);
-    const hasRowFlags = hasIncrementalChangeFlags(packet);
     const flags = packet.change_flags;
     const activeKeys = new Set<string>();
     const nextEntities = new Map<string, TrackedEntity>();
@@ -254,10 +275,10 @@ export class TransformFrameIngestion {
       tracked.visible = packet.visibility[i]! === 1;
       nextEntities.set(key, tracked);
 
-      const rowFlags = flags?.[i] ?? 0;
+      const rowFlags = isIncremental ? flags![i]! : 0;
       const changedTransform =
         !isIncremental ||
-        (hasRowFlags && (rowFlags & CHANGED_TRANSFORM) !== 0) ||
+        (rowFlags & CHANGED_TRANSFORM) !== 0 ||
         stagedTransformKeys.has(key) ||
         !this.transforms.has(key);
       if (changedTransform) {
@@ -290,6 +311,14 @@ export class TransformFrameIngestion {
     for (const update of stagedTransforms) {
       this.transforms.push(update.key, receivedAtMs, update.transform);
     }
+  }
+
+  /** Convenience wrapper for ingesting incremental delta packets. */
+  ingestIncrementalFrame(
+    packet: FramePacketView,
+    receivedAtMs = this.now(),
+  ): void {
+    this.ingestFrame(packet, receivedAtMs, { mode: "incremental" });
   }
 
   sampleFrame(renderTimeMs = this.now() - this.interpolationDelayMs): TransformFrameSample[] {
