@@ -294,6 +294,34 @@ describe("TransformFrameIngestion", () => {
     expect(ingestion.sampleEntity(11, 2, 16)?.x).toBe(6);
   });
 
+  test("generation rollover evicts old generation keys on incremental frames", () => {
+    const ingestion = new TransformFrameIngestion({
+      now: () => 0,
+      interpolationDelayMs: 0,
+    });
+
+    const first = makePacket({ entity_count: 1 });
+    first.entity_ids[0] = 12;
+    first.entity_generations[0] = 1;
+    setTransform(first, 0, 2);
+    ingestion.ingestFrame(first, 0);
+
+    const rollover = makePacket({
+      entity_count: 1,
+      change_flags: new Uint8Array([CHANGED_TRANSFORM]),
+    });
+    rollover.entity_ids[0] = 12;
+    rollover.entity_generations[0] = 2;
+    setTransform(rollover, 0, 6);
+    ingestion.ingestIncrementalFrame(rollover, 16);
+
+    expect(ingestion.sampleEntity(12, 1, 16)).toBeUndefined();
+    expect(ingestion.sampleEntity(12, 2, 16)?.x).toBe(6);
+    expect(ingestion.sampleFrame(16).map((sample) => sample.key)).toEqual([
+      frameEntityKey(12, 2),
+    ]);
+  });
+
   test("default interpolation delay samples now-100ms", () => {
     let nowMs = 0;
     const ingestion = new TransformFrameIngestion({

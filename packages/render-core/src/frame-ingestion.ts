@@ -260,12 +260,16 @@ export class TransformFrameIngestion {
       readonly transform: TransformState;
     }> = [];
     const stagedTransformKeys = new Set<string>();
+    const removedKeys: string[] = [];
 
     for (let i = 0; i < packet.entity_count; i++) {
       const entityId = packet.entity_ids[i]!;
       const generation = packet.entity_generations[i]!;
       const key = frameEntityKey(entityId, generation);
       activeKeys.add(key);
+      removedKeys.push(
+        ...removeStaleEntityGenerations(nextEntities, entityId, generation),
+      );
 
       const tracked = nextEntities.get(key) ?? {
         entityId,
@@ -290,7 +294,6 @@ export class TransformFrameIngestion {
       }
     }
 
-    const removedKeys: string[] = [];
     if (!isIncremental) {
       for (const key of nextEntities.keys()) {
         if (activeKeys.has(key)) {
@@ -354,6 +357,21 @@ export class TransformFrameIngestion {
     this.entities.clear();
     this.transforms.clear();
   }
+}
+
+function removeStaleEntityGenerations(
+  entities: Map<string, TrackedEntity>,
+  entityId: number,
+  generation: number,
+): string[] {
+  const removedKeys: string[] = [];
+  for (const [key, entity] of entities) {
+    if (entity.entityId === entityId && entity.generation !== generation) {
+      entities.delete(key);
+      removedKeys.push(key);
+    }
+  }
+  return removedKeys;
 }
 
 export function transformStateFromPacket(
