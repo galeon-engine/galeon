@@ -277,3 +277,18 @@ export function assertFramePacketContract(
     }
   }
 }
+
+export {
+  StateInterpolationBuffer,
+  TransformFrameIngestion,
+  frameEntityKey,
+  transformInterpolator,
+  transformStateFromPacket,
+  type StableRenderId,
+  type StateInterpolationBufferOptions,
+  type StateInterpolator,
+  type TimedState,
+  type TransformFrameIngestionOptions,
+  type TransformFrameSample,
+  type TransformState,
+} from "./frame-ingestion.js";

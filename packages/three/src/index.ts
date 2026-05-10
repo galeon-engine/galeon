@@ -8,6 +8,16 @@ export {
 } from "./renderer-cache.js";
 
 export {
+  RendererHost,
+  createThreeRendererHostAdapter,
+  type RendererHostAdapter,
+  type RendererHostBackend,
+  type RendererHostClock,
+  type RendererHostFrame,
+  type RendererHostOptions,
+} from "./renderer-host.js";
+
+export {
   GALEON_INSTANCE_ENTITIES_KEY,
   InstancedMeshManager,
   type GaleonInstancedMesh,

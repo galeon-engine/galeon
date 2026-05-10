@@ -96,6 +96,31 @@ Each frame:
 └─────────────────────────────────────┘
 ```
 
+### Render-Time Ingestion
+
+`FramePacket` remains the authoritative transport, but render hosts may run at
+a higher cadence than upstream simulation snapshots. `@galeon/render-core`
+exports two small primitives for that boundary:
+
+- `StateInterpolationBuffer<K, T>` buffers arbitrary keyed state and samples
+  between authoritative updates using a caller-provided interpolator.
+- `TransformFrameIngestion` ingests `FramePacket` transforms by stable
+  `(entityId, generation)` keys and returns render-time transform samples.
+
+These primitives are generic host-side tools. They do not own simulation, they
+do not assume a game-specific entity type, and they preserve the Rust-first
+contract: Rust emits authoritative snapshots; renderer adapters decide how to
+sample those snapshots between authority updates.
+
+### Renderer Host Lifecycle
+
+`@galeon/three` exports `RendererHost` and
+`createThreeRendererHostAdapter(...)` for applications that need a stable
+renderer/canvas owner outside UI component state. The host owns the renderer
+adapter, canvas attachment, animation loop, frame count, and disposal path;
+ordinary UI toggles and devtools panels should attach to the host instead of
+recreating the renderer or scene.
+
 ### Borrow-Split Pattern
 
 The extraction function uses a two-pass pattern to work within Rust's borrow
