@@ -229,6 +229,40 @@ describe("RendererHost", () => {
     expect(callbacks[1]).toBeNull();
   });
 
+  test("setAnimationLoop adapters do not require browser frame globals", () => {
+    const globals = globalThis as unknown as Record<string, unknown>;
+    const originalRequestAnimationFrame = globals.requestAnimationFrame;
+    const originalCancelAnimationFrame = globals.cancelAnimationFrame;
+    globals.requestAnimationFrame = undefined;
+    globals.cancelAnimationFrame = undefined;
+
+    try {
+      const { calls, renderer } = makeRenderer();
+      let callback: ((timeMs: number) => void) | null = null;
+
+      const host = new RendererHost({
+        adapter: createThreeRendererHostAdapter("webgpu", {
+          ...renderer,
+          setAnimationLoop: (nextCallback) => {
+            callback = nextCallback;
+          },
+        }),
+      });
+
+      host.start();
+      callback?.(8);
+
+      expect(host.frameCount).toBe(1);
+      expect(calls.render).toBe(1);
+
+      host.stop();
+      expect(callback).toBeNull();
+    } finally {
+      globals.requestAnimationFrame = originalRequestAnimationFrame;
+      globals.cancelAnimationFrame = originalCancelAnimationFrame;
+    }
+  });
+
   test("post-dispose APIs that require active lifecycle throw", () => {
     const clock = new ManualClock();
     const { calls, renderer } = makeRenderer();

@@ -107,7 +107,8 @@ export class RendererHost<
   readonly camera: THREE.Camera;
   readonly adapter: RendererHostAdapter<TRenderer>;
 
-  private readonly clock: RendererHostClock<TFrameHandle>;
+  private readonly clock?: RendererHostClock<TFrameHandle>;
+  private activeClock?: RendererHostClock<TFrameHandle>;
   private readonly autoRender: boolean;
   private readonly onFrame?: (frame: RendererHostFrame) => void;
   private readonly onError: RendererHostErrorHandler;
@@ -124,7 +125,7 @@ export class RendererHost<
     this.adapter = options.adapter;
     this.scene = options.scene ?? new THREE.Scene();
     this.camera = options.camera ?? new THREE.PerspectiveCamera();
-    this.clock = (options.clock ?? browserFrameClock()) as RendererHostClock<TFrameHandle>;
+    this.clock = options.clock;
     this.autoRender = options.autoRender ?? true;
     this.onFrame = options.onFrame;
     this.onError = options.onError ?? defaultRendererHostErrorHandler;
@@ -213,7 +214,8 @@ export class RendererHost<
       return;
     }
 
-    this.frameHandle = this.clock.requestFrame((timeMs) =>
+    this.activeClock = this.resolveClock();
+    this.frameHandle = this.activeClock.requestFrame((timeMs) =>
       this.tick(timeMs),
     );
   }
@@ -231,9 +233,10 @@ export class RendererHost<
       this.adapter.setAnimationLoop(null);
     }
     if (this.frameHandle !== undefined) {
-      this.clock.cancelFrame(this.frameHandle);
+      this.activeClock?.cancelFrame(this.frameHandle);
       this.frameHandle = undefined;
     }
+    this.activeClock = undefined;
   }
 
   /**
@@ -293,10 +296,16 @@ export class RendererHost<
       !this.disposed &&
       this.adapter.setAnimationLoop === undefined
     ) {
-      this.frameHandle = this.clock.requestFrame((nextTimeMs) =>
+      const clock = this.activeClock ?? this.resolveClock();
+      this.activeClock = clock;
+      this.frameHandle = clock.requestFrame((nextTimeMs) =>
         this.tick(nextTimeMs),
       );
     }
+  }
+
+  private resolveClock(): RendererHostClock<TFrameHandle> {
+    return (this.clock ?? browserFrameClock()) as RendererHostClock<TFrameHandle>;
   }
 
   private createFrame(timeMs: number, deltaMs: number): RendererHostFrame {
