@@ -61,9 +61,11 @@ export interface FramePacketView {
    *
    * Omitted only for legacy/test packet shapes. Real `WasmFramePacket` values
    * expose `"full"` for authoritative snapshots and `"incremental"` for
-   * delta packets, including empty no-change deltas.
+   * delta packets, including empty no-change deltas. wasm-bindgen types those
+   * string getters as `string`; `framePacketMode(...)` validates the raw
+   * producer value before consumers branch on it.
    */
-  readonly mode?: FramePacketMode;
+  readonly mode?: FramePacketMode | string;
   readonly entity_count: number;
   readonly entity_ids: Uint32Array;
   readonly entity_generations: Uint32Array;

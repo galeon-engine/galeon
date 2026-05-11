@@ -77,6 +77,16 @@ describe("render-core contract checks", () => {
     expect(framePacketMode(packet)).toBe("full");
   });
 
+  test("accepts wasm-bindgen string-typed mode getters", () => {
+    const packet = makePacket({
+      mode: "full" as string,
+      entity_count: 0,
+    });
+
+    expect(() => assertFramePacketContract(packet)).not.toThrow();
+    expect(framePacketMode(packet)).toBe("full");
+  });
+
   test("incremental mode requires one change flag per emitted row", () => {
     const packet = makePacket({
       mode: "incremental",
