@@ -3,9 +3,25 @@
 export {
   GALEON_ENTITY_KEY,
   RendererCache,
+  type RendererCacheApplyOptions,
+  type RendererCacheFrameMode,
   type RendererCacheOptions,
   type RendererEntityHandle,
 } from "./renderer-cache.js";
+
+export {
+  RendererHost,
+  createThreeRendererHostAdapter,
+  type RendererHostAdapter,
+  type RendererHostBackend,
+  type RendererHostClock,
+  type RendererHostErrorContext,
+  type RendererHostErrorHandler,
+  type RendererHostErrorPhase,
+  type RendererHostFrame,
+  type RendererHostOptions,
+  type RendererHostRenderer,
+} from "./renderer-host.js";
 
 export {
   GALEON_INSTANCE_ENTITIES_KEY,
@@ -39,6 +55,7 @@ export {
   TRANSFORM_STRIDE,
   assertFramePacketContract,
   hasIncrementalChangeFlags,
+  hasPerRowChangeFlags,
   type FramePacketContractOptions,
   type FramePacketView,
 } from "@galeon/render-core";

@@ -56,7 +56,8 @@ mesh_handles:     [u32; N]
 material_handles: [u32; N]
 parent_ids:       [u32; N]        // parent entity index; u32::MAX = scene root
 object_types:     [u8;  N]        // 0=Mesh, 1=PointLight, 2=DirectionalLight, 3=LineSegments, 4=Group
-change_flags:     [u8;  N]        // empty for full extract; bitmasks for incremental
+change_flags:     [u8;  N] | []   // row bitmasks when present; empty is valid
+                                  // and does not identify packet mode
 ```
 
 **Transform stride is 10 floats:**
@@ -96,6 +97,31 @@ Each frame:
 └─────────────────────────────────────┘
 ```
 
+### Render-Time Ingestion
+
+`FramePacket` remains the authoritative transport, but render hosts may run at
+a higher cadence than upstream simulation snapshots. `@galeon/render-core`
+exports two small primitives for that boundary:
+
+- `StateInterpolationBuffer<K, T>` buffers arbitrary keyed state and samples
+  between authoritative updates using a caller-provided interpolator.
+- `TransformFrameIngestion` ingests `FramePacket` transforms by stable
+  `(entityId, generation)` keys and returns render-time transform samples.
+
+These primitives are generic host-side tools. They do not own simulation, they
+do not assume a game-specific entity type, and they preserve the Rust-first
+contract: Rust emits authoritative snapshots; renderer adapters decide how to
+sample those snapshots between authority updates.
+
+### Renderer Host Lifecycle
+
+`@galeon/three` exports `RendererHost` and
+`createThreeRendererHostAdapter(...)` for applications that need a stable
+renderer/canvas owner outside UI component state. The host owns the renderer
+adapter, canvas attachment, animation loop, frame count, and disposal path;
+ordinary UI toggles and devtools panels should attach to the host instead of
+recreating the renderer or scene. ADR 0004 records the lifecycle boundary.
+
 ### Borrow-Split Pattern
 
 The extraction function uses a two-pass pattern to work within Rust's borrow
@@ -113,10 +139,16 @@ rules:
 clones the backing `Vec`, which wasm-bindgen converts to a JS typed array
 (`Float32Array`, `Uint32Array`, `Uint8Array`).
 
-`change_flags` is a parallel `Uint8Array` of per-entity bitmasks for incremental
-extraction (`extract_frame_incremental`); it is empty for full `extract_frame`
-packets. `@galeon/three`'s `RendererCache` uses these flags to skip redundant
-Three.js writes when present.
+`change_flags` is a `Uint8Array` getter on real `WasmFramePacket` values.
+When present with per-row data, each byte is a bitmask for incremental
+extraction (`extract_frame_incremental`). Empty arrays are valid in both
+full `extract_frame` and no-change incremental snapshots, so packet shape
+alone is not a reliable mode signal. `@galeon/three`'s `RendererCache`
+therefore treats `applyFrame(packet)` as a full snapshot by default. Consumers
+applying deltas must call `applyIncrementalFrame(packet)` or
+`applyFrame(packet, { mode: "incremental" })`; non-empty incremental packets
+must carry one `change_flags` row per entity so the cache can skip redundant
+Three.js writes without treating absence as despawn.
 
 **MVP transport:** copied flat buffers. Future optimisation: direct typed array
 views into WASM linear memory (zero-copy).
@@ -233,6 +265,10 @@ cache.registerMaterial(1, myStandardMaterial);
 // Per frame:
 const packet = engine.extract_frame();
 cache.applyFrame(packet);
+
+// Incremental deltas must opt into incremental cache semantics.
+const delta = engine.extract_frame_incremental();
+cache.applyIncrementalFrame(delta);
 ```
 
 **Per-frame behaviour (two-pass):**
@@ -240,14 +276,14 @@ cache.applyFrame(packet);
 **Pass 1 — Create/Update objects:**
 
 - New entity IDs → create the requested `THREE.Object3D` type, add to scene (full row applied).
-- Existing IDs → when `change_flags` is present, update only transform, visibility,
-  and mesh/material resolution for bits set in the flag; when absent or empty,
-  behave as a full update (same end state as before).
+- Existing IDs → full packets update all renderer-owned fields; explicit
+  incremental packets use row-level `change_flags` to update only transform,
+  visibility, and mesh/material resolution for bits set in the flag.
 - `ObjectType` changes recreate the managed Three.js object while preserving
   the entity slot and hierarchy attachment.
-- Missing IDs in **full** packets (no `change_flags`) → remove from scene.
-  Incremental packets only include changed entities, so missing IDs do
-  **not** trigger removal — absence means unchanged, not despawned.
+- Missing IDs in **full** packets → remove from scene. Incremental packets only
+  include changed entities, so missing IDs do **not** trigger removal — absence
+  means unchanged, not despawned.
 - Unknown mesh/material handles → placeholder (magenta wireframe box).
 - **Custom channels** (`custom_channel_*`) → copied into `userData` for every entity
   in the packet on every frame. They are **not** gated by `change_flags` today
@@ -283,7 +319,7 @@ home of each symbol:
 | `import type { RendererEntityHandle } from "@galeon/engine-ts"` | `import type { RendererEntityHandle } from "@galeon/three"` |
 | `import { CHANGED_TRANSFORM, CHANGED_VISIBILITY, CHANGED_MESH, CHANGED_MATERIAL, CHANGED_OBJECT_TYPE, CHANGED_PARENT } from "@galeon/engine-ts"` | same names from `@galeon/render-core` |
 | `import { ObjectType, SCENE_ROOT, TRANSFORM_STRIDE, RENDER_CONTRACT_VERSION } from "@galeon/engine-ts"` | same names from `@galeon/render-core` |
-| `import { FramePacketContractError, assertFramePacketContract, hasIncrementalChangeFlags } from "@galeon/engine-ts"` | same names from `@galeon/render-core` |
+| `import { FramePacketContractError, assertFramePacketContract, hasIncrementalChangeFlags } from "@galeon/engine-ts"` | same names from `@galeon/render-core`; prefer `hasPerRowChangeFlags` for new code |
 | `import type { FramePacketContractOptions, FramePacketView } from "@galeon/engine-ts"` | same names from `@galeon/render-core` |
 | `import { RUNTIME_VERSION, runtimeVersion } from "@galeon/engine-ts"` | `import { RUNTIME_VERSION } from "@galeon/runtime"` (the wrapper added no value) |
 

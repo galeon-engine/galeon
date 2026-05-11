@@ -188,7 +188,7 @@ describe("RendererCache instanced-mesh path (#215 T2)", () => {
     (f2 as { change_flags?: Uint8Array }).change_flags = new Uint8Array([
       CHANGED_INSTANCE_GROUP | CHANGED_TRANSFORM,
     ]);
-    cache.applyFrame(f2);
+    cache.applyIncrementalFrame(f2);
 
     expect(cache.instancing.has(42)).toBe(false);
     expect(cache.instancing.slotsFor(2)).toBe(0);
@@ -228,7 +228,7 @@ describe("RendererCache instanced-mesh path (#215 T2)", () => {
     (f2 as { change_flags?: Uint8Array }).change_flags = new Uint8Array([
       CHANGED_INSTANCE_GROUP | CHANGED_TRANSFORM,
     ]);
-    cache.applyFrame(f2);
+    cache.applyIncrementalFrame(f2);
 
     const childObj = cache.getObject(42, 0);
     expect(childObj).toBeDefined();
@@ -270,7 +270,7 @@ describe("RendererCache instanced-mesh path (#215 T2)", () => {
     (f2 as { change_flags?: Uint8Array }).change_flags = new Uint8Array([
       CHANGED_INSTANCE_GROUP | CHANGED_TRANSFORM,
     ]);
-    cache.applyFrame(f2);
+    cache.applyIncrementalFrame(f2);
 
     const childDetached = cache.getObject(200, 0);
     expect(childDetached).toBeDefined();
@@ -287,7 +287,7 @@ describe("RendererCache instanced-mesh path (#215 T2)", () => {
     (f3 as { change_flags?: Uint8Array }).change_flags = new Uint8Array([
       CHANGED_INSTANCE_GROUP | CHANGED_TRANSFORM,
     ]);
-    cache.applyFrame(f3);
+    cache.applyIncrementalFrame(f3);
 
     const parentAfter = cache.getObject(100, 0);
     const childAfter = cache.getObject(200, 0);
@@ -329,7 +329,7 @@ describe("RendererCache instanced-mesh path (#215 T2)", () => {
     (f2 as { change_flags?: Uint8Array }).change_flags = new Uint8Array([
       CHANGED_PARENT | CHANGED_TRANSFORM,
     ]);
-    cache.applyFrame(f2);
+    cache.applyIncrementalFrame(f2);
 
     const childWhileParentInstanced = cache.getObject(200, 0);
     expect(childWhileParentInstanced).toBeDefined();
@@ -346,7 +346,7 @@ describe("RendererCache instanced-mesh path (#215 T2)", () => {
     (f3 as { change_flags?: Uint8Array }).change_flags = new Uint8Array([
       CHANGED_INSTANCE_GROUP | CHANGED_TRANSFORM,
     ]);
-    cache.applyFrame(f3);
+    cache.applyIncrementalFrame(f3);
 
     const parentAfter = cache.getObject(100, 0);
     const childAfter = cache.getObject(200, 0);
@@ -392,6 +392,70 @@ describe("RendererCache instanced-mesh path (#215 T2)", () => {
     }
   });
 
+  test("full-mode empty packets evict absent entities even with empty change_flags", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(7, new THREE.BoxGeometry(1, 1, 1));
+    cache.registerMaterial(0, new THREE.MeshBasicMaterial());
+
+    const fullFrame = makePacket({ entity_count: 1 });
+    fillIdentityTransforms(fullFrame);
+    fullFrame.entity_ids[0] = 42;
+    fullFrame.mesh_handles[0] = 7;
+    cache.applyFrame(fullFrame);
+    expect(cache.objectCount).toBe(1);
+
+    const emptyWithFlags = makePacket({
+      entity_count: 0,
+      change_flags: new Uint8Array(0),
+    });
+    cache.applyFrame(emptyWithFlags);
+    expect(cache.objectCount).toBe(0);
+  });
+
+  test("explicit empty incremental packet preserves cached entities", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(7, new THREE.BoxGeometry(1, 1, 1));
+    cache.registerMaterial(0, new THREE.MeshBasicMaterial());
+
+    const fullFrame = makePacket({ entity_count: 1 });
+    fillIdentityTransforms(fullFrame);
+    fullFrame.entity_ids[0] = 42;
+    fullFrame.mesh_handles[0] = 7;
+    cache.applyFrame(fullFrame);
+    expect(cache.getObject(42, 0)).toBeDefined();
+
+    const emptyIncremental = makePacket({
+      entity_count: 0,
+      change_flags: new Uint8Array(0),
+    });
+    cache.applyIncrementalFrame(emptyIncremental);
+
+    expect(cache.objectCount).toBe(1);
+    expect(cache.getObject(42, 0)).toBeDefined();
+  });
+
+  test("non-empty incremental packets require per-row change flags", () => {
+    const scene = new THREE.Scene();
+    const cache = new RendererCache(scene);
+    cache.registerGeometry(7, new THREE.BoxGeometry(1, 1, 1));
+    cache.registerMaterial(0, new THREE.MeshBasicMaterial());
+
+    const packet = makePacket({
+      entity_count: 1,
+      change_flags: new Uint8Array(0),
+    });
+    fillIdentityTransforms(packet);
+    packet.entity_ids[0] = 42;
+    packet.mesh_handles[0] = 7;
+
+    expect(() => cache.applyIncrementalFrame(packet)).toThrow(
+      "incremental RendererCache.applyFrame requires change_flags length 1, got 0",
+    );
+    expect(cache.objectCount).toBe(0);
+  });
+
   test("CHANGED_INSTANCE_GROUP migrates entity between batches", () => {
     const scene = new THREE.Scene();
     const cache = new RendererCache(scene);
@@ -418,7 +482,7 @@ describe("RendererCache instanced-mesh path (#215 T2)", () => {
     (f2 as { change_flags?: Uint8Array }).change_flags = new Uint8Array([
       CHANGED_INSTANCE_GROUP,
     ]);
-    cache.applyFrame(f2);
+    cache.applyIncrementalFrame(f2);
 
     expect(cache.instancing.slotsFor(10)).toBe(0);
     expect(cache.instancing.slotsFor(11)).toBe(1);

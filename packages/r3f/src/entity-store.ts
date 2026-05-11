@@ -4,7 +4,7 @@ import {
   ObjectType,
   SCENE_ROOT,
   TRANSFORM_STRIDE,
-  hasIncrementalChangeFlags,
+  hasPerRowChangeFlags,
   type FramePacketView,
 } from "@galeon/render-core";
 import type { RendererCache } from "@galeon/three";
@@ -31,7 +31,7 @@ export class GaleonEntityStore {
   private ordered: GaleonEntityRef[] = [];
 
   sync(packet: FramePacketView, cache: RendererCache): boolean {
-    if (hasIncrementalChangeFlags(packet)) {
+    if (hasPerRowChangeFlags(packet)) {
       const results = GaleonEntityStore.rowIndexes(packet).map((row) =>
         this.upsertEntity(packet, row, cache),
       );

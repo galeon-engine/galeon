@@ -113,7 +113,7 @@ describe("GaleonEntityStore hot-update behavior", () => {
       change_flags: new Uint8Array([CHANGED_TRANSFORM]),
     });
     hotUpdate.transforms[0] = 77;
-    cache.applyFrame(hotUpdate);
+    cache.applyIncrementalFrame(hotUpdate);
     expect(store.sync(hotUpdate, cache)).toBe(false);
 
     const hotRef = store.get(1, 0)!;
@@ -144,7 +144,7 @@ describe("GaleonEntityStore hot-update behavior", () => {
       frame_version: 2n,
       change_flags: new Uint8Array([CHANGED_TRANSFORM]),
     });
-    cache.applyFrame(incrementalSpawn);
+    cache.applyIncrementalFrame(incrementalSpawn);
     expect(store.sync(incrementalSpawn, cache)).toBe(true);
 
     expect(store.entities()).not.toBe(entitiesBefore);
@@ -176,7 +176,7 @@ describe("GaleonEntityStore hot-update behavior", () => {
       change_flags: new Uint8Array([CHANGED_OBJECT_TYPE]),
       frame_version: 2n,
     });
-    cache.applyFrame(lightFrame);
+    cache.applyIncrementalFrame(lightFrame);
     expect(store.sync(lightFrame, cache)).toBe(true);
 
     expect(store.entities()).not.toBe(entitiesBefore);

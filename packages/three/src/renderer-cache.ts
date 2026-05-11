@@ -7,6 +7,7 @@ import {
   CHANGED_PARENT,
   CHANGED_TRANSFORM,
   CHANGED_VISIBILITY,
+  FramePacketContractError,
   INSTANCE_GROUP_NONE,
   assertFramePacketContract,
   type FramePacketView,
@@ -50,6 +51,12 @@ export interface RendererEntityHandle {
 
 export interface RendererCacheOptions {
   readonly instancing?: InstancedMeshManagerOptions;
+}
+
+export type RendererCacheFrameMode = "full" | "incremental";
+
+export interface RendererCacheApplyOptions {
+  readonly mode?: RendererCacheFrameMode;
 }
 
 export class RendererCache {
@@ -141,10 +148,26 @@ export class RendererCache {
   /**
    * Apply a frame packet to the scene graph.
    *
-   * Call once per render frame after `WasmEngine.extract_frame()`.
+   * Full mode is the default: every row represents the authoritative scene for
+   * that frame, and absent entities are removed. Use incremental mode only for
+   * explicit delta packets with one change flag per emitted entity.
    */
-  applyFrame(packet: FramePacketView): void {
+  applyFrame(
+    packet: FramePacketView,
+    options: RendererCacheApplyOptions = {},
+  ): void {
     assertFramePacketContract(packet);
+
+    const mode = options.mode ?? "full";
+    const isIncremental = mode === "incremental";
+    if (isIncremental && packet.entity_count > 0) {
+      const flagCount = packet.change_flags?.length ?? 0;
+      if (flagCount !== packet.entity_count) {
+        throw new FramePacketContractError(
+          `incremental RendererCache.applyFrame requires change_flags length ${packet.entity_count}, got ${flagCount}`,
+        );
+      }
+    }
 
     if (packet.frame_version != null && packet.frame_version === this.lastFrameVersion) {
       this._dirty = false;
@@ -174,7 +197,6 @@ export class RendererCache {
       parent_ids,
     } = packet;
     const changeFlags = packet.change_flags;
-    const hasChangeFlags = changeFlags !== undefined && changeFlags.length > 0;
     const instanceGroups = packet.instance_groups;
     const tints = packet.tints;
     // Entities that exited the instanced path this frame and need parent
@@ -187,7 +209,7 @@ export class RendererCache {
       const entityId = entity_ids[i]!;
       const generation = entity_generations[i]!;
       activeIds.add(entityId);
-      const flag = hasChangeFlags ? changeFlags[i]! : 0xff;
+      const flag = isIncremental ? changeFlags![i]! : 0xff;
 
       // ----- Instanced routing -----
       // Entities tagged with `InstanceOf` skip the standalone-Object3D path
@@ -353,7 +375,7 @@ export class RendererCache {
     // extraction, so a forward pass correctly builds the hierarchy.
     for (let i = 0; i < packet.entity_count; i++) {
       const entityId = entity_ids[i]!;
-      const flag = hasChangeFlags ? changeFlags[i]! : 0xff;
+      const flag = isIncremental ? changeFlags![i]! : 0xff;
       const shouldReparent =
         (flag & CHANGED_PARENT) !== 0 || forceParentReconcile.has(entityId);
       if (!shouldReparent) continue;
@@ -386,7 +408,7 @@ export class RendererCache {
     // Remove objects for entities that disappeared this frame.
     // Skip for incremental packets — they only include changed entities,
     // so absence does NOT mean despawned.
-    if (!hasChangeFlags) {
+    if (!isIncremental) {
       for (const [id, obj] of this.objects) {
         if (!activeIds.has(id)) {
           this.removeEntity(id, obj);
@@ -406,6 +428,11 @@ export class RendererCache {
         this.clearDetachedChildrenHintsForParent(id);
       }
     }
+  }
+
+  /** Convenience wrapper for applying incremental delta packets. */
+  applyIncrementalFrame(packet: FramePacketView): void {
+    this.applyFrame(packet, { mode: "incremental" });
   }
 
   // ---------------------------------------------------------------------------

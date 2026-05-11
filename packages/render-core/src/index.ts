@@ -62,7 +62,14 @@ export interface FramePacketView {
   readonly material_handles: Uint32Array;
   /** Parent entity indices. `SCENE_ROOT` (0xFFFFFFFF) = child of scene root. */
   readonly parent_ids: Uint32Array;
-  /** Set for incremental extraction; omit or empty for full frames (all fields apply). */
+  /**
+   * Per-row change bitmasks when present.
+   *
+   * Optional for non-WASM/test/legacy packet shapes. Real `WasmFramePacket`
+   * getters currently always expose a `Uint8Array`. An empty array does not
+   * identify packet mode by itself: full `extract_frame` and no-change
+   * incremental snapshots can both expose empty flags.
+   */
   readonly change_flags?: Uint8Array;
   /** Object type per entity (0=Mesh, 1=PointLight, 2=DirectionalLight, 3=LineSegments, 4=Group). */
   readonly object_types?: Uint8Array;
@@ -157,10 +164,16 @@ function assertLength(
 const EMPTY_U32 = new Uint32Array(0);
 const EMPTY_F32 = new Float32Array(0);
 
-/** True when this packet is incremental and carries per-row change flags. */
-export function hasIncrementalChangeFlags(packet: FramePacketView): boolean {
+/** True when a packet carries non-empty per-row change flags. */
+export function hasPerRowChangeFlags(packet: FramePacketView): boolean {
   return packet.change_flags !== undefined && packet.change_flags.length > 0;
 }
+
+/**
+ * @deprecated Use `hasPerRowChangeFlags`. Non-empty row flags imply row-level
+ * change data, but empty flags do not identify full vs incremental mode.
+ */
+export const hasIncrementalChangeFlags = hasPerRowChangeFlags;
 
 /**
  * Validate render packet structural invariants and contract compatibility.
@@ -277,3 +290,20 @@ export function assertFramePacketContract(
     }
   }
 }
+
+export {
+  StateInterpolationBuffer,
+  TransformFrameIngestion,
+  frameEntityKey,
+  transformInterpolator,
+  transformStateFromPacket,
+  type StableRenderId,
+  type StateInterpolationBufferOptions,
+  type StateInterpolator,
+  type TimedState,
+  type TransformFrameIngestionOptions,
+  type TransformFrameIngestOptions,
+  type TransformFrameIngestionMode,
+  type TransformFrameSample,
+  type TransformState,
+} from "./frame-ingestion.js";
