@@ -5,6 +5,8 @@ import {
   SCENE_ROOT,
   TRANSFORM_STRIDE,
   framePacketMode,
+  hasPerRowChangeFlags,
+  type FramePacketMode,
   type FramePacketView,
 } from "@galeon/render-core";
 import type { RendererCache } from "@galeon/three";
@@ -31,7 +33,7 @@ export class GaleonEntityStore {
   private ordered: GaleonEntityRef[] = [];
 
   sync(packet: FramePacketView, cache: RendererCache): boolean {
-    if (framePacketMode(packet) === "incremental") {
+    if (GaleonEntityStore.packetMode(packet) === "incremental") {
       const results = GaleonEntityStore.rowIndexes(packet).map((row) =>
         this.upsertEntity(packet, row, cache),
       );
@@ -145,6 +147,14 @@ export class GaleonEntityStore {
 
   private static rowIndexes(packet: FramePacketView): number[] {
     return Array.from({ length: packet.entity_count }, (_, index) => index);
+  }
+
+  private static packetMode(packet: FramePacketView): FramePacketMode {
+    if (packet.mode !== undefined) {
+      return framePacketMode(packet);
+    }
+
+    return hasPerRowChangeFlags(packet) ? "incremental" : "full";
   }
 
   private hasOrderChanged(nextOrder: readonly GaleonEntityRef[]): boolean {

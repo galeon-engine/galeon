@@ -124,6 +124,37 @@ describe("GaleonEntityStore hot-update behavior", () => {
     expect(coldRefAfter.object).toBe(coldObjectBefore);
   });
 
+  test("mode-less packets with row flags remain incremental for legacy callers", () => {
+    const cache = new RendererCache(new THREE.Scene());
+    const store = new GaleonEntityStore();
+
+    const fullFrame = makePacket({
+      entity_count: 2,
+      entity_ids: new Uint32Array([1, 2]),
+      entity_generations: new Uint32Array([0, 0]),
+      frame_version: 1n,
+    });
+    cache.applyFrame(fullFrame);
+    expect(store.sync(fullFrame, cache)).toBe(true);
+
+    const coldRefBefore = store.get(2, 0)!;
+
+    const legacyIncremental = makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      frame_version: 2n,
+      change_flags: new Uint8Array([CHANGED_TRANSFORM]),
+    });
+    legacyIncremental.transforms[0] = 88;
+    cache.applyIncrementalFrame(legacyIncremental);
+    expect(store.sync(legacyIncremental, cache)).toBe(false);
+
+    expect(store.get(1, 0)!.transform[0]).toBe(88);
+    expect(store.get(2, 0)).toBe(coldRefBefore);
+    expect(store.entities().map((entity) => entity.entityId)).toEqual([1, 2]);
+  });
+
   test("incremental structural additions publish a new entities array", () => {
     const cache = new RendererCache(new THREE.Scene());
     const store = new GaleonEntityStore();
