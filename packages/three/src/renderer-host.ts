@@ -220,6 +220,13 @@ export class RendererHost<
         this.tick(timeMs),
       );
     } catch (error) {
+      if (this.adapter.setAnimationLoop !== undefined) {
+        try {
+          this.adapter.setAnimationLoop(null);
+        } catch {
+          // Preserve and rethrow the original start failure.
+        }
+      }
       this.running = false;
       this.activeClock = undefined;
       this.frameHandle = undefined;

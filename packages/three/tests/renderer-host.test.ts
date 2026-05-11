@@ -288,6 +288,31 @@ describe("RendererHost", () => {
     }
   });
 
+  test("failed setAnimationLoop start clears the renderer loop", () => {
+    const { calls, renderer } = makeRenderer();
+    const failure = new Error("setAnimationLoop failed");
+    const callbacks: Array<((timeMs: number) => void) | null> = [];
+    const host = new RendererHost({
+      adapter: createThreeRendererHostAdapter("webgpu", {
+        ...renderer,
+        setAnimationLoop: (callback) => {
+          callbacks.push(callback);
+          if (callback !== null) {
+            throw failure;
+          }
+        },
+      }),
+    });
+
+    expect(() => host.start()).toThrow(failure);
+    expect(host.isRunning).toBe(false);
+    expect(host.frameCount).toBe(0);
+    expect(calls.render).toBe(0);
+    expect(callbacks).toHaveLength(2);
+    expect(typeof callbacks[0]).toBe("function");
+    expect(callbacks[1]).toBeNull();
+  });
+
   test("post-dispose APIs that require active lifecycle throw", () => {
     const clock = new ManualClock();
     const { calls, renderer } = makeRenderer();
