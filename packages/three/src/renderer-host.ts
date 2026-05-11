@@ -223,8 +223,11 @@ export class RendererHost<
       if (this.adapter.setAnimationLoop !== undefined) {
         try {
           this.adapter.setAnimationLoop(null);
-        } catch {
-          // Preserve and rethrow the original start failure.
+        } catch (rollbackError) {
+          console.warn(
+            `[RendererHost:${this.id}] start() rollback failed while clearing animation loop`,
+            rollbackError,
+          );
         }
       }
       this.running = false;
@@ -243,15 +246,29 @@ export class RendererHost<
       return;
     }
     this.running = false;
+    const errors: unknown[] = [];
 
     if (this.adapter.setAnimationLoop !== undefined) {
-      this.adapter.setAnimationLoop(null);
+      try {
+        this.adapter.setAnimationLoop(null);
+      } catch (error) {
+        errors.push(error);
+      }
     }
     if (this.frameHandle !== undefined) {
-      this.activeClock?.cancelFrame(this.frameHandle);
-      this.frameHandle = undefined;
+      try {
+        this.activeClock?.cancelFrame(this.frameHandle);
+      } catch (error) {
+        errors.push(error);
+      } finally {
+        this.frameHandle = undefined;
+      }
     }
     this.activeClock = undefined;
+    this.lastTimeMs = undefined;
+    if (errors.length > 0) {
+      throw errors[0];
+    }
   }
 
   /**
@@ -269,15 +286,39 @@ export class RendererHost<
     if (this.disposed) {
       return;
     }
-    this.stop();
-    this.detach();
-    this.adapter.dispose?.();
     this.disposed = true;
+    const errors: unknown[] = [];
+
+    try {
+      this.stop();
+    } catch (error) {
+      errors.push(error);
+    }
+
+    try {
+      this.detach();
+    } catch (error) {
+      errors.push(error);
+    }
+
+    try {
+      this.adapter.dispose?.();
+    } catch (error) {
+      errors.push(error);
+    }
+
+    if (errors.length > 0) {
+      throw errors[0];
+    }
   }
 
   private tick(timeMs: number): void {
     if (!this.running || this.disposed) {
       return;
+    }
+    if (this.adapter.setAnimationLoop === undefined) {
+      // The current fallback frame callback has been consumed.
+      this.frameHandle = undefined;
     }
 
     const deltaMs =
@@ -309,7 +350,8 @@ export class RendererHost<
     if (
       this.running &&
       !this.disposed &&
-      this.adapter.setAnimationLoop === undefined
+      this.adapter.setAnimationLoop === undefined &&
+      this.frameHandle === undefined
     ) {
       const clock = this.activeClock ?? this.resolveClock();
       this.activeClock = clock;
@@ -338,10 +380,15 @@ export class RendererHost<
     phase: RendererHostErrorPhase,
     frame: RendererHostFrame,
   ): void {
+    const context = { ...frame, phase };
     try {
-      this.onError(error, { ...frame, phase });
+      this.onError(error, context);
     } catch (handlerError) {
-      defaultRendererHostErrorHandler(handlerError, { ...frame, phase });
+      defaultRendererHostErrorHandler(error, context);
+      console.error(
+        `[RendererHost:${context.hostId}] onError handler failed while reporting ${context.phase} error`,
+        handlerError,
+      );
     }
   }
 

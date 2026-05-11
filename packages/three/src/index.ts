@@ -3,6 +3,8 @@
 export {
   GALEON_ENTITY_KEY,
   RendererCache,
+  type RendererCacheApplyOptions,
+  type RendererCacheFrameMode,
   type RendererCacheOptions,
   type RendererEntityHandle,
 } from "./renderer-cache.js";
@@ -53,6 +55,7 @@ export {
   TRANSFORM_STRIDE,
   assertFramePacketContract,
   hasIncrementalChangeFlags,
+  hasPerRowChangeFlags,
   type FramePacketContractOptions,
   type FramePacketView,
 } from "@galeon/render-core";

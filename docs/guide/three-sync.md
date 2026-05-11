@@ -120,7 +120,7 @@ sample those snapshots between authority updates.
 renderer/canvas owner outside UI component state. The host owns the renderer
 adapter, canvas attachment, animation loop, frame count, and disposal path;
 ordinary UI toggles and devtools panels should attach to the host instead of
-recreating the renderer or scene.
+recreating the renderer or scene. ADR 0004 records the lifecycle boundary.
 
 ### Borrow-Split Pattern
 
@@ -143,8 +143,12 @@ clones the backing `Vec`, which wasm-bindgen converts to a JS typed array
 When present with per-row data, each byte is a bitmask for incremental
 extraction (`extract_frame_incremental`). Empty arrays are valid in both
 full `extract_frame` and no-change incremental snapshots, so packet shape
-alone is not a reliable mode signal. `@galeon/three`'s `RendererCache` uses
-row flags to skip redundant Three.js writes when they are present.
+alone is not a reliable mode signal. `@galeon/three`'s `RendererCache`
+therefore treats `applyFrame(packet)` as a full snapshot by default. Consumers
+applying deltas must call `applyIncrementalFrame(packet)` or
+`applyFrame(packet, { mode: "incremental" })`; non-empty incremental packets
+must carry one `change_flags` row per entity so the cache can skip redundant
+Three.js writes without treating absence as despawn.
 
 **MVP transport:** copied flat buffers. Future optimisation: direct typed array
 views into WASM linear memory (zero-copy).
@@ -261,6 +265,10 @@ cache.registerMaterial(1, myStandardMaterial);
 // Per frame:
 const packet = engine.extract_frame();
 cache.applyFrame(packet);
+
+// Incremental deltas must opt into incremental cache semantics.
+const delta = engine.extract_frame_incremental();
+cache.applyIncrementalFrame(delta);
 ```
 
 **Per-frame behaviour (two-pass):**
@@ -268,9 +276,9 @@ cache.applyFrame(packet);
 **Pass 1 — Create/Update objects:**
 
 - New entity IDs → create the requested `THREE.Object3D` type, add to scene (full row applied).
-- Existing IDs → when row-level `change_flags` are available, update only
-  transform, visibility, and mesh/material resolution for bits set in the flag;
-  otherwise behave as a full update (same end state as before).
+- Existing IDs → full packets update all renderer-owned fields; explicit
+  incremental packets use row-level `change_flags` to update only transform,
+  visibility, and mesh/material resolution for bits set in the flag.
 - `ObjectType` changes recreate the managed Three.js object while preserving
   the entity slot and hierarchy attachment.
 - Missing IDs in **full** packets → remove from scene. Incremental packets only
@@ -311,7 +319,7 @@ home of each symbol:
 | `import type { RendererEntityHandle } from "@galeon/engine-ts"` | `import type { RendererEntityHandle } from "@galeon/three"` |
 | `import { CHANGED_TRANSFORM, CHANGED_VISIBILITY, CHANGED_MESH, CHANGED_MATERIAL, CHANGED_OBJECT_TYPE, CHANGED_PARENT } from "@galeon/engine-ts"` | same names from `@galeon/render-core` |
 | `import { ObjectType, SCENE_ROOT, TRANSFORM_STRIDE, RENDER_CONTRACT_VERSION } from "@galeon/engine-ts"` | same names from `@galeon/render-core` |
-| `import { FramePacketContractError, assertFramePacketContract, hasIncrementalChangeFlags } from "@galeon/engine-ts"` | same names from `@galeon/render-core` |
+| `import { FramePacketContractError, assertFramePacketContract, hasIncrementalChangeFlags } from "@galeon/engine-ts"` | same names from `@galeon/render-core`; prefer `hasPerRowChangeFlags` for new code |
 | `import type { FramePacketContractOptions, FramePacketView } from "@galeon/engine-ts"` | same names from `@galeon/render-core` |
 | `import { RUNTIME_VERSION, runtimeVersion } from "@galeon/engine-ts"` | `import { RUNTIME_VERSION } from "@galeon/runtime"` (the wrapper added no value) |
 

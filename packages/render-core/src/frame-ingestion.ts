@@ -21,6 +21,7 @@ export interface StateInterpolator<T> {
 }
 
 export interface StateInterpolationBufferOptions {
+  /** Retention window per key in milliseconds. Defaults to `1000`. */
   readonly maxHistoryMs?: number;
 }
 
@@ -41,6 +42,11 @@ export class StateInterpolationBuffer<K extends StableRenderId, T> {
     this.maxHistoryMs = options.maxHistoryMs ?? 1_000;
   }
 
+  /**
+   * Record a new authoritative sample for a key at `timeMs`.
+   *
+   * Samples may arrive out of order; insertion stays time-sorted.
+   */
   push(key: K, timeMs: number, value: T): void {
     const history = this.states.get(key) ?? [];
     const sample = { timeMs, value };
@@ -55,10 +61,16 @@ export class StateInterpolationBuffer<K extends StableRenderId, T> {
     this.states.set(key, history);
   }
 
+  /** True when a key currently has at least one stored sample. */
   has(key: K): boolean {
     return this.states.has(key);
   }
 
+  /**
+   * Sample interpolated state at `timeMs`.
+   *
+   * Returns the closest boundary sample when `timeMs` is outside known history.
+   */
   sample(key: K, timeMs: number): T | undefined {
     const history = this.states.get(key);
     if (history === undefined || history.length === 0) {
@@ -89,6 +101,7 @@ export class StateInterpolationBuffer<K extends StableRenderId, T> {
     return last.value;
   }
 
+  /** Sample all tracked keys at `timeMs` into a new snapshot map. */
   snapshot(timeMs: number): Map<K, T> {
     const result = new Map<K, T>();
     for (const key of this.states.keys()) {
@@ -100,14 +113,17 @@ export class StateInterpolationBuffer<K extends StableRenderId, T> {
     return result;
   }
 
+  /** Remove all history for a single key. */
   delete(key: K): void {
     this.states.delete(key);
   }
 
+  /** Remove all tracked key histories. */
   clear(): void {
     this.states.clear();
   }
 
+  /** Iterate tracked keys that currently have history entries. */
   keys(): IterableIterator<K> {
     return this.states.keys();
   }
@@ -170,6 +186,7 @@ export interface TransformFrameSample {
 
 export interface TransformFrameIngestionOptions {
   readonly now?: () => number;
+  /** Interpolation offset for default sampling. Defaults to `100` milliseconds. */
   readonly interpolationDelayMs?: number;
   readonly maxHistoryMs?: number;
 }
@@ -209,9 +226,7 @@ export const transformInterpolator: StateInterpolator<TransformState> = {
   },
 };
 
-/**
- * Ingests authoritative FramePacket transforms and exposes render-time samples.
- */
+/** Ingests authoritative frame packets and serves render-time transform samples. */
 export class TransformFrameIngestion {
   private readonly now: () => number;
   private readonly interpolationDelayMs: number;
@@ -324,7 +339,14 @@ export class TransformFrameIngestion {
     this.ingestFrame(packet, receivedAtMs, { mode: "incremental" });
   }
 
-  sampleFrame(renderTimeMs = this.now() - this.interpolationDelayMs): TransformFrameSample[] {
+  /**
+   * Sample all tracked entities at `renderTimeMs`.
+   *
+   * Defaults to `now() - interpolationDelayMs` (100ms unless configured).
+   */
+  sampleFrame(
+    renderTimeMs = this.now() - this.interpolationDelayMs,
+  ): TransformFrameSample[] {
     const samples: TransformFrameSample[] = [];
     for (const [key, entity] of this.entities) {
       const transform = this.transforms.sample(key, renderTimeMs);
@@ -342,6 +364,11 @@ export class TransformFrameIngestion {
     return samples;
   }
 
+  /**
+   * Sample one entity generation at `renderTimeMs`.
+   *
+   * Defaults to `now() - interpolationDelayMs` (100ms unless configured).
+   */
   sampleEntity(
     entityId: number,
     generation: number,
@@ -353,6 +380,7 @@ export class TransformFrameIngestion {
     );
   }
 
+  /** Clear tracked entities and interpolation history. */
   clear(): void {
     this.entities.clear();
     this.transforms.clear();

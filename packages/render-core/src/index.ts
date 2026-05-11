@@ -165,9 +165,15 @@ const EMPTY_U32 = new Uint32Array(0);
 const EMPTY_F32 = new Float32Array(0);
 
 /** True when a packet carries non-empty per-row change flags. */
-export function hasIncrementalChangeFlags(packet: FramePacketView): boolean {
+export function hasPerRowChangeFlags(packet: FramePacketView): boolean {
   return packet.change_flags !== undefined && packet.change_flags.length > 0;
 }
+
+/**
+ * @deprecated Use `hasPerRowChangeFlags`. Non-empty row flags imply row-level
+ * change data, but empty flags do not identify full vs incremental mode.
+ */
+export const hasIncrementalChangeFlags = hasPerRowChangeFlags;
 
 /**
  * Validate render packet structural invariants and contract compatibility.

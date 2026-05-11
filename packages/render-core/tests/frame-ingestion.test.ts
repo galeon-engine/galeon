@@ -95,6 +95,37 @@ describe("TransformFrameIngestion", () => {
     expect(buffer.sample("unit", 75)).toBe(75);
   });
 
+  test("StateInterpolationBuffer supports has/snapshot/delete/clear/keys", () => {
+    const buffer = new StateInterpolationBuffer<string, number>(
+      {
+        interpolate(from, to, alpha) {
+          return from + (to - from) * alpha;
+        },
+      },
+      { maxHistoryMs: 1_000 },
+    );
+
+    buffer.push("a", 0, 0);
+    buffer.push("a", 100, 100);
+    buffer.push("b", 100, 200);
+
+    expect(buffer.has("a")).toBe(true);
+    expect(buffer.has("missing")).toBe(false);
+    expect(Array.from(buffer.keys())).toEqual(["a", "b"]);
+
+    const snapshot = buffer.snapshot(50);
+    expect(snapshot.get("a")).toBe(50);
+    expect(snapshot.get("b")).toBe(200);
+
+    buffer.delete("a");
+    expect(buffer.has("a")).toBe(false);
+    expect(Array.from(buffer.keys())).toEqual(["b"]);
+
+    buffer.clear();
+    expect(Array.from(buffer.keys())).toEqual([]);
+    expect(buffer.snapshot(100).size).toBe(0);
+  });
+
   test("samples transforms between authoritative frames", () => {
     const ingestion = new TransformFrameIngestion({
       now: () => 0,
@@ -395,5 +426,26 @@ describe("TransformFrameIngestion", () => {
       ingestion.sampleFrame(16).find((sample) => sample.key === frameEntityKey(30, 0))
         ?.visible,
     ).toBe(true);
+  });
+
+  test("clear removes tracked entities and interpolation history", () => {
+    const ingestion = new TransformFrameIngestion({
+      now: () => 0,
+      interpolationDelayMs: 0,
+    });
+
+    const full = makePacket({ entity_count: 1 });
+    full.entity_ids[0] = 99;
+    full.entity_generations[0] = 3;
+    setTransform(full, 0, 42);
+    ingestion.ingestFrame(full, 0);
+
+    expect(ingestion.sampleEntity(99, 3, 0)?.x).toBe(42);
+    expect(ingestion.sampleFrame(0)).toHaveLength(1);
+
+    ingestion.clear();
+
+    expect(ingestion.sampleEntity(99, 3, 0)).toBeUndefined();
+    expect(ingestion.sampleFrame(0)).toEqual([]);
   });
 });

@@ -1,4 +1,4 @@
-# ADR-0002: Renderer Host Lifecycle Boundary
+# ADR 0004: Renderer Host Lifecycle Boundary
 
 **Status:** Accepted
 **Date:** 2026-05-10
