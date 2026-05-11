@@ -39,6 +39,7 @@ impl DemoWasmEngine {
 
 fn assert_bootstrap_frame(frame: WasmFramePacket) {
     assert_eq!(frame.contract_version(), RENDER_CONTRACT_VERSION);
+    assert_eq!(frame.mode(), "full");
     assert_eq!(frame.entity_count(), 1);
     assert_eq!(frame.mesh_handles(), vec![TEST_MESH_ID]);
     assert_eq!(frame.material_handles(), vec![TEST_MATERIAL_ID]);

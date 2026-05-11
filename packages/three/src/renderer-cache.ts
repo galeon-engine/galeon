@@ -10,6 +10,8 @@ import {
   FramePacketContractError,
   INSTANCE_GROUP_NONE,
   assertFramePacketContract,
+  framePacketMode,
+  type FramePacketMode,
   type FramePacketView,
   ObjectType,
   SCENE_ROOT,
@@ -53,7 +55,7 @@ export interface RendererCacheOptions {
   readonly instancing?: InstancedMeshManagerOptions;
 }
 
-export type RendererCacheFrameMode = "full" | "incremental";
+export type RendererCacheFrameMode = FramePacketMode;
 
 export interface RendererCacheApplyOptions {
   readonly mode?: RendererCacheFrameMode;
@@ -158,7 +160,7 @@ export class RendererCache {
   ): void {
     assertFramePacketContract(packet);
 
-    const mode = options.mode ?? "full";
+    const mode = options.mode ?? framePacketMode(packet);
     const isIncremental = mode === "incremental";
     if (isIncremental && packet.entity_count > 0) {
       const flagCount = packet.change_flags?.length ?? 0;

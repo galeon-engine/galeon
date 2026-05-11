@@ -6,6 +6,7 @@ import {
   SCENE_ROOT,
   TRANSFORM_STRIDE,
   assertFramePacketContract,
+  framePacketMode,
   type FramePacketView,
 } from "../src/index.js";
 
@@ -68,5 +69,32 @@ describe("render-core contract checks", () => {
         allowMissingContractVersion: false,
       }),
     ).toThrow("missing contract_version");
+  });
+
+  test("producer mode defaults legacy packets to full", () => {
+    const packet = makePacket({ entity_count: 0 });
+
+    expect(framePacketMode(packet)).toBe("full");
+  });
+
+  test("incremental mode requires one change flag per emitted row", () => {
+    const packet = makePacket({
+      mode: "incremental",
+      entity_count: 1,
+      change_flags: new Uint8Array(0),
+    });
+
+    expect(() => assertFramePacketContract(packet)).toThrow("change_flags");
+  });
+
+  test("empty incremental packets are valid no-change deltas", () => {
+    const packet = makePacket({
+      mode: "incremental",
+      entity_count: 0,
+      change_flags: new Uint8Array(0),
+    });
+
+    expect(() => assertFramePacketContract(packet)).not.toThrow();
+    expect(framePacketMode(packet)).toBe("incremental");
   });
 });

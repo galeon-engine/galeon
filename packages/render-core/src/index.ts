@@ -3,6 +3,9 @@
 /** Render snapshot contract version shared across Rust/WASM and TypeScript consumers. */
 export const RENDER_CONTRACT_VERSION = 1;
 
+/** Producer-authored extraction mode emitted by Rust. */
+export type FramePacketMode = "full" | "incremental";
+
 /** Bitmasks for incremental frame rows; values match Rust `galeon_engine_three_sync::frame_packet`. */
 export const CHANGED_TRANSFORM = 1 << 0;
 /** Visibility changed — matches Rust `CHANGED_VISIBILITY`. */
@@ -53,6 +56,14 @@ export interface FramePacketView {
    * Omitted only for legacy packets produced before contract versioning.
    */
   readonly contract_version?: number;
+  /**
+   * Producer-authored extraction mode.
+   *
+   * Omitted only for legacy/test packet shapes. Real `WasmFramePacket` values
+   * expose `"full"` for authoritative snapshots and `"incremental"` for
+   * delta packets, including empty no-change deltas.
+   */
+  readonly mode?: FramePacketMode;
   readonly entity_count: number;
   readonly entity_ids: Uint32Array;
   readonly entity_generations: Uint32Array;
@@ -149,6 +160,20 @@ export class FramePacketContractError extends Error {
   }
 }
 
+/** Return the producer-authored packet mode, defaulting legacy packets to full snapshots. */
+export function framePacketMode(
+  packet: FramePacketView,
+  fallback: FramePacketMode = "full",
+): FramePacketMode {
+  const mode = packet.mode ?? fallback;
+  if (mode !== "full" && mode !== "incremental") {
+    throw new FramePacketContractError(
+      `unsupported frame packet mode "${String(mode)}"`,
+    );
+  }
+  return mode;
+}
+
 function assertLength(
   field: string,
   actual: number,
@@ -236,7 +261,11 @@ export function assertFramePacketContract(
     assertLength("tints", packet.tints.length, entityCount * 3);
   }
 
-  if (packet.change_flags !== undefined && packet.change_flags.length > 0) {
+  const mode = framePacketMode(packet);
+  if (mode === "incremental" && entityCount > 0) {
+    const flagCount = packet.change_flags?.length ?? 0;
+    assertLength("change_flags", flagCount, entityCount);
+  } else if (packet.change_flags !== undefined && packet.change_flags.length > 0) {
     assertLength("change_flags", packet.change_flags.length, entityCount);
   }
 

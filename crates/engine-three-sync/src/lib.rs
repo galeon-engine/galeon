@@ -7,7 +7,7 @@ mod snapshot;
 pub use extract::{extract_frame, extract_frame_incremental};
 pub use frame_packet::{
     CHANGED_INSTANCE_GROUP, CHANGED_MATERIAL, CHANGED_MESH, CHANGED_OBJECT_TYPE, CHANGED_PARENT,
-    CHANGED_TINT, CHANGED_TRANSFORM, CHANGED_VISIBILITY, ChannelData, FramePacket,
+    CHANGED_TINT, CHANGED_TRANSFORM, CHANGED_VISIBILITY, ChannelData, FramePacket, FramePacketMode,
     INSTANCE_GROUP_NONE, RENDER_CONTRACT_VERSION, SCENE_ROOT, TRANSFORM_STRIDE,
 };
 // Re-export FrameEvent from engine for consumers of this crate.
@@ -354,6 +354,12 @@ impl WasmFramePacket {
     #[wasm_bindgen(getter)]
     pub fn contract_version(&self) -> u32 {
         self.inner.contract_version
+    }
+
+    /// Producer-authored extraction mode: "full" or "incremental".
+    #[wasm_bindgen(getter)]
+    pub fn mode(&self) -> String {
+        self.inner.mode.as_str().to_string()
     }
 
     /// Number of renderable entities in this frame.

@@ -49,6 +49,7 @@ ObjectType::Mesh | PointLight | DirectionalLight | LineSegments | Group
 every array refers to the same entity.
 
 ```
+mode:             "full" | "incremental"
 entity_ids:       [u32; N]
 transforms:       [f32; N * 10]   // per entity: pos(3) + rot(4) + scale(3)
 visibility:       [u8;  N]        // 1 = visible, 0 = hidden
@@ -143,12 +144,17 @@ clones the backing `Vec`, which wasm-bindgen converts to a JS typed array
 When present with per-row data, each byte is a bitmask for incremental
 extraction (`extract_frame_incremental`). Empty arrays are valid in both
 full `extract_frame` and no-change incremental snapshots, so packet shape
-alone is not a reliable mode signal. `@galeon/three`'s `RendererCache`
-therefore treats `applyFrame(packet)` as a full snapshot by default. Consumers
-applying deltas must call `applyIncrementalFrame(packet)` or
-`applyFrame(packet, { mode: "incremental" })`; non-empty incremental packets
-must carry one `change_flags` row per entity so the cache can skip redundant
-Three.js writes without treating absence as despawn.
+alone is not a reliable mode signal.
+
+`mode` is the producer-authored extraction mode. Full `extract_frame` packets
+emit `"full"` and incremental `extract_frame_incremental` packets emit
+`"incremental"`, including empty no-change deltas. `@galeon/three`,
+`@galeon/r3f`, and `TransformFrameIngestion` consume this field by default:
+full packets evict absent entities, while incremental packets preserve
+unchanged entities. Non-empty incremental packets must carry one
+`change_flags` row per entity so adapters can skip redundant Three.js writes
+without treating absence as despawn. Legacy/test packets without `mode` are
+treated as full snapshots unless callers explicitly opt into incremental mode.
 
 **MVP transport:** copied flat buffers. Future optimisation: direct typed array
 views into WASM linear memory (zero-copy).

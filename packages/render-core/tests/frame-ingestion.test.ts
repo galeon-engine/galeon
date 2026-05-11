@@ -178,12 +178,13 @@ describe("TransformFrameIngestion", () => {
     ingestion.ingestFrame(full, 0);
 
     const incremental = makePacket({
+      mode: "incremental",
       entity_count: 1,
       change_flags: new Uint8Array([CHANGED_MATERIAL]),
     });
     incremental.entity_ids[0] = 2;
     setTransform(incremental, 0, 4);
-    ingestion.ingestIncrementalFrame(incremental, 16);
+    ingestion.ingestFrame(incremental, 16);
 
     expect(ingestion.sampleEntity(1, 0, 16)?.x).toBe(3);
 
@@ -205,10 +206,11 @@ describe("TransformFrameIngestion", () => {
     ingestion.ingestFrame(full, 0);
 
     const emptyIncremental = makePacket({
+      mode: "incremental",
       entity_count: 0,
       change_flags: new Uint8Array(0),
     });
-    ingestion.ingestIncrementalFrame(emptyIncremental, 16);
+    ingestion.ingestFrame(emptyIncremental, 16);
 
     expect(ingestion.sampleEntity(3, 0, 16)?.x).toBe(9);
   });
@@ -245,18 +247,15 @@ describe("TransformFrameIngestion", () => {
     });
 
     const malformed = makePacket({
+      mode: "incremental",
       entity_count: 1,
       change_flags: new Uint8Array(0),
     });
     malformed.entity_ids[0] = 8;
     setTransform(malformed, 0, 1);
 
-    expect(() => assertFramePacketContract(malformed)).not.toThrow();
-    expect(
-      () => ingestion.ingestFrame(malformed, 0, { mode: "incremental" }),
-    ).toThrow(
-      /change_flags/i,
-    );
+    expect(() => assertFramePacketContract(malformed)).toThrow(/change_flags/i);
+    expect(() => ingestion.ingestFrame(malformed, 0)).toThrow(/change_flags/i);
   });
 
   test("incremental transform changes add new samples", () => {
@@ -270,12 +269,13 @@ describe("TransformFrameIngestion", () => {
     ingestion.ingestFrame(first, 0);
 
     const incremental = makePacket({
+      mode: "incremental",
       entity_count: 1,
       change_flags: new Uint8Array([CHANGED_TRANSFORM]),
     });
     incremental.entity_ids[0] = 9;
     setTransform(incremental, 0, 20);
-    ingestion.ingestIncrementalFrame(incremental, 100);
+    ingestion.ingestFrame(incremental, 100);
 
     expect(ingestion.sampleEntity(9, 0, 25)?.x).toBe(5);
   });
@@ -292,13 +292,14 @@ describe("TransformFrameIngestion", () => {
     ingestion.ingestFrame(full, 0);
 
     const incremental = makePacket({
+      mode: "incremental",
       entity_count: 1,
       change_flags: new Uint8Array([CHANGED_VISIBILITY]),
     });
     incremental.entity_ids[0] = 4;
     incremental.visibility[0] = 0;
     setTransform(incremental, 0, 1);
-    ingestion.ingestIncrementalFrame(incremental, 50);
+    ingestion.ingestFrame(incremental, 50);
 
     expect(ingestion.sampleFrame(50)[0]?.visible).toBe(false);
   });
@@ -338,13 +339,14 @@ describe("TransformFrameIngestion", () => {
     ingestion.ingestFrame(first, 0);
 
     const rollover = makePacket({
+      mode: "incremental",
       entity_count: 1,
       change_flags: new Uint8Array([CHANGED_TRANSFORM]),
     });
     rollover.entity_ids[0] = 12;
     rollover.entity_generations[0] = 2;
     setTransform(rollover, 0, 6);
-    ingestion.ingestIncrementalFrame(rollover, 16);
+    ingestion.ingestFrame(rollover, 16);
 
     expect(ingestion.sampleEntity(12, 1, 16)).toBeUndefined();
     expect(ingestion.sampleEntity(12, 2, 16)?.x).toBe(6);

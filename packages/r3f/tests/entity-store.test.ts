@@ -106,6 +106,7 @@ describe("GaleonEntityStore hot-update behavior", () => {
     const coldObjectBefore = coldRefBefore.object;
 
     const hotUpdate = makePacket({
+      mode: "incremental",
       entity_count: 1,
       entity_ids: new Uint32Array([1]),
       entity_generations: new Uint32Array([0]),
@@ -113,7 +114,7 @@ describe("GaleonEntityStore hot-update behavior", () => {
       change_flags: new Uint8Array([CHANGED_TRANSFORM]),
     });
     hotUpdate.transforms[0] = 77;
-    cache.applyIncrementalFrame(hotUpdate);
+    cache.applyFrame(hotUpdate);
     expect(store.sync(hotUpdate, cache)).toBe(false);
 
     const hotRef = store.get(1, 0)!;
@@ -138,17 +139,45 @@ describe("GaleonEntityStore hot-update behavior", () => {
     const entitiesBefore = store.entities();
 
     const incrementalSpawn = makePacket({
+      mode: "incremental",
       entity_count: 1,
       entity_ids: new Uint32Array([2]),
       entity_generations: new Uint32Array([0]),
       frame_version: 2n,
       change_flags: new Uint8Array([CHANGED_TRANSFORM]),
     });
-    cache.applyIncrementalFrame(incrementalSpawn);
+    cache.applyFrame(incrementalSpawn);
     expect(store.sync(incrementalSpawn, cache)).toBe(true);
 
     expect(store.entities()).not.toBe(entitiesBefore);
     expect(store.entities().map((entity) => entity.entityId)).toEqual([1, 2]);
+  });
+
+  test("empty producer incremental packets keep existing entity refs", () => {
+    const cache = new RendererCache(new THREE.Scene());
+    const store = new GaleonEntityStore();
+
+    const fullFrame = makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([1]),
+      entity_generations: new Uint32Array([0]),
+      frame_version: 1n,
+    });
+    cache.applyFrame(fullFrame);
+    expect(store.sync(fullFrame, cache)).toBe(true);
+    const refBefore = store.get(1, 0)!;
+
+    const emptyIncremental = makePacket({
+      mode: "incremental",
+      entity_count: 0,
+      change_flags: new Uint8Array(0),
+      frame_version: 2n,
+    });
+    cache.applyFrame(emptyIncremental);
+    expect(store.sync(emptyIncremental, cache)).toBe(false);
+
+    expect(store.get(1, 0)).toBe(refBefore);
+    expect(store.entities()).toEqual([refBefore]);
   });
 
   test("object type changes are structural when the Three object identity changes", () => {
@@ -169,6 +198,7 @@ describe("GaleonEntityStore hot-update behavior", () => {
     expect(meshObject).toBeInstanceOf(THREE.Mesh);
 
     const lightFrame = makePacket({
+      mode: "incremental",
       entity_count: 1,
       entity_ids: new Uint32Array([1]),
       entity_generations: new Uint32Array([0]),
@@ -176,7 +206,7 @@ describe("GaleonEntityStore hot-update behavior", () => {
       change_flags: new Uint8Array([CHANGED_OBJECT_TYPE]),
       frame_version: 2n,
     });
-    cache.applyIncrementalFrame(lightFrame);
+    cache.applyFrame(lightFrame);
     expect(store.sync(lightFrame, cache)).toBe(true);
 
     expect(store.entities()).not.toBe(entitiesBefore);
