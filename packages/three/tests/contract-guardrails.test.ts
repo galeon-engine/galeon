@@ -62,4 +62,57 @@ describe("RendererCache render contract guardrails", () => {
 
     expect(() => cache.applyFrame(packet)).not.toThrow();
   });
+
+  test("producer full mode evicts stale entities even with empty change flags", () => {
+    const cache = new RendererCache(new THREE.Scene());
+    const baseline = makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([7]),
+      entity_generations: new Uint32Array([0]),
+      frame_version: 1n,
+    });
+    baseline.transforms[6] = 1;
+    baseline.transforms[7] = 1;
+    baseline.transforms[8] = 1;
+    baseline.transforms[9] = 1;
+    cache.applyFrame(baseline);
+    expect(cache.objectCount).toBe(1);
+
+    const emptyFull = makePacket({
+      mode: "full",
+      entity_count: 0,
+      change_flags: new Uint8Array(0),
+      frame_version: 2n,
+    });
+    cache.applyFrame(emptyFull);
+
+    expect(cache.objectCount).toBe(0);
+  });
+
+  test("producer incremental empty packets preserve unchanged entities", () => {
+    const cache = new RendererCache(new THREE.Scene());
+    const baseline = makePacket({
+      entity_count: 1,
+      entity_ids: new Uint32Array([7]),
+      entity_generations: new Uint32Array([0]),
+      frame_version: 1n,
+    });
+    baseline.transforms[6] = 1;
+    baseline.transforms[7] = 1;
+    baseline.transforms[8] = 1;
+    baseline.transforms[9] = 1;
+    cache.applyFrame(baseline);
+    expect(cache.objectCount).toBe(1);
+
+    const emptyIncremental = makePacket({
+      mode: "incremental",
+      entity_count: 0,
+      change_flags: new Uint8Array(0),
+      frame_version: 2n,
+    });
+    cache.applyFrame(emptyIncremental);
+
+    expect(cache.objectCount).toBe(1);
+    expect(cache.getObject(7, 0)).toBeDefined();
+  });
 });

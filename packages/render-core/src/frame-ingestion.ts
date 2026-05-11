@@ -5,6 +5,8 @@ import {
   FramePacketContractError,
   TRANSFORM_STRIDE,
   assertFramePacketContract,
+  framePacketMode,
+  type FramePacketMode,
   type FramePacketView,
 } from "./index.js";
 
@@ -191,7 +193,7 @@ export interface TransformFrameIngestionOptions {
   readonly maxHistoryMs?: number;
 }
 
-export type TransformFrameIngestionMode = "full" | "incremental";
+export type TransformFrameIngestionMode = FramePacketMode;
 
 export interface TransformFrameIngestOptions {
   readonly mode?: TransformFrameIngestionMode;
@@ -250,7 +252,7 @@ export class TransformFrameIngestion {
     receivedAtMs = this.now(),
     options: TransformFrameIngestOptions = {},
   ): void {
-    const mode = options.mode ?? "full";
+    const mode = options.mode ?? framePacketMode(packet);
     const isIncremental = mode === "incremental";
     if (isIncremental && packet.entity_count > 0) {
       const flagCount = packet.change_flags?.length ?? 0;

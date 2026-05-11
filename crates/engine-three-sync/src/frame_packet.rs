@@ -4,6 +4,25 @@ use std::collections::HashMap;
 
 use galeon_engine::FrameEvent;
 
+/// Producer-authored extraction mode for a [`FramePacket`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FramePacketMode {
+    /// Full scene snapshot: rows are the authoritative active render set.
+    Full,
+    /// Incremental delta: rows are changed entities only.
+    Incremental,
+}
+
+impl FramePacketMode {
+    /// Stable string exposed over the WASM boundary.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::Incremental => "incremental",
+        }
+    }
+}
+
 /// Per-channel float data attached to a [`FramePacket`].
 ///
 /// The `data` array is flat: for `n` entities and a stride of `s`, the values
@@ -26,6 +45,8 @@ pub struct ChannelData {
 pub struct FramePacket {
     /// Snapshot contract version shared with TS adapters.
     pub contract_version: u32,
+    /// Producer-authored extraction mode.
+    pub mode: FramePacketMode,
     pub entity_ids: Vec<u32>,
     pub entity_generations: Vec<u32>,
     pub transforms: Vec<f32>,
@@ -106,6 +127,7 @@ impl FramePacket {
     pub fn new() -> Self {
         Self {
             contract_version: RENDER_CONTRACT_VERSION,
+            mode: FramePacketMode::Full,
             entity_ids: Vec::new(),
             entity_generations: Vec::new(),
             transforms: Vec::new(),
@@ -127,6 +149,7 @@ impl FramePacket {
     pub fn with_capacity(entity_count: usize) -> Self {
         Self {
             contract_version: RENDER_CONTRACT_VERSION,
+            mode: FramePacketMode::Full,
             entity_ids: Vec::with_capacity(entity_count),
             entity_generations: Vec::with_capacity(entity_count),
             transforms: Vec::with_capacity(entity_count * TRANSFORM_STRIDE),
@@ -193,6 +216,7 @@ impl FramePacket {
         tint: &[f32; 3],
         flags: u8,
     ) {
+        self.mode = FramePacketMode::Incremental;
         self.push(
             entity_id,
             generation,
@@ -256,6 +280,7 @@ mod tests {
     fn empty_packet() {
         let p = FramePacket::new();
         assert_eq!(p.entity_count(), 0);
+        assert_eq!(p.mode, FramePacketMode::Full);
         assert!(p.entity_ids.is_empty());
         assert_eq!(p.channel_count(), 0);
     }
@@ -384,6 +409,29 @@ mod tests {
         let p2 = FramePacket::with_capacity(10);
         assert_eq!(p2.contract_version, RENDER_CONTRACT_VERSION);
         assert_eq!(p2.frame_version, 0);
+        assert_eq!(p2.mode, FramePacketMode::Full);
+    }
+
+    #[test]
+    fn push_incremental_marks_packet_incremental() {
+        let mut p = FramePacket::new();
+        p.push_incremental(
+            1,
+            0,
+            &[0.0; 3],
+            &[0.0, 0.0, 0.0, 1.0],
+            &[1.0; 3],
+            true,
+            10,
+            20,
+            SCENE_ROOT,
+            0,
+            INSTANCE_GROUP_NONE,
+            &[1.0; 3],
+            CHANGED_TRANSFORM,
+        );
+        assert_eq!(p.mode, FramePacketMode::Incremental);
+        assert_eq!(p.change_flags, vec![CHANGED_TRANSFORM]);
     }
 
     #[test]

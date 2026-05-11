@@ -9,7 +9,7 @@ use galeon_engine::{Billboard, Entity, RenderChannelRegistry, RenderEventRegistr
 
 use crate::frame_packet::{
     CHANGED_INSTANCE_GROUP, CHANGED_MATERIAL, CHANGED_MESH, CHANGED_OBJECT_TYPE, CHANGED_PARENT,
-    CHANGED_TINT, CHANGED_TRANSFORM, CHANGED_VISIBILITY, ChannelData, FramePacket,
+    CHANGED_TINT, CHANGED_TRANSFORM, CHANGED_VISIBILITY, ChannelData, FramePacket, FramePacketMode,
     INSTANCE_GROUP_NONE, SCENE_ROOT,
 };
 
@@ -550,6 +550,7 @@ pub fn extract_frame_incremental(world: &World, since_tick: u64) -> FramePacket 
     renderables.sort_by_key(|(entity, ..)| hierarchy_depth(world, *entity, 64));
 
     let mut packet = FramePacket::with_capacity(renderables.len());
+    packet.mode = FramePacketMode::Incremental;
     packet.frame_version = world.change_tick();
 
     for (entity, position, rotation, scale, parent_id, object_type) in &renderables {
@@ -674,6 +675,7 @@ mod tests {
         let world = World::new();
         let packet = extract_frame(&world);
         assert_eq!(packet.entity_count(), 0);
+        assert_eq!(packet.mode, FramePacketMode::Full);
     }
 
     #[test]
@@ -688,6 +690,7 @@ mod tests {
 
         let packet = extract_frame(&world);
         assert_eq!(packet.entity_count(), 1);
+        assert_eq!(packet.mode, FramePacketMode::Full);
         assert_eq!(packet.transforms[0], 1.0);
         assert_eq!(packet.transforms[1], 2.0);
         assert_eq!(packet.transforms[2], 3.0);
@@ -873,6 +876,7 @@ mod tests {
 
         let packet = extract_frame_incremental(&world, since);
         assert_eq!(packet.entity_count(), 0);
+        assert_eq!(packet.mode, FramePacketMode::Incremental);
         assert!(packet.change_flags.is_empty());
     }
 

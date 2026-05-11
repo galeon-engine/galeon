@@ -16,6 +16,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `TransformFrameIngestion` so authoritative `FramePacket` transforms can be
   buffered and sampled smoothly at render time.
 
+- **Producer-authored frame extraction mode (issue #254)** —
+  `FramePacket` / `WasmFramePacket` now carry explicit `"full"` versus
+  `"incremental"` mode. TypeScript adapters consume this producer mode by
+  default, so empty full snapshots evict stale renderer state while empty
+  incremental deltas preserve unchanged entities without caller-side guessing.
+
 ## [0.5.1] - 2026-05-03
 
 ### Changed
