@@ -263,6 +263,31 @@ describe("RendererHost", () => {
     }
   });
 
+  test("failed fallback clock lookup leaves host stopped", () => {
+    const globals = globalThis as unknown as Record<string, unknown>;
+    const originalRequestAnimationFrame = globals.requestAnimationFrame;
+    const originalCancelAnimationFrame = globals.cancelAnimationFrame;
+    globals.requestAnimationFrame = undefined;
+    globals.cancelAnimationFrame = undefined;
+
+    try {
+      const { calls, renderer } = makeRenderer();
+      const host = new RendererHost({
+        adapter: createThreeRendererHostAdapter("webgl", renderer),
+      });
+
+      expect(() => host.start()).toThrow(
+        "RendererHost requires a clock outside browser animation-frame environments",
+      );
+      expect(host.isRunning).toBe(false);
+      expect(host.frameCount).toBe(0);
+      expect(calls.render).toBe(0);
+    } finally {
+      globals.requestAnimationFrame = originalRequestAnimationFrame;
+      globals.cancelAnimationFrame = originalCancelAnimationFrame;
+    }
+  });
+
   test("post-dispose APIs that require active lifecycle throw", () => {
     const clock = new ManualClock();
     const { calls, renderer } = makeRenderer();

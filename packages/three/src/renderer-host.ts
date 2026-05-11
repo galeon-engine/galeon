@@ -209,15 +209,23 @@ export class RendererHost<
     this.running = true;
     this.lastTimeMs = undefined;
 
-    if (this.adapter.setAnimationLoop !== undefined) {
-      this.adapter.setAnimationLoop((timeMs) => this.tick(timeMs));
-      return;
-    }
+    try {
+      if (this.adapter.setAnimationLoop !== undefined) {
+        this.adapter.setAnimationLoop((timeMs) => this.tick(timeMs));
+        return;
+      }
 
-    this.activeClock = this.resolveClock();
-    this.frameHandle = this.activeClock.requestFrame((timeMs) =>
-      this.tick(timeMs),
-    );
+      this.activeClock = this.resolveClock();
+      this.frameHandle = this.activeClock.requestFrame((timeMs) =>
+        this.tick(timeMs),
+      );
+    } catch (error) {
+      this.running = false;
+      this.activeClock = undefined;
+      this.frameHandle = undefined;
+      this.lastTimeMs = undefined;
+      throw error;
+    }
   }
 
   /**
